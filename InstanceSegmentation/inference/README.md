@@ -1,0 +1,149 @@
+# Inference architecture
+
+`inference/`は、モデル固有実装を共通の入出力契約へ接続する層です。モデルの
+交換や最適化では、利用側のパイプラインと保存形式を変更しないことを基本方針に
+します。
+
+## Unified run
+
+公開入口は`run_inference.py`です。動画を入力し、次の3モードを同じSQLite
+schema v2で出力します。
+
+```bash
+# インスタンスセグメンテーション＋分類器
+python run_inference.py \
+  --mode segmentation \
+  --segmentation-model dinov3_codino \
+  --input input.mp4 \
+  --output result.sqlite
+
+# インスタンスセグメンテーション＋分類器＋顔検出
+python run_inference.py \
+  --mode segmentation-face \
+  --segmentation-model eva02_cascade \
+  --input input.mp4 \
+  --output result.sqlite
+
+# 顔検出
+python run_inference.py \
+  --mode face \
+  --input input.mp4 \
+  --output result.sqlite
+```
+
+選択可能なセグメンテーションモデルは`dinov3_codino`、
+`dinov3_cascade`、`eva02_cascade`です。Co-DINOでは
+`--segmentation-backend tensorrt-fast|pytorch`、EVA-02では
+`--segmentation-backend tensorrt-backbone|pytorch`を選択できます。
+顔検出は既定でRT-DETRの`Face`と`Head`を保存します。
+`--face-classes`へ値を渡さなければ、`VisibleBody`を含む全クラスを保存します。
+
+各`<model>/infer.py`はモデルフォルダ単体の保守・検証用入口として残します。
+統一pipelineはモデルを隔離プロセスで順番に実行し、成功した全結果だけを最後に
+1つのSQLiteへatomicに公開します。これによりDetectron2、Co-DINO、RT-DETRの
+依存関係とGPU初期化を上位層で混在させません。`segmentation-face`では現在、
+安全なモデル分離を優先して動画をモデルごとに読み込みます。
+
+## 処理の境界
+
+```text
+run_inference.py
+    -> orchestration/pipeline.py
+    -> registered standalone model process(es)
+    -> DetectionFrame | SegmentationFrame SQLite
+    -> unified schema-v2 SQLite
+```
+
+- `contracts/`: フレーム、分類、物体検出、インスタンスセグメンテーションの
+  安定した入出力定義
+- `video/`: モデル非依存の動画メタデータ取得とデコード
+- `persistence/`: 契約オブジェクトからSQLiteへの保存
+- `pipelines/`: デコード、推論、保存を接続するタスク非依存の制御
+- `orchestration/`: モード選択、モデルプロセス起動、atomic統合
+- `registry.py`: モデルID、タスク、Adapterの軽量な登録情報
+- `<model>/adapter.py`: モデル固有値を共通契約へ変換する唯一の境界
+- `<model>/infer.py`: 引数解釈、モデル構築、共通パイプライン呼び出しだけを行うCLI
+
+モデル固有の前処理、TensorRT、分類器、後処理は各モデルフォルダ内に閉じます。
+共有化は、2モデル以上で同じ意味と変更理由を持つことが確認できた処理に限ります。
+
+## 契約
+
+入力画像はデコード済みの`Frame`です。座標は元動画の画素座標、矩形は
+half-openの`[x1, y1, x2, y2)`、スコアは`0.0`から`1.0`です。結果は入力と同じ
+フレーム順・件数で返します。
+
+- インスタンスセグメンテーション:
+  `SegmentationFrame`。検出矩形、検出スコア、任意の分類結果、元画像座標の
+  polygon maskを持ちます。
+- 顔・頭部検出:
+  `DetectionFrame`。検出矩形とスコアを持ちます。追跡や顔検出後の時系列処理は
+  現在の推論範囲に含めません。
+- 分類:
+  現時点では独立パイプラインではなく、各検出の任意フィールド
+  `Classification`として保持します。
+
+契約の破壊的変更では`CONTRACT_VERSION`を更新します。モデル内部の変更だけなら
+更新しません。
+
+## モデルの交換・追加
+
+既存モデルを最適化するときは、そのモデルの`adapter.py`より内側だけを変更します。
+たとえばRT-DETRをYOLOへ交換するときは、同じ`DetectionFrame`を返すAdapterを
+追加すれば、動画デコードとSQLite出力を再利用できます。
+
+新規モデルは次の順に追加します。
+
+1. タスクに対応するAdapter protocolを実装する
+2. `registry.py`へモデルIDを登録する
+3. 1フレームの実推論と契約テストを通す
+4. モデルフォルダだけを別の場所へコピーし、`setup_environment.py`実行後に
+   同じ推論を通す
+
+各モデルの`vendor/inference_common.tar.gz`には、この共有層のスナップショットが
+含まれます。これによりモデルフォルダ単体でも`.runtime/shared`へ展開して実行
+できます。
+
+## Unified SQLite output
+
+CLIの`--output`はSQLiteファイルのパスです。既存ファイルは誤って追記せず、
+`--overwrite`を明示した場合だけ置き換えます。
+
+- `schema_info`: schema名とversion
+- `videos`, `runs`: 入力動画と実行モード
+- `run_metadata`: 統一CLIの実行設定
+- `model_executions`: モデル、backend、役割、タスク
+- `model_metadata`: 各モデル固有の設定
+- `frames`: モデルに依存しないフレーム番号、時刻、元動画サイズ
+- `detections`: 実行モデル、クラス、スコア、元動画座標の矩形
+- `classifications`: セグメンテーション検出に対応する分類器結果
+- `classification_probabilities`: 分類器のクラス別確率
+- `segmentations`: 検出とマスクの対応
+- `segmentation_polygons`: マスク内のpolygon
+- `segmentation_points`: polygonを構成する元動画座標の点
+
+モデル内部ではバイナリマスクを生成し、SQLite保存直前に
+`CHAIN_APPROX_SIMPLE`で輪郭polygonへ変換してから形状を簡略化します。
+輪郭近似方式はモデル別のオプションにせず、全モデルでこの処理に統一します。
+1検出マスクに属する全polygonの頂点数は合計150点以下です。複数の輪郭がある場合も
+各輪郭150点ではなく、マスク全体で150点の予算を分配します。
+
+全モードで全テーブルを作成します。使用しない結果テーブルが空になるだけなので、
+読む側はモードによってschemaを切り替える必要がありません。各検出は
+`model_execution_id`を持つため、同じフレームのセグメンテーションと顔検出を
+区別できます。
+
+分類器を持つセグメンテーションモデルでは、`detections.score`に検出器のスコア、
+`classifications.score`に分類器が選択したクラスの最大確率、
+`classification_probabilities`に全クラスの確率分布を保存します。
+
+JSON/JSONLの推論結果は生成しません。既定では異常終了時の耐久性を優先します。
+`--fast-sqlite`を指定した場合だけ、耐久性と引き換えに保存速度を優先します。
+
+## Test
+
+共有層のテストにはGPUやチェックポイントは不要です。
+
+```bash
+PYTHONPATH=inference python3 -m unittest discover -s inference/tests -v
+```

@@ -1,0 +1,66 @@
+{
+  "name": "ellipse_from_jsonl",
+  "stages": [
+    {
+      "id": "normalization",
+      "implementation": "preprocessing.normalize"
+    },
+    {
+      "id": "score_policy",
+      "implementation": "preprocessing.score_policy",
+      "options": {
+        "score_min": 0.35
+      }
+    },
+    {
+      "id": "nms",
+      "implementation": "nms.adaptive"
+    },
+    {
+      "id": "cut_detection",
+      "implementation": "cut_detection.video",
+      "options": {
+        "enabled": true,
+        "method": "high_precision"
+      }
+    },
+    {
+      "id": "tracking",
+      "implementation": "tracking.greedy",
+      "options": {
+        "remove_short_tracks_max_frames": 10
+      }
+    },
+    {
+      "id": "ellipse_approximation",
+      "implementation": "approximation.ellipse.production"
+    },
+    {
+      "id": "keyframe_selection",
+      "implementation": "keyframes.ellipse.dense",
+      "options": {
+        "target_ratio": 0.3333333333333333,
+        "dense_recall_target": 0.96
+      }
+    },
+    {
+      "id": "mask_gap_fill",
+      "implementation": "gap_fill.ellipse.linear",
+      "options": {
+        "max_gap": 30
+      }
+    },
+    {
+      "id": "exact_evaluation",
+      "implementation": "evaluation.ellipse.exact"
+    },
+    {
+      "id": "sqlite_export",
+      "implementation": "artifacts.union_sqlite"
+    },
+    {
+      "id": "output_validation",
+      "implementation": "artifacts.validate"
+    }
+  ]
+}

@@ -1,0 +1,288 @@
+from __future__ import annotations
+
+import json
+import io
+import sqlite3
+import tempfile
+import unittest
+from dataclasses import dataclass
+from contextlib import redirect_stdout
+from pathlib import Path
+
+from common.config import PipelineConfig, StageSpec
+from common.runner import PipelineRunner
+from contracts.stages import StageContext, StageResult
+from run_pipeline import _configured_pipeline, build_parser, run_pipeline
+from tests.helpers import write_sample_sqlite
+
+
+@dataclass(frozen=True)
+class MarkerStage:
+    message: str = "inserted"
+    name: str = "test_marker"
+    requires: frozenset[str] = frozenset({"approximated_sqlite"})
+    provides: frozenset[str] = frozenset({"marker"})
+
+    def run(self, context: StageContext) -> StageResult:
+        output = context.stage_dir / "marker.txt"
+        output.write_text(self.message, encoding="utf-8")
+        return StageResult({"marker": output})
+
+
+@dataclass(frozen=True)
+class MalformedCutStage:
+    name: str = "malformed_cut"
+    requires: frozenset[str] = frozenset()
+    provides: frozenset[str] = frozenset({"cuts_json"})
+
+    def run(self, context: StageContext) -> StageResult:
+        output = context.stage_dir / "cuts.json"
+        output.write_text("not-json", encoding="utf-8")
+        return StageResult({"cuts_json": output})
+
+
+class PipelineTests(unittest.TestCase):
+    def test_pipeline_options_are_preserved_until_cli_explicitly_overrides(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_path = root / "pipeline.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "name": "configured",
+                        "stages": [
+                            {
+                                "id": "score",
+                                "implementation": "preprocessing.score_policy",
+                                "options": {"score_min": 0.91},
+                            },
+                            {
+                                "id": "cut",
+                                "implementation": "cut_detection.video",
+                                "options": {
+                                    "enabled": False,
+                                    "method": "frame_diff",
+                                },
+                            },
+                            {
+                                "id": "keyframes",
+                                "implementation": "keyframes.polygon.interval",
+                                "options": {"interval_frames": 99},
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            base_arguments = [
+                "--input-jsonl",
+                str(root / "input.jsonl"),
+                "--output-dir",
+                str(root / "output"),
+                "--pipeline-config",
+                str(config_path),
+            ]
+            configured = _configured_pipeline(build_parser().parse_args(base_arguments))
+            self.assertEqual(0.91, configured.stages[0].options["score_min"])
+            self.assertFalse(configured.stages[1].options["enabled"])
+            self.assertEqual("frame_diff", configured.stages[1].options["method"])
+            self.assertEqual(99, configured.stages[2].options["interval_frames"])
+
+            overridden = _configured_pipeline(
+                build_parser().parse_args(
+                    [
+                        *base_arguments,
+                        "--score-min",
+                        "0.2",
+                        "--cut-detect",
+                        "--cut-method",
+                        "high_precision",
+                        "--keyframe-interval",
+                        "4",
+                    ]
+                )
+            )
+            self.assertEqual(0.2, overridden.stages[0].options["score_min"])
+            self.assertTrue(overridden.stages[1].options["enabled"])
+            self.assertEqual("high_precision", overridden.stages[1].options["method"])
+            self.assertEqual(4, overridden.stages[2].options["interval_frames"])
+
+    def test_polygon_pipeline_supports_external_stage_insertion(self) -> None:
+        config = PipelineConfig(
+            "test_polygon",
+            (
+                StageSpec("approximation", "approximation.polygon.rdp"),
+                StageSpec(
+                    "custom_filter",
+                    "tests.test_pipeline:MarkerStage",
+                    {"message": "between approximation and keyframes"},
+                ),
+                StageSpec(
+                    "keyframes",
+                    "keyframes.polygon.interval",
+                    {"interval_frames": 3},
+                ),
+                StageSpec("gap_fill", "gap_fill.polygon.linear"),
+                StageSpec("validation", "artifacts.validate"),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_sample_sqlite(root / "source.sqlite", frames=8)
+
+            manifest = PipelineRunner(config, root / "output").run(
+                {"tracked_sqlite": source}
+            )
+
+            self.assertTrue(manifest["complete"])
+            self.assertEqual(
+                [
+                    "approximation",
+                    "custom_filter",
+                    "keyframes",
+                    "gap_fill",
+                    "validation",
+                ],
+                [stage["id"] for stage in manifest["stages"]],
+            )
+            marker = Path(manifest["artifacts"]["marker"])
+            self.assertEqual(
+                "between approximation and keyframes",
+                marker.read_text(encoding="utf-8"),
+            )
+            with sqlite3.connect(manifest["artifacts"]["predictions_sqlite"]) as db:
+                self.assertEqual(
+                    8, db.execute("SELECT COUNT(*) FROM masks").fetchone()[0]
+                )
+
+    def test_missing_stage_artifact_fails_before_execution(self) -> None:
+        config = PipelineConfig(
+            "invalid",
+            (StageSpec("keyframes", "keyframes.polygon.interval"),),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ValueError, "approximated_sqlite"):
+                PipelineRunner(config, Path(temporary)).run({})
+
+    def test_malformed_declared_artifact_is_rejected_at_stage_boundary(self) -> None:
+        config = PipelineConfig(
+            "invalid_contract",
+            (
+                StageSpec(
+                    "malformed",
+                    "tests.test_pipeline:MalformedCutStage",
+                ),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ValueError, "invalid artifact"):
+                PipelineRunner(config, Path(temporary)).run({})
+
+    def test_runtime_packages_do_not_import_removed_layers(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        feature_roots = (
+            "preprocessing",
+            "nms",
+            "cut_detection",
+            "tracking",
+            "approximation",
+            "keyframes",
+            "gap_fill",
+            "evaluation",
+            "artifacts",
+            "visualization",
+            "common",
+            "contracts",
+        )
+        offenders: list[str] = []
+        for relative in feature_roots:
+            for path in (root / relative).rglob("*.py"):
+                source = path.read_text(encoding="utf-8")
+                if (
+                    "atosyori_postprocess" in source
+                    or "from workflow" in source
+                    or "import workflow" in source
+                ):
+                    offenders.append(str(path.relative_to(root)))
+        self.assertEqual([], offenders)
+
+    def test_manifest_is_machine_readable(self) -> None:
+        config = PipelineConfig(
+            "single",
+            (StageSpec("validation", "artifacts.validate"),),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_sample_sqlite(root / "source.sqlite", frames=2)
+            PipelineRunner(config, root / "output").run({"predictions_sqlite": source})
+            manifest = json.loads(
+                (root / "output" / "pipeline_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(1, manifest["schema_version"])
+            self.assertTrue(manifest["complete"])
+
+    def test_default_run_uses_modular_polygon_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_sample_sqlite(root / "source.sqlite", frames=6)
+            args = build_parser().parse_args(
+                [
+                    "--input-sqlite",
+                    str(source),
+                    "--output-dir",
+                    str(root / "output"),
+                    "--shape-mode",
+                    "polygon",
+                    "--keyframe-interval",
+                    "2",
+                ]
+            )
+            run_pipeline(args)
+            manifest = json.loads(
+                (root / "output" / "pipeline_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("polygon_modular", manifest["pipeline"])
+            self.assertEqual(
+                "approximation.polygon.rdp",
+                manifest["stages"][0]["implementation"],
+            )
+
+    def test_default_ellipse_pipeline_runs_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_sample_sqlite(root / "source.sqlite", frames=2)
+            args = build_parser().parse_args(
+                [
+                    "--input-sqlite",
+                    str(source),
+                    "--output-dir",
+                    str(root / "output"),
+                    "--shape-mode",
+                    "ellipse",
+                    "--device",
+                    "cpu",
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                manifest = run_pipeline(args)
+            self.assertTrue(manifest["complete"])
+            self.assertEqual("ellipse_modular", manifest["pipeline"])
+            with sqlite3.connect(
+                manifest["artifacts"]["predictions_sqlite"]
+            ) as connection:
+                self.assertEqual(
+                    2,
+                    connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0],
+                )
+                self.assertEqual(
+                    [("sample",)],
+                    connection.execute(
+                        "SELECT DISTINCT label FROM masks"
+                    ).fetchall(),
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

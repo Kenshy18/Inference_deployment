@@ -1,0 +1,11 @@
+numpy>=1.26,<2
+omegaconf>=2.3,<3
+onnx>=1.17
+opencv-python>=4.8,<5
+pycocotools>=2.0.7,<3
+torch>=2.6
+torchvision>=0.21
+tensorrt>=10.13,<11
+
+# Detectron2 and DINOv3 are supplied from vendor/ by setup_environment.py.
+# TensorRT must still match the target NVIDIA driver/CUDA ABI.

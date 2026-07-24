@@ -1,0 +1,60 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+**/.runtime/
+*.egg-info/
+build/
+dist/
+
+# Model weights and checkpoints
+**/weights/**
+**/checkpoints/**
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Exported graphs, TensorRT engines, and compiled runtime plugins
+**/engines/**
+*.engine
+*.plan
+*.trt
+*.onnx
+*.so
+
+# Runtime datasets and generated pipeline outputs
+/data/
+**/input/**
+**/output/**
+!**/input/.gitkeep
+!**/output/.gitkeep
+
+# Video and image-sequence inputs
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+
+# SQLite databases and sidecar files
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Generated interchange, profiling, and logs
+*.jsonl
+*.npz
+*.log
+*.prof
+*.trace
+
+# Local editor and OS metadata
+.DS_Store
+.idea/
+.vscode/

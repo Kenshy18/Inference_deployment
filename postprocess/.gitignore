@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+build/
+dist/
+
+input/*
+output/*
+!input/.gitkeep
+!output/.gitkeep
+
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.jsonl
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.pt
+*.npz
+*.pth
+*.ckpt
+
+# Model configuration and implementation remain tracked. Weight files are
+# ignored by the repository-level .gitignore.
+!models/k2_v5/*.json
+!models/k2_v5/*.py

@@ -1,0 +1,35 @@
+{
+  "name": "polygon_from_tracked",
+  "stages": [
+    {
+      "id": "polygon_approximation",
+      "implementation": "approximation.polygon.rdp",
+      "options": {
+        "epsilon_ratio": 0.01,
+        "minimum_epsilon_px": 0.5
+      }
+    },
+    {
+      "id": "keyframe_selection",
+      "implementation": "keyframes.polygon.interval",
+      "options": {
+        "interval_frames": 3
+      }
+    },
+    {
+      "id": "mask_gap_fill",
+      "implementation": "gap_fill.polygon.linear",
+      "options": {
+        "minimum_points": 8
+      }
+    },
+    {
+      "id": "exact_evaluation",
+      "implementation": "evaluation.mask_iou"
+    },
+    {
+      "id": "output_validation",
+      "implementation": "artifacts.validate"
+    }
+  ]
+}

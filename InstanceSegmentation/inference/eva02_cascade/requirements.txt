@@ -1,0 +1,10 @@
+numpy>=1.26,<2
+omegaconf>=2.3,<3
+opencv-python>=4.8,<5
+onnx>=1.17,<2
+pycocotools>=2.0.7,<3
+tensorrt>=10.13,<11
+torch>=2.6
+torchvision>=0.21
+
+# EVA02-compatible Detectron2 must be built separately for the target CUDA/PyTorch ABI.

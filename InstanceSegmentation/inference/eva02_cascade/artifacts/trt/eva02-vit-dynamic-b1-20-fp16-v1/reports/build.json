@@ -1,0 +1,31 @@
+{
+  "schema": "eva02-backbone-trt-build-v1",
+  "status": "pass",
+  "onnx": {
+    "path": "temporary/eva02_backbone.onnx (not retained)",
+    "size": 533906368,
+    "sha256": "c120e69acb756bf8799adb4a9d02d415ee7b0c55df3732b5fea1fdd4070af57c"
+  },
+  "engine": {
+    "path": "engines/eva02_backbone.engine",
+    "size": 537608652,
+    "sha256": "796ed395f60df4676b66b79fb3b7d193bf5492b21122fc9c8db3e79f5795f779"
+  },
+  "tensorrt_version": "10.13.0.35",
+  "precision": "fp16",
+  "optimization_level": 2,
+  "workspace_gb": 8.0,
+  "shape_profile": {
+    "target_size": 1280,
+    "min_batch": 1,
+    "opt_batch": 12,
+    "max_batch": 20
+  },
+  "io": {
+    "input_name": "images",
+    "input_dtype": "DataType.HALF",
+    "output_name": "last_feat",
+    "output_dtype": "DataType.HALF"
+  },
+  "elapsed_sec": 79.80133529301384
+}

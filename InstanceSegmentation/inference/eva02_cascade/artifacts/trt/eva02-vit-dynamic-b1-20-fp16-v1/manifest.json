@@ -1,0 +1,214 @@
+{
+  "schema": "eva02-cascade-trt-backbone-bundle-v1",
+  "created_at_utc": "2026-07-24T11:06:58.368096+00:00",
+  "profile": "eva02-vit-dynamic-b1-20-fp16-v1",
+  "status": "complete",
+  "production_registered": true,
+  "precision": "fp16",
+  "scope": {
+    "tensorrt": "pruned EVA-02 ViT backbone",
+    "pytorch": "SimpleFeaturePyramid, Cascade ROI heads, ROI classifier"
+  },
+  "shape_profile": {
+    "target_size": 1280,
+    "min_batch": 1,
+    "opt_batch": 12,
+    "max_batch": 20
+  },
+  "io": {
+    "input_name": "images",
+    "input_dtype": "DataType.HALF",
+    "output_name": "last_feat",
+    "output_dtype": "DataType.HALF"
+  },
+  "drop_block_indices": [
+    19,
+    21,
+    22
+  ],
+  "engine": {
+    "path": "engines/eva02_backbone.engine",
+    "size": 537608652,
+    "sha256": "796ed395f60df4676b66b79fb3b7d193bf5492b21122fc9c8db3e79f5795f779"
+  },
+  "source": {
+    "checkpoint": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/artifacts/detector/model_final.pth",
+      "size": 5777987451,
+      "sha256": "86e96603e64723bd651b4c031c513f8ba0219c211a18a85544840741e0d5210d"
+    },
+    "classifier_checkpoint": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/artifacts/classifier/best.pt",
+      "size": 8392561,
+      "sha256": "b6ec14d06c1c2ee70333305eb1bae21ffc7f2a4aa0d0bcfaa6db8834de5c781f"
+    },
+    "config": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/instance_segmentation/lazy_config.py",
+      "size": 2402,
+      "sha256": "194a6bb827dfe36e0486720332441ca68c44fdfdfec1cd5fe28a81cdf30642f9"
+    },
+    "builder_sources": {
+      "trt/build_engine.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/trt/build_engine.py",
+        "size": 12277,
+        "sha256": "be95d6e80657879696ca3a0bd41581d8ee1fb05525563a948d309527030a0ac7"
+      },
+      "trt/bundle.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/trt/bundle.py",
+        "size": 6964,
+        "sha256": "e9338bf9c0b1eceaefb536b70dd314933b410c6863a67a146b5bc97e517c319f"
+      },
+      "trt/runtime.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/trt/runtime.py",
+        "size": 5638,
+        "sha256": "67ce477c0c137b03854c8d2daa73aebd53f3ded50dbaaae59a5ecaff5409575c"
+      },
+      "trt/export_backbone.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/trt/export_backbone.py",
+        "size": 5191,
+        "sha256": "b93c2d2b7bcdaf286514f22eb2ad16a2ff766d4572a479ba3232192c8eb56e56"
+      },
+      "trt/engine_build.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/trt/engine_build.py",
+        "size": 5061,
+        "sha256": "80eb1ea8cb30562fcff345fe8399695d82945b5b8d8f36f9bc96fffe3f2290e7"
+      },
+      "trt/validate_engine.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/trt/validate_engine.py",
+        "size": 5989,
+        "sha256": "541dd0eb075120cf28ebb28a05c58a7578bdd99f736ab46405982a501aab6f92"
+      }
+    }
+  },
+  "runtime_python": {
+    "path": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "size": 17292632,
+    "sha256": "df1c70c2eacd51d8371f9213d4ad854129497c22d0c37186734f667dc944447a"
+  },
+  "environment_lock": {
+    "path": "metadata/environment-lock.json",
+    "size": 3470,
+    "sha256": "ad2327ef0b3772fef8a40d0e123c584152102a98cbe662e1b97f0be0590cf68d"
+  },
+  "reports": {
+    "export": {
+      "schema": "eva02-backbone-onnx-export-v1",
+      "status": "pass",
+      "checkpoint": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/artifacts/detector/model_final.pth",
+        "size": 5777987451,
+        "sha256": "86e96603e64723bd651b4c031c513f8ba0219c211a18a85544840741e0d5210d"
+      },
+      "config": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/instance_segmentation/lazy_config.py",
+        "size": 2402,
+        "sha256": "194a6bb827dfe36e0486720332441ca68c44fdfdfec1cd5fe28a81cdf30642f9"
+      },
+      "onnx": {
+        "path": "temporary/eva02_backbone.onnx (not retained)",
+        "size": 533906368,
+        "sha256": "c120e69acb756bf8799adb4a9d02d415ee7b0c55df3732b5fea1fdd4070af57c"
+      },
+      "target_size": 1280,
+      "opset": 17,
+      "drop_block_indices": [
+        19,
+        21,
+        22
+      ],
+      "input_dtype": "torch.float16",
+      "sample_output_shape": [
+        1,
+        1024,
+        80,
+        80
+      ],
+      "sample_output_dtype": "torch.float16",
+      "elapsed_sec": 13.921145843021804
+    },
+    "build": {
+      "schema": "eva02-backbone-trt-build-v1",
+      "status": "pass",
+      "onnx": {
+        "path": "temporary/eva02_backbone.onnx (not retained)",
+        "size": 533906368,
+        "sha256": "c120e69acb756bf8799adb4a9d02d415ee7b0c55df3732b5fea1fdd4070af57c"
+      },
+      "engine": {
+        "path": "engines/eva02_backbone.engine",
+        "size": 537608652,
+        "sha256": "796ed395f60df4676b66b79fb3b7d193bf5492b21122fc9c8db3e79f5795f779"
+      },
+      "tensorrt_version": "10.13.0.35",
+      "precision": "fp16",
+      "optimization_level": 2,
+      "workspace_gb": 8.0,
+      "shape_profile": {
+        "target_size": 1280,
+        "min_batch": 1,
+        "opt_batch": 12,
+        "max_batch": 20
+      },
+      "io": {
+        "input_name": "images",
+        "input_dtype": "DataType.HALF",
+        "output_name": "last_feat",
+        "output_dtype": "DataType.HALF"
+      },
+      "elapsed_sec": 79.80133529301384
+    }
+  },
+  "validation": {
+    "schema": "eva02-backbone-trt-validation-v1",
+    "status": "pass",
+    "thresholds": {
+      "max_mean_abs": 0.08,
+      "min_cosine": 0.9999
+    },
+    "measurements": [
+      {
+        "batch_size": 1,
+        "shape": [
+          1,
+          1024,
+          80,
+          80
+        ],
+        "max_abs": 6.4375,
+        "mean_abs": 0.0064110481180250645,
+        "rmse": 0.01624096930027008,
+        "cosine": 0.9999868869781494,
+        "pass": true
+      },
+      {
+        "batch_size": 12,
+        "shape": [
+          12,
+          1024,
+          80,
+          80
+        ],
+        "max_abs": 10.25,
+        "mean_abs": 0.006332713179290295,
+        "rmse": 0.01628885045647621,
+        "cosine": 0.9999868273735046,
+        "pass": true
+      },
+      {
+        "batch_size": 20,
+        "shape": [
+          20,
+          1024,
+          80,
+          80
+        ],
+        "max_abs": 12.875,
+        "mean_abs": 0.006294721737504005,
+        "rmse": 0.01583494432270527,
+        "cosine": 0.9999876618385315,
+        "pass": true
+      }
+    ],
+    "elapsed_sec": 9.593732017005095
+  }
+}

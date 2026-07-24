@@ -1,0 +1,75 @@
+{
+  "python": "3.10.18 | packaged by conda-forge | (main, Jun  4 2025, 14:45:41) [GCC 13.3.0]",
+  "executable": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+  "modules": {
+    "torch": {
+      "version": "2.11.0+cu129",
+      "file": "/home/kenshin/.local/share/video-mask-runtime/envs/production/lib/python3.10/site-packages/torch/__init__.py"
+    },
+    "torchvision": {
+      "version": "0.26.0+cu129.sm120",
+      "file": "/home/kenshin/.local/share/video-mask-runtime/envs/production/lib/python3.10/site-packages/torchvision/__init__.py"
+    },
+    "cv2": {
+      "version": "4.8.1",
+      "file": "/home/kenshin/.local/share/video-mask-runtime/envs/production/lib/python3.10/site-packages/cv2/__init__.py"
+    },
+    "numpy": {
+      "version": "1.26.4",
+      "file": "/home/kenshin/.local/share/video-mask-runtime/envs/production/lib/python3.10/site-packages/numpy/__init__.py"
+    },
+    "detectron2": {
+      "version": "0.6",
+      "file": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/.runtime/src/detectron2_root/detectron2/__init__.py"
+    },
+    "contracts": {
+      "version": "unknown",
+      "file": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/.runtime/shared/contracts/__init__.py"
+    },
+    "mask_geometry": {
+      "version": "unknown",
+      "file": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/.runtime/shared/mask_geometry/__init__.py"
+    },
+    "video": {
+      "version": "unknown",
+      "file": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/.runtime/shared/video/__init__.py"
+    },
+    "persistence": {
+      "version": "unknown",
+      "file": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/.runtime/shared/persistence/__init__.py"
+    },
+    "pipelines": {
+      "version": "unknown",
+      "file": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/.runtime/shared/pipelines/__init__.py"
+    },
+    "onnx": {
+      "version": "1.22.0",
+      "file": "/home/kenshin/.local/share/video-mask-runtime/envs/production/lib/python3.10/site-packages/onnx/__init__.py"
+    },
+    "tensorrt": {
+      "version": "10.13.0.35",
+      "file": "/home/kenshin/.local/share/video-mask-runtime/envs/production/lib/python3.10/site-packages/tensorrt/__init__.py"
+    }
+  },
+  "failures": {},
+  "cuda_available": true,
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "schema": "eva02-cascade-standalone-v2",
+  "family_root": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade",
+  "framework_source": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/.runtime/src/detectron2_root",
+  "shared_runtime": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/.runtime/shared",
+  "artifacts": {
+    "detector": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/artifacts/detector/model_final.pth",
+      "size": 5777987451
+    },
+    "classifier": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/artifacts/classifier/best.pt",
+      "size": 8392561
+    }
+  },
+  "trt_bundle": {
+    "status": "not-built",
+    "manifest": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/artifacts/trt/eva02-vit-dynamic-b1-20-fp16-v1/manifest.json"
+  }
+}

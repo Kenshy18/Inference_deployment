@@ -1,0 +1,231 @@
+{
+  "batch_size": 2,
+  "created_at_utc": "2026-07-23T11:27:32.823510+00:00",
+  "engines": {
+    "backbone": {
+      "path": "engines/codino_dinov3_vitl_backbone_736x1280_b2_t090.engine",
+      "sha256": "bdf0ef658550ffed5a5f88fb67de85e4439f28e5112d0fc6485f4773b5648aa3",
+      "size": 634897908
+    },
+    "decoder": {
+      "path": "engines/codino_decoder_736x1280_b2_t090.engine",
+      "sha256": "77f9c7044abd17e435ca739209ab1c7e11871986c9d53b5f2293fa5da42e6de2",
+      "size": 55080636
+    },
+    "mask_head": {
+      "path": "engines/codino_mask_head_core_n1_736x1280_d140_fp32.engine",
+      "sha256": "0fd24600dc130cdc30c8de4a0a099d9aa4590eb697b6cbc5de54593b815ad8b6",
+      "size": 15463460
+    },
+    "query_encoder": {
+      "path": "engines/codino_query_encoder_736x1280_b2_sm120_t140.engine",
+      "sha256": "991c94d0c13b24b9297dcdf78cb67aa5c6aae712428e3182e0092411949e2088",
+      "size": 105193412
+    }
+  },
+  "environment_lock": null,
+  "execution_policy": {
+    "core": "stable-pointer-cuda-graph",
+    "decode_preprocess": "bounded-opencv-lookahead",
+    "output_order": "source-order",
+    "runtime_profile": "fast-b2",
+    "tail": "double-buffered-worker-stream"
+  },
+  "fixed_batch": true,
+  "input_tensor_size": [
+    736,
+    1280
+  ],
+  "performance_claim": {
+    "compute_img_per_sec": [
+      25.240200029444946,
+      25.061492902713614
+    ],
+    "compute_img_per_sec_median": 25.15084646607928,
+    "e2e_25fps_claimed": false,
+    "e2e_fps": [
+      20.45490707916345,
+      20.273976946409395
+    ],
+    "frames_per_trial": 300,
+    "run_summaries": [
+      {
+        "path": "/home/kenshin/.local/share/video-mask-runtime/runs/codino-fast-overlap-300a-20260723/summary.json",
+        "sha256": "ea69e63cfaa677878ea0ec99edbcec74edca1309b16e0ce61258ea777b07fd15"
+      },
+      {
+        "path": "/home/kenshin/.local/share/video-mask-runtime/runs/codino-fast-overlap-300b-20260723/summary.json",
+        "sha256": "c1e9c34f81322ab0fcb81a60fa8392aeea09b0f3fc17ff2c31782f4fa5b69b37"
+      }
+    ],
+    "scope": "operational-fixed-b2-compute",
+    "warmup_frames": 100
+  },
+  "precision_policy": {
+    "backbone": "t090-minimal-fp32-protected-fp16",
+    "decoder": "t090-minimal-fp32-protected-fp16",
+    "mask_head": "d140-fp32-n1",
+    "query_encoder": "t140-sm120-msda-fp16-18-fp32-protected"
+  },
+  "production_registered": false,
+  "profile": "fast-sm120-fixed-b2-v1",
+  "quality_claim": {
+    "max_detector_score_abs_diff": 0.0009765625,
+    "min_bbox_iou": 0.9731182795698925,
+    "min_polygon_mask_iou": 0.96875,
+    "repeatability_detections": "267/267",
+    "repeatability_report": {
+      "path": "/home/kenshin/.local/share/video-mask-runtime/runs/codino-fast-overlap-300b-20260723/parity-vs-300a.json",
+      "sha256": "ac001688df0998f1e635c5c2923074ace0e25f48d1b8b9d9b23af91405672f3c"
+    },
+    "status": "pass-recorded-self-envelope",
+    "sync_reference_report": {
+      "path": "/home/kenshin/.local/share/video-mask-runtime/runs/codino-fast-overlap-120f-20260723/parity-vs-sync.json",
+      "sha256": "c5b4e8c7bbe0f131beb5325ca7de1cb91556abcdb4f2dd77db4b844c84af2c92"
+    }
+  },
+  "query_encoder_shapes": "184x320,92x160,46x80,23x40,12x20",
+  "query_plugin_extension": {
+    "path": "plugins/codino_msda_direct_sm120.so",
+    "sha256": "d41a623bb414a4f665f77f2abf6b7443ac430196aa7829c6505cdd0412106a64",
+    "size": 275296
+  },
+  "resource_claim": {
+    "bounded_preprocess_queue_batches": 2,
+    "gpu_utilization_sample_max_percent": 100.0,
+    "gpu_utilization_sample_mean_percent": 54.12173913043478,
+    "peak_process_rss_kib": 6946972,
+    "peak_vram_mib": 16577
+  },
+  "runtime_image_size": [
+    720,
+    1280
+  ],
+  "runtime_python": {
+    "path": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "sha256": "df1c70c2eacd51d8371f9213d4ad854129497c22d0c37186734f667dc944447a",
+    "size": 17292632
+  },
+  "runtime_sources": {
+    "src/video_mask_runtime/cli/native_codino_arguments.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/cli/native_codino_arguments.py",
+      "sha256": "75eb5d63498e6aedfc459c6020c0ed599eb2f7d1c2196b29aac733f45aa32f21",
+      "size": 2999
+    },
+    "src/video_mask_runtime/cli/native_codino_inference.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/cli/native_codino_inference.py",
+      "sha256": "26dac5973ea1e694b429a247f48b27b4b77059b501ed43e8afce57672455149b",
+      "size": 610
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/api.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/api.py",
+      "sha256": "3e372a9ce4dd565488dd842aa92133c3f3d7cedfa482d1f12444ebea7cdc69d0",
+      "size": 4847
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/assembly.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/assembly.py",
+      "sha256": "8ad41caf7f3ecdcb3f9c87e111829678fd32986f401a5faa5db2c01fbf3eee77",
+      "size": 2090
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/classifier/fast_batch_inference.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/classifier/fast_batch_inference.py",
+      "sha256": "f455e2f6f36d25fa7e2c383cadd7f8d2821dc906c900ef67f6c4d420774c7a25",
+      "size": 6872
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/command_options.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/command_options.py",
+      "sha256": "3b24bc0a9957cba56c3263953f24902ff13d310092b9bb89bbc98c5d76516ba8",
+      "size": 1250
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/deployment.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/deployment.py",
+      "sha256": "baf671a046608a7fa15fdc3feb22d41cb891aa4c62f838551abb042aca5afd9d",
+      "size": 26030
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/fast_core.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/fast_core.py",
+      "sha256": "d6340b904125de481b1a7f811c5a9e19e05ee93a6c92bdffef910d978b1c1686",
+      "size": 7336
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/fast_executor.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/fast_executor.py",
+      "sha256": "47cc1796e5300273949a6e4b8207b64591947bd4be67f2bd018b18c73d4cf5e4",
+      "size": 3826
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/preprocessing.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/preprocessing.py",
+      "sha256": "6574f096f8d118c73e033dd48a72f83e2e138acd38ba87778d758df9edbb70be",
+      "size": 3849
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/assembly.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/assembly.py",
+      "sha256": "02616509e8ae83ee76d00c536e50e633398557499cec037c1d457ebf125b2be1",
+      "size": 2073
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/backbone.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/backbone.py",
+      "sha256": "74a45ff21532d15c83f4f783a260018c07019c6a336ce2f2411c6017141b0544",
+      "size": 1655
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/decoder.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/decoder.py",
+      "sha256": "01a61e7397f75da917a7d0cd218f3369c107e14e7a4090db70e04a91a45b0774",
+      "size": 5931
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/mask_head.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/mask_head.py",
+      "sha256": "e377370cf101f7b24cb93008f7b8130b0ca34f4b54702a1018593377e3fa352c",
+      "size": 15052
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/query_encoder.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/query_encoder.py",
+      "sha256": "2be303506abf83ff2eb3a65ef346741fe04c895ad963d8334a2f7fed4fb4bc04",
+      "size": 6447
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/sm120_msda.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/instance_segmentation/trt/sm120_msda.py",
+      "sha256": "4c4a47bb7ee8540521e34338b851fc4a4ea22e37c2ddf9bcc7687a1940db3a38",
+      "size": 3914
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/paths.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/paths.py",
+      "sha256": "2b4c5a14a1cc5044ba552b4d11a19a73f9843f54d15179e0c5b8dbca09357f2f",
+      "size": 3749
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/prepared_pipeline.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/prepared_pipeline.py",
+      "sha256": "77c4807e643b88d492ebeab4048b7b123cd273aa95ada0a9018d1f7ca612aefa",
+      "size": 2818
+    },
+    "src/video_mask_runtime/inference/dinov3_codino/runtime_loop.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/src/video_mask_runtime/inference/dinov3_codino/runtime_loop.py",
+      "sha256": "d47529f92dca017ab3b1a2f36a6f6b8912c97f917b93b569866f2caea3d8f7c8",
+      "size": 9970
+    },
+    "tools/codino_trt/infer.py": {
+      "path": "/home/kenshin/inference_backend/Dinov3_postprocess_v2/tools/codino_trt/infer.py",
+      "sha256": "3f5223435af203659dba087320f39634c8d3d63cee814019707f49b3315cfc65",
+      "size": 2106
+    }
+  },
+  "schema": "video-mask-codino-trt-bundle-v1",
+  "source": {
+    "builder_script": null,
+    "checkpoint": {
+      "path": "/home/kenshin/.local/share/video-mask-runtime/models/codino/detector/epoch_2.pth",
+      "sha256": "3727ac44ad36ffcdec5adbc5eba2c340f6fc4cfbbe6c2cb15f5d43e3cc527075",
+      "size": 4585877097
+    },
+    "classifier_checkpoint": {
+      "path": "/home/kenshin/.local/share/video-mask-runtime/models/codino/classifier/best.pt",
+      "sha256": "d33f371c5eca4b121e2c6a44de6be7ab22561e9b655e468ee40bd23260b522ec",
+      "size": 154201
+    },
+    "config": {
+      "path": "/home/kenshin/.local/share/video-mask-runtime/models/codino/detector/resolved_config.py",
+      "sha256": "3f8c05ad3a874d3b89bb38e59a3468f539534bad892f56f02c45115f590b3a05",
+      "size": 29945
+    }
+  },
+  "status": "complete"
+}

@@ -1,0 +1,125 @@
+"""Validated execution of a configured feature-stage graph."""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from typing import Any, Mapping
+
+from .config import PipelineConfig
+from contracts.artifacts import validate_artifact
+from contracts.stages import StageContext
+from .registry import create_stage
+
+
+class PipelineRunner:
+    def __init__(self, config: PipelineConfig, output_dir: Path) -> None:
+        self.config = config
+        self.output_dir = Path(output_dir)
+
+    def run(self, initial_artifacts: Mapping[str, Path]) -> dict[str, Any]:
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        artifacts = {str(name): Path(path) for name, path in initial_artifacts.items()}
+        for name, path in sorted(artifacts.items()):
+            validate_artifact(name, path)
+        history: list[dict[str, Any]] = []
+        for position, spec in enumerate(self.config.stages):
+            if not spec.enabled:
+                continue
+            stage = create_stage(spec.implementation, spec.options)
+            missing = sorted(stage.requires - artifacts.keys())
+            if missing:
+                raise ValueError(
+                    f"stage {spec.id!r} ({stage.name}) is missing artifacts: "
+                    f"{missing}; available: {sorted(artifacts)}"
+                )
+            for name in sorted(stage.requires):
+                validate_artifact(name, artifacts[name])
+            stage_dir = self.output_dir / f"{position:02d}_{spec.id}"
+            stage_dir.mkdir(parents=True, exist_ok=True)
+            context = StageContext(
+                pipeline_name=self.config.name,
+                stage_id=spec.id,
+                output_dir=self.output_dir,
+                stage_dir=stage_dir,
+                artifacts=dict(artifacts),
+            )
+            started = time.perf_counter()
+            result = stage.run(context)
+            missing_outputs = sorted(stage.provides - result.artifacts.keys())
+            if missing_outputs:
+                raise RuntimeError(
+                    f"stage {spec.id!r} did not provide declared artifacts: "
+                    f"{missing_outputs}"
+                )
+            undeclared_outputs = sorted(result.artifacts.keys() - stage.provides)
+            if undeclared_outputs:
+                raise RuntimeError(
+                    f"stage {spec.id!r} returned undeclared artifacts: "
+                    f"{undeclared_outputs}"
+                )
+            outputs = {str(name): Path(path) for name, path in result.artifacts.items()}
+            absent_files = sorted(
+                name for name, path in outputs.items() if not path.exists()
+            )
+            if absent_files:
+                raise RuntimeError(
+                    f"stage {spec.id!r} returned missing files: {absent_files}"
+                )
+            overwritten = sorted(outputs.keys() & artifacts.keys())
+            if overwritten:
+                raise RuntimeError(
+                    f"stage {spec.id!r} attempted to overwrite artifacts: "
+                    f"{overwritten}"
+                )
+            stage_root = stage_dir.resolve()
+            outside_stage_dir = sorted(
+                name
+                for name, path in outputs.items()
+                if not path.resolve().is_relative_to(stage_root)
+            )
+            if outside_stage_dir:
+                raise RuntimeError(
+                    f"stage {spec.id!r} wrote outside its stage directory: "
+                    f"{outside_stage_dir}"
+                )
+            for name, path in sorted(outputs.items()):
+                validate_artifact(name, path)
+            artifacts.update(outputs)
+            history.append(
+                {
+                    "id": spec.id,
+                    "implementation": spec.implementation,
+                    "name": stage.name,
+                    "requires": sorted(stage.requires),
+                    "provides": sorted(stage.provides),
+                    "artifacts": {
+                        name: str(path) for name, path in sorted(outputs.items())
+                    },
+                    "metadata": dict(result.metadata),
+                    "elapsed_seconds": time.perf_counter() - started,
+                }
+            )
+            self._write_manifest(artifacts, history, complete=False)
+        return self._write_manifest(artifacts, history, complete=True)
+
+    def _write_manifest(
+        self,
+        artifacts: Mapping[str, Path],
+        history: list[dict[str, Any]],
+        *,
+        complete: bool,
+    ) -> dict[str, Any]:
+        manifest = {
+            "schema_version": 1,
+            "pipeline": self.config.name,
+            "complete": complete,
+            "stages": history,
+            "artifacts": {name: str(path) for name, path in sorted(artifacts.items())},
+        }
+        (self.output_dir / "pipeline_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return manifest

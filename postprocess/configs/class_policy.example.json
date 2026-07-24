@@ -1,0 +1,13 @@
+{
+  "default": {
+    "score_min": 0.35
+  },
+  "classes": {
+    "high_confidence_only": {
+      "score_min": 0.7
+    },
+    "low_contrast_target": {
+      "score_min": 0.4
+    }
+  }
+}

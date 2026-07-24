@@ -1,0 +1,35 @@
+{
+  "schema": "eva02-backbone-onnx-export-v1",
+  "status": "pass",
+  "checkpoint": {
+    "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/artifacts/detector/model_final.pth",
+    "size": 5777987451,
+    "sha256": "86e96603e64723bd651b4c031c513f8ba0219c211a18a85544840741e0d5210d"
+  },
+  "config": {
+    "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/eva02_cascade/instance_segmentation/lazy_config.py",
+    "size": 2402,
+    "sha256": "194a6bb827dfe36e0486720332441ca68c44fdfdfec1cd5fe28a81cdf30642f9"
+  },
+  "onnx": {
+    "path": "temporary/eva02_backbone.onnx (not retained)",
+    "size": 533906368,
+    "sha256": "c120e69acb756bf8799adb4a9d02d415ee7b0c55df3732b5fea1fdd4070af57c"
+  },
+  "target_size": 1280,
+  "opset": 17,
+  "drop_block_indices": [
+    19,
+    21,
+    22
+  ],
+  "input_dtype": "torch.float16",
+  "sample_output_shape": [
+    1,
+    1024,
+    80,
+    80
+  ],
+  "sample_output_dtype": "torch.float16",
+  "elapsed_sec": 13.921145843021804
+}

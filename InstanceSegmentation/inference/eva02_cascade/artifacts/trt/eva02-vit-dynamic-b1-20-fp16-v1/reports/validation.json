@@ -1,0 +1,53 @@
+{
+  "schema": "eva02-backbone-trt-validation-v1",
+  "status": "pass",
+  "thresholds": {
+    "max_mean_abs": 0.08,
+    "min_cosine": 0.9999
+  },
+  "measurements": [
+    {
+      "batch_size": 1,
+      "shape": [
+        1,
+        1024,
+        80,
+        80
+      ],
+      "max_abs": 6.4375,
+      "mean_abs": 0.0064110481180250645,
+      "rmse": 0.01624096930027008,
+      "cosine": 0.9999868869781494,
+      "pass": true
+    },
+    {
+      "batch_size": 12,
+      "shape": [
+        12,
+        1024,
+        80,
+        80
+      ],
+      "max_abs": 10.25,
+      "mean_abs": 0.006332713179290295,
+      "rmse": 0.01628885045647621,
+      "cosine": 0.9999868273735046,
+      "pass": true
+    },
+    {
+      "batch_size": 20,
+      "shape": [
+        20,
+        1024,
+        80,
+        80
+      ],
+      "max_abs": 12.875,
+      "mean_abs": 0.006294721737504005,
+      "rmse": 0.01583494432270527,
+      "cosine": 0.9999876618385315,
+      "pass": true
+    }
+  ],
+  "elapsed_sec": 9.593732017005095
+}
