@@ -1,5 +1,6 @@
 import type { JobSnapshot, PipelineDraft } from "../../shared/types";
 import { count, duration, rate } from "../lib/format";
+import { modelSpec } from "../lib/models";
 import { groupState, plannedStages, stageStates } from "../lib/stages";
 import type { NodeState } from "../lib/stages";
 import {
@@ -11,12 +12,6 @@ import {
 } from "./Icons";
 import { Scope } from "./Scope";
 import { Panel } from "./ui";
-
-const MODEL_LABELS: Record<string, string> = {
-  dinov3_codino: "DINOv3 Co-DINO",
-  dinov3_cascade: "DINOv3 Cascade",
-  eva02_cascade: "EVA-02 Cascade",
-};
 
 function Metric({
   label,
@@ -121,7 +116,9 @@ export function MonitorPanel({
       icon: CpuIcon,
       state: groupState("inference", stages, states),
       value: draft.inference.enabled
-        ? (MODEL_LABELS[draft.inference.segmentationModel] ?? "face only")
+        ? draft.inference.mode === "face"
+          ? "face only"
+          : modelSpec(draft.inference.segmentationModel).label
         : "既存 SQLite",
     },
     {

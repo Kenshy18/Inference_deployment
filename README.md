@@ -37,6 +37,20 @@ DaVinci Resolve / Premiere Proに倣った固定4ペインのNLE型レイアウ�
 | `Ctrl` + `D` | Dry run |
 | `Esc` | 実行中のジョブを停止 |
 
+## セグメンテーションモデル
+
+表示名と`InstanceSegmentation/inference/registry.py`の対応です。バックエンドは
+各モデルが登録しているものだけを表示し、既定は必ず高速側です。
+
+| 表示名 | model_id | Fast (Default) | Slow (Stable) |
+| --- | --- | --- | --- |
+| V1 (EVA) | `eva02_cascade` | `tensorrt-backbone` | `pytorch` |
+| V2 (DINO) | `dinov3_cascade` | `tensorrt-backbone` | なし |
+| V3-heavy | `dinov3_codino` | `tensorrt-fast` | `pytorch` |
+
+推論デバイスは`cuda:0`固定でUIには出しません。`registry.py`が変わった場合は
+`src/lib/models.ts`と`src/lib/models.test.ts`を更新します。
+
 ## 現在の機能
 
 - 入力動画と出力フォルダの選択

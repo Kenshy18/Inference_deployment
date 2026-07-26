@@ -3,6 +3,7 @@ import type {
   InferenceMode,
   PipelineDraft,
 } from "../../shared/types";
+import { modelSpec, SEGMENTATION_MODELS } from "../lib/models";
 import {
   Check,
   NumberInput,
@@ -47,6 +48,11 @@ export function InspectorPanel({
   const { inference, postprocess, overlay } = draft;
   const faceOnly = inference.mode === "face";
   const usesFaces = inference.mode !== "segmentation";
+  const spec = modelSpec(inference.segmentationModel);
+  const backend =
+    spec.backends.find(
+      (option) => option.value === inference.segmentationBackend,
+    ) ?? spec.backends[0];
 
   return (
     <Panel title="Inspector">
@@ -80,31 +86,36 @@ export function InspectorPanel({
           </Row>
           {!faceOnly && (
             <>
-              <Row label="モデル">
+              <Row label="モデル" hint={spec.note}>
                 <Select
                   value={inference.segmentationModel}
                   disabled={busy || !inference.enabled}
                   onChange={actions.changeModel}
-                  options={[
-                    { value: "dinov3_codino", label: "DINOv3 Co-DINO" },
-                    { value: "eva02_cascade", label: "EVA-02 Cascade" },
-                    { value: "dinov3_cascade", label: "DINOv3 Cascade" },
-                  ]}
+                  options={SEGMENTATION_MODELS.map((model) => ({
+                    value: model.id,
+                    label: model.label,
+                  }))}
                 />
               </Row>
-              <Row label="バックエンド">
-                <Select
+              <Row
+                label="バックエンド"
+                hint={
+                  spec.backends.length > 1
+                    ? backend.id
+                    : `${backend.id} のみ対応`
+                }
+              >
+                <Segment
                   value={inference.segmentationBackend}
-                  disabled={busy || !inference.enabled}
+                  disabled={busy || !inference.enabled || spec.backends.length < 2}
                   onChange={(segmentationBackend) =>
                     actions.inference({ segmentationBackend })
                   }
-                  options={[
-                    { value: "auto", label: "Auto" },
-                    { value: "tensorrt-fast", label: "TensorRT fast" },
-                    { value: "tensorrt-backbone", label: "TensorRT backbone" },
-                    { value: "pytorch", label: "PyTorch" },
-                  ]}
+                  options={spec.backends.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                    title: option.id,
+                  }))}
                 />
               </Row>
             </>
@@ -126,14 +137,6 @@ export function InspectorPanel({
               />
             </Row>
           )}
-          <Row label="デバイス">
-            <TextInput
-              value={inference.device}
-              disabled={busy || !inference.enabled}
-              mono
-              onChange={(device) => actions.inference({ device })}
-            />
-          </Row>
           <Row label="最大フレーム">
             <NumberInput
               value={inference.maxFrames}
@@ -143,7 +146,11 @@ export function InspectorPanel({
               onChange={(maxFrames) => actions.inference({ maxFrames })}
             />
           </Row>
-          <Row label="ウォームアップ">
+          <Row
+            label="計測除外"
+            hint="出力には影響しません"
+            title="先頭Nフレームを GPU 演算速度の集計から除外します。推論と SQLite への書き込みは全フレームで行われます。"
+          >
             <NumberInput
               value={inference.warmupFrames}
               min={0}
@@ -155,11 +162,15 @@ export function InspectorPanel({
             />
           </Row>
           {usesFaces && (
-            <Row label="顔ウォームアップ">
+            <Row
+              label="顔ウォームアップ"
+              hint="ダミー画像で空打ち"
+              title="顔検出の開始前にゼロ画像でN回推論し、CUDAカーネルを暖めます。その分だけ実時間が増えます。"
+            >
               <NumberInput
                 value={inference.faceWarmupIterations}
                 min={0}
-                unit="it"
+                unit="回"
                 disabled={busy || !inference.enabled}
                 onChange={(value) =>
                   actions.inference({ faceWarmupIterations: value ?? 0 })
@@ -167,13 +178,17 @@ export function InspectorPanel({
               />
             </Row>
           )}
-          <Row label="SQLite">
+          <Row
+            label="SQLite"
+            hint="クラッシュ時にDB破損"
+            title="journal_mode=OFF / synchronous=OFF で書き込みを優先します。長時間ジョブでは無効のままを推奨します。"
+          >
             <Check
               checked={inference.fastSqlite}
               disabled={busy || !inference.enabled}
               onChange={(fastSqlite) => actions.inference({ fastSqlite })}
               label="高速書き込み"
-              title="fast_sqlite: 書き込みを優先し耐障害性を下げます"
+              title="journal_mode=OFF / synchronous=OFF で書き込みを優先します"
             />
           </Row>
         </Section>

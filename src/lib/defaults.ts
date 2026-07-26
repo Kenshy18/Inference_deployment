@@ -3,6 +3,7 @@ import type {
   JobSnapshot,
   PipelineDraft,
 } from "../../shared/types";
+import { normalizeBackend } from "./models";
 
 export const defaultDraft: PipelineDraft = {
   inputVideo: "",
@@ -90,10 +91,18 @@ export function loadDraft(): PipelineDraft {
     if (!saved) {
       return defaultDraft;
     }
+    const inference = { ...defaultDraft.inference, ...saved.inference };
     return {
       ...defaultDraft,
       ...saved,
-      inference: { ...defaultDraft.inference, ...saved.inference },
+      inference: {
+        ...inference,
+        /* A stored backend can predate the current registry. */
+        segmentationBackend: normalizeBackend(
+          inference.segmentationModel,
+          inference.segmentationBackend,
+        ),
+      },
       postprocess: { ...defaultDraft.postprocess, ...saved.postprocess },
       overlay: { ...defaultDraft.overlay, ...saved.overlay },
     };

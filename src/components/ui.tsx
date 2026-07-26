@@ -32,6 +32,7 @@ export function Panel({
 export function Row({
   label,
   hint,
+  title,
   off = false,
   stack = false,
   always = false,
@@ -39,6 +40,7 @@ export function Row({
 }: {
   label?: string;
   hint?: string;
+  title?: string;
   off?: boolean;
   stack?: boolean;
   always?: boolean;
@@ -46,6 +48,7 @@ export function Row({
 }) {
   return (
     <div
+      title={title}
       className={[
         "row",
         stack ? "row--stack" : "",

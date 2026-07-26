@@ -16,6 +16,7 @@ import { TopBar } from "./components/TopBar";
 import { useSplit } from "./hooks/useSplit";
 import { desktopApi, isElectron } from "./lib/api";
 import { browserSettings, emptyJob, loadDraft } from "./lib/defaults";
+import { defaultBackend } from "./lib/models";
 
 const STATUS_LABELS: Record<JobSnapshot["status"], string> = {
   idle: "待機中",
@@ -301,10 +302,7 @@ export default function App() {
       changeModel: (segmentationModel) =>
         patchInference({
           segmentationModel,
-          segmentationBackend:
-            segmentationModel === "dinov3_codino"
-              ? "tensorrt-fast"
-              : "tensorrt-backbone",
+          segmentationBackend: defaultBackend(segmentationModel),
         }),
       pickBackendRoot: () =>
         void desktopApi.pickDirectory().then((backendRoot) => {
