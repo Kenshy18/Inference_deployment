@@ -30,7 +30,10 @@ function Metric({
   return (
     <div className="metric">
       <span>{label}</span>
-      <b className={value === null ? "is-null" : ""}>
+      <b
+        className={value === null ? "is-null" : ""}
+        title={value === null ? undefined : `${value}${unit ? ` ${unit}` : ""}`}
+      >
         {value ?? "—"}
         {value !== null && unit && <em>{unit}</em>}
       </b>
