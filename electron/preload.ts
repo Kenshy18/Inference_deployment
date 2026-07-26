@@ -1,0 +1,47 @@
+import { contextBridge, ipcRenderer } from "electron";
+import type {
+  AppSettings,
+  BootstrapData,
+  FilePickerKind,
+  JobSnapshot,
+  MaskStudioApi,
+  PipelineDraft,
+} from "../shared/types";
+
+const api: MaskStudioApi = {
+  bootstrap: () => ipcRenderer.invoke("app:bootstrap") as Promise<BootstrapData>,
+  pickFile: (kind: FilePickerKind) =>
+    ipcRenderer.invoke("dialog:pick-file", kind) as Promise<string | null>,
+  pickDirectory: () =>
+    ipcRenderer.invoke("dialog:pick-directory") as Promise<string | null>,
+  saveSettings: (settings: AppSettings) =>
+    ipcRenderer.invoke(
+      "settings:save",
+      settings,
+    ) as Promise<AppSettings>,
+  validateWorkflow: (draft: PipelineDraft, settings: AppSettings) =>
+    ipcRenderer.invoke(
+      "workflow:validate",
+      draft,
+      settings,
+    ) as Promise<JobSnapshot>,
+  startWorkflow: (draft: PipelineDraft, settings: AppSettings) =>
+    ipcRenderer.invoke(
+      "workflow:start",
+      draft,
+      settings,
+    ) as Promise<JobSnapshot>,
+  cancelWorkflow: () =>
+    ipcRenderer.invoke("workflow:cancel") as Promise<JobSnapshot>,
+  openOutput: (path: string) =>
+    ipcRenderer.invoke("shell:open-output", path) as Promise<string>,
+  onJobUpdate: (callback: (job: JobSnapshot) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, job: JobSnapshot) =>
+      callback(job);
+    ipcRenderer.on("job:update", listener);
+    return () => ipcRenderer.removeListener("job:update", listener);
+  },
+};
+
+contextBridge.exposeInMainWorld("maskStudio", api);
+
