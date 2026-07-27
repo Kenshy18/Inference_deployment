@@ -61,8 +61,16 @@ def paste_boxes_for_masks(
     input_height, input_width = int(image_shape[0]), int(image_shape[1])
     original_height = int(image_metadata["ori_shape"][0])
     original_width = int(image_metadata["ori_shape"][1])
-    scale_x = float(scale_factor[0].detach().cpu().item())
-    scale_y = float(scale_factor[1].detach().cpu().item())
+    metadata_scale = image_metadata["scale_factor"]
+    if isinstance(metadata_scale, torch.Tensor):
+        # This fallback is only used by callers that supply GPU-only metadata.
+        # The video path retains the original CPU scale values and therefore
+        # does not need to synchronize the tail stream here.
+        scale_values = metadata_scale.detach().cpu().tolist()
+    else:
+        scale_values = metadata_scale
+    scale_x = float(scale_values[0])
+    scale_y = float(scale_values[1])
     new_width = int(original_width * scale_x)
     new_height = int(original_height * scale_y)
     pad_left = max((input_width - new_width) // 2, 0)
@@ -322,9 +330,12 @@ def classifier_metadata(
     count = int(detection_boxes.shape[0])
     if count == 0:
         return torch.empty((0, 5), device=device, dtype=torch.float32)
-    scores = detection_boxes[:, 4].detach().float().cpu().numpy()
+    detection_cpu = (
+        detection_boxes[:, :5].detach().float().cpu().numpy()
+    )
+    scores = detection_cpu[:, 4]
     boxes = restore_boxes_for_classifier_metadata(
-        detection_boxes[:, :4].detach().float().cpu().numpy(),
+        detection_cpu[:, :4],
         image_metadata,
         target_size,
     )

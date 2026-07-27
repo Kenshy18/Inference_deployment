@@ -32,6 +32,7 @@ try:
         MANIFEST_SCHEMA,
         PROFILE_FAST,
         QUERY_SHAPES,
+        RUNTIME_CHECKPOINT_FILE,
         load_engine_bundle,
         sha256_file,
     )
@@ -46,6 +47,7 @@ except ImportError:
         MANIFEST_SCHEMA,
         PROFILE_FAST,
         QUERY_SHAPES,
+        RUNTIME_CHECKPOINT_FILE,
         load_engine_bundle,
         sha256_file,
     )
@@ -58,10 +60,13 @@ EXPORTERS = {
     "mask_head": TRT_ROOT / "export_mask_head.py",
 }
 WORKER = TRT_ROOT / "fast_engine_build.py"
+RUNTIME_CHECKPOINT_BUILDER = TRT_ROOT / "build_runtime_checkpoint.py"
 NATIVE_DIR = TRT_ROOT / "native"
 BUILDER_SOURCES = (
     Path(__file__).resolve(),
     WORKER,
+    RUNTIME_CHECKPOINT_BUILDER,
+    FAMILY_ROOT / "optimized" / "deployment.py",
     NATIVE_DIR / "msda_direct.cpp",
     NATIVE_DIR / "msda_direct.cu",
     *EXPORTERS.values(),
@@ -280,6 +285,10 @@ def _write_manifest(
             root / "plugins" / FAST_PLUGIN_FILENAME,
             relative_to=root,
         ),
+        "runtime_checkpoint": _record(
+            root / RUNTIME_CHECKPOINT_FILE,
+            relative_to=root,
+        ),
         "environment_lock": (
             None if environment_lock is None else _record(environment_lock)
         ),
@@ -354,6 +363,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             python, config, checkpoint, onnx_dir
         ).values():
             _run(command, environment)
+        _run(
+            [
+                str(python),
+                str(RUNTIME_CHECKPOINT_BUILDER),
+                "--source",
+                str(checkpoint),
+                "--output",
+                str(staging / RUNTIME_CHECKPOINT_FILE),
+            ],
+            environment,
+        )
         _run(
             [
                 *_worker_base(python),

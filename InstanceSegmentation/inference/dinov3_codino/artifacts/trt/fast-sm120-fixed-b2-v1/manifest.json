@@ -90,6 +90,11 @@
     "sha256": "d41a623bb414a4f665f77f2abf6b7443ac430196aa7829c6505cdd0412106a64",
     "size": 275296
   },
+  "runtime_checkpoint": {
+    "path": "runtime/codino_trt_runtime.pth",
+    "sha256": "844765398ee1ffc56d2d0978591559319865c7bd7544d989e06516fc26b355cf",
+    "size": 121605398
+  },
   "resource_claim": {
     "bounded_preprocess_queue_batches": 2,
     "gpu_utilization_sample_max_percent": 100.0,

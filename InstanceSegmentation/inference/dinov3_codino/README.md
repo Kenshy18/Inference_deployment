@@ -17,6 +17,8 @@ SQLiteだけに保存します。
 - `trt/runtime.py`: 4 engineを一体として組み込むTensorRTランタイム
 - `trt/sm120_msda.py`: fast query engineに必要なSM120 native plugin登録
 - `trt/build_fast_engines.py`: checkpointからRTX 5090向けfast bundleを一括生成
+- `trt/build_runtime_checkpoint.py`: optimizerとTensorRT置換済みmoduleを除いた
+  実行専用checkpointを生成
 - `trt/fast_engine_build.py`, `trt/native/`: 精度制約付きTensorRT buildとSM120 CUDA実装
 - `trt/build_engines.py`: portableな4 engineを一括生成する保守用入口
 - `trt/bundle.py`: profile、engine、plugin、サイズ、SHA-256の検証
@@ -53,8 +55,9 @@ SHA-256まで検証します。
 
 fast版は固定batch 2、入力tensor 736x1280（有効画像720x1280）です。4 engine、
 native plugin、CUDA Graph、2つの出力slot、worker CUDA stream、bounded
-decode/preprocessを一体として使用します。分類器も最適化スケジュールに含まれるため
-無効化できません。
+decode/preprocessを一体として使用します。起動時はbundle内の実行専用checkpointと
+軽量deployment shellを使い、直後に置換するViT-L backboneや学習用補助headを
+構築しません。分類器も最適化スケジュールに含まれるため無効化できません。
 
 同梱bundleはRTX 5090 / compute capability 12.0用です。他GPUや別batch sizeでは
 実行せず、その環境向けに検証されたbundleが必要です。
@@ -82,6 +85,7 @@ fallbackとして維持します。GPUメモリに余裕があればbatch size�
 |---|---:|---:|---:|---:|
 | `tensorrt-fast` | 300 | 19.92 fps | 24.43 img/s | 267 |
 | `tensorrt-fast` | 1,800 | 23.08 fps | 23.94 img/s | 1,636 |
+| `tensorrt-fast`（deployment shell） | 5,290 | 23.29 fps | 23.58 img/s | 4,069 |
 | `tensorrt-fast`（checkpointから再生成） | 300 | 18.35 fps | 22.48 img/s | 267 |
 | `pytorch` | 10 | 2.20 fps | 3.16 img/s | 0 |
 
@@ -91,6 +95,11 @@ fallbackとして維持します。GPUメモリに余裕があればbatch size�
 再生成版は、同じマシン状態で既存fast bundleと比較した元実装の検証でも計算速度差
 0.62%でした。上表の測定セッションでは両者とも過去の25.15 img/s記録を下回ったため、
 engine生成だけで25 img/sを保証せず、動画ごとの品質・速度gateを必須とします。
+
+同じ5,290フレームでは、deployment shell導入前後でプロセス全体が
+252.10秒から244.99秒へ2.8%短縮し、最大RSSは6,946,724 KiBから
+3,896,916 KiBへ43.9%減少しました。定常推論の数値処理やTensorRT engineは
+変更していません。
 
 `--fast-sqlite`は異常終了時の耐久性と引き換えにSQLite書込みを速くします。
 通常は指定しないでください。
@@ -103,10 +112,12 @@ engine生成だけで25 img/sを保証せず、動画ごとの品質・速度gat
 正式な入口です。次を1コマンドで行います。
 
 1. backbone、query encoder、decoder、mask headの固定shape ONNXをexport
-2. SM120専用MSDA CUDA extensionを同梱ソースからコンパイル
-3. 空のtiming cacheから4つのTensorRT engineを別プロセスでbuild
-4. engine、plugin、checkpoint、分類器、実行Python、builder sourceをSHA-256検証
-5. 完全なbundleだけをatomicに公開
+2. optimizerと置換対象weightを除いた実行専用checkpointを生成
+3. SM120専用MSDA CUDA extensionを同梱ソースからコンパイル
+4. 空のtiming cacheから4つのTensorRT engineを別プロセスでbuild
+5. engine、plugin、実行専用checkpoint、元checkpoint、分類器、実行Python、
+   builder sourceをSHA-256検証
+6. 完全なbundleだけをatomicに公開
 
 RTX 5090（compute capability 12.0）、TensorRT 10.13、CUDA compiler、G++、Ninjaが
 必要です。分類器checkpointもbundleの再現性に含めるため必須です。既存engineや

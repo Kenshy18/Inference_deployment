@@ -27,6 +27,7 @@ class InstanceSegmentationSettings:
     model_score_threshold: float = 0.05
     disable_activation_checkpointing: bool = True
     skip_backbone_initialization: bool = True
+    trt_deployment_shell: bool = False
 
     def __post_init__(self) -> None:
         (height, width) = self.target_size
@@ -83,9 +84,18 @@ def build_segmenter(settings: InstanceSegmentationSettings, *, device: str):
     if not settings.checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {settings.checkpoint}")
     config = Config.fromfile(str(settings.config_path))
+    if settings.trt_deployment_shell:
+        try:
+            from .optimized.deployment import prepare_trt_deployment_config
+        except ImportError:
+            from optimized.deployment import prepare_trt_deployment_config
+
+        prepare_trt_deployment_config(config)
     if settings.skip_backbone_initialization and "backbone" in config.model:
-        config.model.backbone.pretrained = False
-        config.model.backbone.weights = None
+        if "pretrained" in config.model.backbone:
+            config.model.backbone.pretrained = False
+        if "weights" in config.model.backbone:
+            config.model.backbone.weights = None
     if "fp16" in config:
         config.pop("fp16")
     if settings.disable_activation_checkpointing:
@@ -94,7 +104,65 @@ def build_segmenter(settings: InstanceSegmentationSettings, *, device: str):
         set_model_score_threshold(config.model, settings.model_score_threshold)
     config.load_from = None
     config.resume_from = None
-    model = init_detector(config, str(settings.checkpoint), device=device).eval()
+    if settings.trt_deployment_shell:
+        model = init_detector(config, checkpoint=None, device=device).eval()
+        payload = torch.load(
+            settings.checkpoint,
+            map_location="cpu",
+            weights_only=False,
+        )
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("state_dict"), dict
+        ):
+            raise ValueError(
+                "Co-DINO TensorRT runtime checkpoint has no state_dict"
+            )
+        provenance = (payload.get("meta") or {}).get(
+            "trt_runtime_checkpoint"
+        )
+        if not isinstance(provenance, dict) or provenance.get("schema") != (
+            "codino-trt-runtime-checkpoint-v1"
+        ):
+            raise ValueError(
+                "Co-DINO TensorRT runtime checkpoint provenance is invalid"
+            )
+        incompatible = model.load_state_dict(
+            payload["state_dict"],
+            strict=False,
+        )
+        allowed_missing = (
+            "query_head.transformer.encoder.",
+            "query_head.transformer.decoder.",
+        )
+        invalid_missing = [
+            key
+            for key in incompatible.missing_keys
+            if not key.startswith(allowed_missing)
+            and "num_batches_tracked" not in key
+        ]
+        allowed_unexpected = {
+            "query_head.positional_encoding._dim_t",
+        }
+        invalid_unexpected = [
+            key
+            for key in incompatible.unexpected_keys
+            if key not in allowed_unexpected
+        ]
+        if invalid_missing or invalid_unexpected:
+            raise RuntimeError(
+                "Co-DINO TensorRT runtime checkpoint key drift: "
+                f"missing={invalid_missing}, "
+                f"unexpected={invalid_unexpected}"
+            )
+        classes = (payload.get("meta") or {}).get("CLASSES")
+        if classes is not None:
+            model.CLASSES = classes
+    else:
+        model = init_detector(
+            config,
+            str(settings.checkpoint),
+            device=device,
+        ).eval()
     model.CLASSES = ("foreground",)
     return model
 

@@ -73,6 +73,7 @@ class CodinoCandidateIo:
 class CodinoCandidateArtifacts:
     config_path: Path
     checkpoint: Path
+    runtime_checkpoint: Path
     classifier_checkpoint: Path | None
     bundle_manifest: Path | None
     bundle_profile: str | None
@@ -124,6 +125,7 @@ def resolve_codino_artifacts(args: Any) -> CodinoCandidateArtifacts:
         return CodinoCandidateArtifacts(
             config_path=config_path,
             checkpoint=checkpoint,
+            runtime_checkpoint=checkpoint,
             classifier_checkpoint=classifier_checkpoint,
             bundle_manifest=None,
             bundle_profile=None,
@@ -150,9 +152,14 @@ def resolve_codino_artifacts(args: Any) -> CodinoCandidateArtifacts:
         raise ValueError(
             "the tensorrt-fast backend requires a fast-sm120-fixed-b2-v1 bundle"
         )
+    if bundle.runtime_checkpoint is None:
+        raise ValueError(
+            "the tensorrt-fast bundle has no deployment runtime checkpoint"
+        )
     return CodinoCandidateArtifacts(
         config_path=config_path,
         checkpoint=checkpoint,
+        runtime_checkpoint=bundle.runtime_checkpoint,
         classifier_checkpoint=classifier_checkpoint,
         bundle_manifest=bundle.manifest_path,
         bundle_profile=bundle.profile,
@@ -247,10 +254,11 @@ def run_native_codino(args: Any) -> int:
     (runtime, _classifier_payload) = build_runtime(
         segmenter_settings=InstanceSegmentationSettings(
             config_path=artifacts.config_path,
-            checkpoint=artifacts.checkpoint,
+            checkpoint=artifacts.runtime_checkpoint,
             target_size=args.target_size,
             score_threshold=float(args.score_thresh),
             model_score_threshold=float(args.model_score_thr),
+            trt_deployment_shell=str(args.backend) == "tensorrt-fast",
         ),
         trt_settings=trt_settings,
         classifier_checkpoint=artifacts.classifier_checkpoint,

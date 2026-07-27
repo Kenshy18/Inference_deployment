@@ -112,6 +112,7 @@ def infer_fast_b2_tail(
     labels_by_image = []
     scaled_by_image = []
     paste_by_image = []
+    scale_factors_by_image = []
     for (boxes, labels), metadata in zip(results, image_metadata):
         if boxes.ndim == 1:
             boxes = boxes.unsqueeze(0)
@@ -124,6 +125,7 @@ def infer_fast_b2_tail(
             boxes.device,
             boxes.dtype,
         )
+        scale_factors_by_image.append(scale_factor)
         scaled_by_image.append(boxes[:, :4] * scale_factor)
         paste_by_image.append(
             paste_boxes_for_masks(boxes, metadata, scale_factor)
@@ -150,10 +152,11 @@ def infer_fast_b2_tail(
 
     masks_by_image = []
     start = 0
-    for boxes, labels, paste_boxes, metadata in zip(
+    for boxes, labels, paste_boxes, scale_factor, metadata in zip(
         boxes_by_image,
         labels_by_image,
         paste_by_image,
+        scale_factors_by_image,
         image_metadata,
     ):
         end = start + int(boxes.shape[0])
@@ -168,11 +171,7 @@ def infer_fast_b2_tail(
                     labels,
                     model.rcnn_test_cfg,
                     metadata["ori_shape"],
-                    scale_factor_tensor(
-                        metadata,
-                        boxes.device,
-                        boxes.dtype,
-                    ),
+                    scale_factor,
                     True,
                 )
             )

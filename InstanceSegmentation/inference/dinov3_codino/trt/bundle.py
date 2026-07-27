@@ -35,6 +35,7 @@ FAST_ENGINE_FILENAMES = {
     "mask_head": "codino_mask_head_core_n1_736x1280_d140_fp32.engine",
 }
 FAST_PLUGIN_FILENAME = "codino_msda_direct_sm120.so"
+RUNTIME_CHECKPOINT_FILE = "runtime/codino_trt_runtime.pth"
 PRECISION_POLICY = {
     "backbone": "bf16-forced-public-fp32",
     "query_encoder": "fp16",
@@ -113,6 +114,7 @@ class CoDinoEngineBundle:
     mask_head_engine: Path
     runtime_profile: str
     query_plugin_extension: Path | None
+    runtime_checkpoint: Path | None
     precision_policy: dict[str, str]
 
     @property
@@ -217,6 +219,35 @@ def load_engine_bundle(
     elif plugin_record is not None:
         raise ValueError("portable Co-DINO bundle must not contain a query plugin")
 
+    runtime_checkpoint: Path | None = None
+    runtime_record = payload.get("runtime_checkpoint")
+    if profile == PROFILE_FAST:
+        if not isinstance(runtime_record, dict):
+            raise ValueError(
+                "fast Co-DINO bundle requires a runtime checkpoint"
+            )
+        if runtime_record.get("path") != RUNTIME_CHECKPOINT_FILE:
+            raise ValueError("Co-DINO runtime checkpoint path mismatch")
+        runtime_checkpoint = _required_file(
+            manifest.parent / RUNTIME_CHECKPOINT_FILE,
+            label="Co-DINO runtime checkpoint",
+        )
+        if runtime_checkpoint.stat().st_size != runtime_record.get("size"):
+            raise ValueError(
+                "Co-DINO runtime checkpoint size mismatch: "
+                f"{runtime_checkpoint}"
+            )
+        if verify in {"engines", "full"}:
+            if sha256_file(runtime_checkpoint) != runtime_record.get("sha256"):
+                raise ValueError(
+                    "Co-DINO runtime checkpoint SHA-256 mismatch: "
+                    f"{runtime_checkpoint}"
+                )
+    elif runtime_record is not None:
+        raise ValueError(
+            "portable Co-DINO bundle must not contain a runtime checkpoint"
+        )
+
     if verify == "full":
         source = payload.get("source")
         if not isinstance(source, dict):
@@ -268,6 +299,7 @@ def load_engine_bundle(
         mask_head_engine=engines["mask_head"],
         runtime_profile=runtime_profile,
         query_plugin_extension=plugin,
+        runtime_checkpoint=runtime_checkpoint,
         precision_policy=dict(precision_policy),
     )
 
@@ -277,6 +309,7 @@ __all__ = [
     "ENGINE_FILENAMES",
     "FAST_ENGINE_FILENAMES",
     "FAST_PLUGIN_FILENAME",
+    "RUNTIME_CHECKPOINT_FILE",
     "FAST_PRECISION_POLICY",
     "FAST_PRECISION_POLICIES",
     "FAST_PRECISION_POLICY_CLEAN",

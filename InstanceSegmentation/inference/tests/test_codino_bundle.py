@@ -18,6 +18,7 @@ from dinov3_codino.trt.bundle import (
     PROFILE,
     PROFILE_FAST,
     QUERY_SHAPES,
+    RUNTIME_CHECKPOINT_FILE,
     load_engine_bundle,
     sha256_file,
 )
@@ -98,6 +99,9 @@ class CoDinoBundleTest(unittest.TestCase):
         plugins.mkdir()
         plugin = plugins / FAST_PLUGIN_FILENAME
         plugin.write_bytes(b"fake SM120 plugin")
+        runtime_checkpoint = root / RUNTIME_CHECKPOINT_FILE
+        runtime_checkpoint.parent.mkdir()
+        runtime_checkpoint.write_bytes(b"fake runtime checkpoint")
         payload.update(
             {
                 "profile": PROFILE_FAST,
@@ -107,6 +111,10 @@ class CoDinoBundleTest(unittest.TestCase):
                 "query_plugin_extension": _record(
                     plugin,
                     stored_path=f"plugins/{FAST_PLUGIN_FILENAME}",
+                ),
+                "runtime_checkpoint": _record(
+                    runtime_checkpoint,
+                    stored_path=RUNTIME_CHECKPOINT_FILE,
                 ),
             }
         )
@@ -153,9 +161,23 @@ class CoDinoBundleTest(unittest.TestCase):
             bundle = load_engine_bundle(manifest, verify="engines")
             self.assertEqual(bundle.profile, PROFILE_FAST)
             self.assertEqual(bundle.runtime_profile, "fast-b2")
+            self.assertIsNotNone(bundle.runtime_checkpoint)
 
             plugin.write_bytes(b"tampered plugin")
             with self.assertRaisesRegex(ValueError, "plugin size mismatch"):
+                load_engine_bundle(manifest, verify="engines")
+
+    def test_fast_runtime_checkpoint_tampering_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = self._create_fast_bundle(root)
+            runtime_checkpoint = root / RUNTIME_CHECKPOINT_FILE
+            runtime_checkpoint.write_bytes(b"tampered runtime checkpoint")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "runtime checkpoint size mismatch",
+            ):
                 load_engine_bundle(manifest, verify="engines")
 
     def test_clean_rebuild_precision_policy_is_supported(self) -> None:
