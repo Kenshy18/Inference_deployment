@@ -13,6 +13,7 @@ from face_dino_v2.adapter import (
     FaceDinoV2Settings,
     ellipse_xyxy,
 )
+from face_dino_v2.preprocessing import LetterboxTransform
 
 
 class FakeRuntime:
@@ -29,6 +30,16 @@ class FakeRuntime:
 
     def close(self) -> None:
         self.closed = True
+
+
+class FakeRawRuntime(FakeRuntime):
+    def __init__(self, outputs, transform) -> None:
+        super().__init__(outputs)
+        self.transform = transform
+
+    def predict_raw(self, images):
+        assert len(images) == len(self.outputs)
+        return self.outputs, self.transform
 
 
 def _output(face_present: bool):
@@ -165,6 +176,72 @@ class FaceDinoV2AdapterTest(unittest.TestCase):
         self.assertEqual(
             [item.class_name for item in adapter.predict(frame)[0].detections],
             ["Face"],
+        )
+
+    def test_restores_network_coordinates_once_after_joining_results(self) -> None:
+        frame = FrameBatch.from_sequence(
+            [Frame(0, 0.0, np.zeros((20, 40, 3), dtype=np.uint8))]
+        )
+        raw = _output(True)
+        raw["boxes"] = torch.tensor([[4.0, 8.0, 40.0, 40.0]])
+        raw["ellipses"] = torch.tensor([[22.0, 24.0, 8.0, 4.0, 0.0]])
+        raw["keypoints"] = torch.tensor(
+            [
+                [
+                    [8.0, 12.0],
+                    [32.0, 12.0],
+                    [20.0, 20.0],
+                    [12.0, 28.0],
+                    [28.0, 28.0],
+                ]
+            ]
+        )
+        raw["ellipse_mask_boxes"] = torch.tensor([[4.0, 8.0, 40.0, 40.0]])
+        transform = LetterboxTransform(
+            source_height=20,
+            source_width=40,
+            resized_height=40,
+            resized_width=80,
+            scale_x=2.0,
+            scale_y=2.0,
+            pad_top=4,
+            pad_left=2,
+        )
+        adapter = FaceDinoV2Adapter(
+            self._settings(),
+            runtime=FakeRawRuntime([raw], transform),
+        )
+        results = adapter.predict(frame)
+        head = results[0].detections[0]
+        observation = head.face_observation
+        assert observation is not None
+        assert observation.ellipse is not None
+        assert observation.mask is not None
+        self.assertEqual(
+            (head.bbox.x1, head.bbox.y1, head.bbox.x2, head.bbox.y2),
+            (1.0, 2.0, 19.0, 18.0),
+        )
+        self.assertEqual(
+            (
+                observation.ellipse.cx,
+                observation.ellipse.cy,
+                observation.ellipse.major_radius,
+                observation.ellipse.minor_radius,
+            ),
+            (10.0, 10.0, 4.0, 2.0),
+        )
+        self.assertEqual(
+            (observation.keypoints[0].x, observation.keypoints[0].y),
+            (3.0, 4.0),
+        )
+        self.assertEqual(
+            (
+                observation.mask.box_x1,
+                observation.mask.box_y1,
+                observation.mask.box_x2,
+                observation.mask.box_y2,
+            ),
+            (1.0, 2.0, 19.0, 18.0),
         )
 
 

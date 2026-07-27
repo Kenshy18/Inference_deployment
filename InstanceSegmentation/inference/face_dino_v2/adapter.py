@@ -23,6 +23,7 @@ from contracts import (
 )
 
 from .model import FaceDinoRuntime, build_runtime
+from .preprocessing import LetterboxTransform
 
 
 LABEL_NAMES = {1: "Head", 2: "Face"}
@@ -53,6 +54,12 @@ class FaceDinoV2Settings:
     warmup_iterations: int = 3
     classes: frozenset[int] | None = None
     verify: str = "engines"
+
+
+@dataclass(frozen=True, slots=True)
+class _RawFaceBatch:
+    results: tuple[dict[str, torch.Tensor], ...]
+    transform: LetterboxTransform | None
 
 
 class FaceDinoV2Adapter:
@@ -96,52 +103,88 @@ class FaceDinoV2Adapter:
     def _allowed(self, class_id: int) -> bool:
         return self.settings.classes is None or class_id in self.settings.classes
 
-    def predict(self, batch: FrameBatch) -> tuple[DetectionFrame, ...]:
-        raw_results = self.runtime.predict(batch.images)
+    def infer_raw(self, batch: FrameBatch) -> _RawFaceBatch:
+        """Run the model without forcing per-image coordinate restoration."""
+
+        predictor = getattr(self.runtime, "predict_raw", None)
+        if callable(predictor):
+            results, transform = predictor(batch.images)
+            return _RawFaceBatch(tuple(results), transform)
+        # Preserve compatibility with test and third-party runtimes whose
+        # ``predict`` result is already expressed in source coordinates.
+        return _RawFaceBatch(tuple(self.runtime.predict(batch.images)), None)
+
+    @staticmethod
+    def _restore_packed_coordinates(
+        packed: torch.Tensor,
+        transform: LetterboxTransform,
+    ) -> None:
+        """Restore joined network-space coordinates with a bounded kernel count."""
+
+        def restore_xyxy(value: torch.Tensor) -> None:
+            value[:, 0::2].sub_(transform.pad_left).div_(transform.scale_x)
+            value[:, 1::2].sub_(transform.pad_top).div_(transform.scale_y)
+            value[:, 0::2].clamp_(0, transform.source_width)
+            value[:, 1::2].clamp_(0, transform.source_height)
+
+        restore_xyxy(packed[:, 0:4])
+        packed[:, 7].sub_(transform.pad_left).div_(transform.scale_x)
+        packed[:, 8].sub_(transform.pad_top).div_(transform.scale_y)
+        packed[:, 9:11].div_(0.5 * (transform.scale_x + transform.scale_y))
+        keypoints = packed[:, 12:22].view(-1, 5, 2)
+        keypoints[..., 0].sub_(transform.pad_left).div_(transform.scale_x)
+        keypoints[..., 1].sub_(transform.pad_top).div_(transform.scale_y)
+        restore_xyxy(packed[:, 72:76])
+
+    def convert_raw(
+        self,
+        batch: FrameBatch,
+        raw_batch: _RawFaceBatch,
+    ) -> tuple[DetectionFrame, ...]:
+        raw_results = raw_batch.results
         counts = [len(raw["boxes"]) for raw in raw_results]
-        packed = [
-            torch.cat(
+        total_count = sum(counts)
+        packed_rows: list[list[float]] = []
+        packed_masks = None
+        if total_count:
+
+            def join(name: str) -> torch.Tensor:
+                return torch.cat(
+                    [raw[name].detach() for raw in raw_results],
+                    dim=0,
+                )
+
+            packed = torch.cat(
                 (
-                    raw["boxes"].detach().float(),
-                    raw["scores"].detach().float()[:, None],
-                    raw["face_scores"].detach().float()[:, None],
-                    raw["face_present"].detach().float()[:, None],
-                    raw["ellipses"].detach().float(),
-                    raw["keypoints"].detach().float().flatten(1),
-                    raw["point_classes"].detach().float(),
-                    raw["keypoint_states"].detach().float(),
-                    raw["point_confidence"].detach().float(),
-                    raw["point_valid"].detach().float(),
-                    raw["point_class_probabilities"].detach().float().flatten(1),
-                    raw["point_state_probabilities"].detach().float().flatten(1),
-                    raw["ellipse_mask_boxes"].detach().float(),
+                    join("boxes").float(),
+                    join("scores").float()[:, None],
+                    join("face_scores").float()[:, None],
+                    join("face_present").float()[:, None],
+                    join("ellipses").float(),
+                    join("keypoints").float().flatten(1),
+                    join("point_classes").float(),
+                    join("keypoint_states").float(),
+                    join("point_confidence").float(),
+                    join("point_valid").float(),
+                    join("point_class_probabilities").float().flatten(1),
+                    join("point_state_probabilities").float().flatten(1),
+                    join("ellipse_mask_boxes").float(),
                 ),
                 dim=1,
             )
-            for raw in raw_results
-        ]
-        packed_rows = torch.cat(packed, dim=0).cpu().tolist() if sum(counts) else []
-        packed_masks = (
-            torch.cat(
-                [
-                    (
-                        raw["ellipse_moment_masks"]
-                        .detach()
-                        .float()
-                        .clamp(0.0, 1.0)
-                        .mul(255.0)
-                        .round()
-                        .to(torch.uint8)
-                    )
-                    for raw in raw_results
-                ],
-                dim=0,
+            if raw_batch.transform is not None:
+                self._restore_packed_coordinates(packed, raw_batch.transform)
+            packed_rows = packed.cpu().tolist()
+            packed_masks = (
+                join("ellipse_moment_masks")
+                .float()
+                .clamp_(0.0, 1.0)
+                .mul_(255.0)
+                .round_()
+                .to(torch.uint8)
+                .cpu()
+                .numpy()
             )
-            .cpu()
-            .numpy()
-            if sum(counts)
-            else None
-        )
         frames: list[DetectionFrame] = []
         offset = 0
         for frame, count in zip(batch.frames, counts):
@@ -263,6 +306,9 @@ class FaceDinoV2Adapter:
                 )
             )
         return tuple(frames)
+
+    def predict(self, batch: FrameBatch) -> tuple[DetectionFrame, ...]:
+        return self.convert_raw(batch, self.infer_raw(batch))
 
     def synchronize(self) -> None:
         self.runtime.synchronize()

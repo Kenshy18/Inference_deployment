@@ -11,7 +11,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .preprocessing import FusedVideoPreprocessor, restore_result
+from .preprocessing import (
+    FusedVideoPreprocessor,
+    LetterboxTransform,
+    restore_result,
+)
+from .optimized_predict import install_prefiltered_predict
 from .trt.bundle import FaceDinoEngineBundle, load_engine_bundle, sha256_file
 
 
@@ -109,6 +114,15 @@ class FaceDinoRuntime:
         self,
         frames: list[np.ndarray],
     ) -> list[dict[str, torch.Tensor]]:
+        results, transform = self.predict_raw(frames)
+        return [restore_result(result, transform) for result in results]
+
+    def predict_raw(
+        self,
+        frames: list[np.ndarray],
+    ) -> tuple[list[dict[str, torch.Tensor]], LetterboxTransform]:
+        """Return network-space tensors so an adapter can restore them in bulk."""
+
         if not 1 <= len(frames) <= self.fixed_batch_size:
             raise ValueError(f"Face DINO expects 1..{self.fixed_batch_size} frames")
         valid_count = len(frames)
@@ -123,13 +137,7 @@ class FaceDinoRuntime:
                 self._execute(images)
             self.warmed_up = True
         results = self._execute(images)
-        return [
-            restore_result(result, transform)
-            for result, transform in zip(
-                results[:valid_count],
-                transforms[:valid_count],
-            )
-        ]
+        return results[:valid_count], transforms[0]
 
     def synchronize(self) -> None:
         torch.cuda.synchronize(self.device)
@@ -212,6 +220,10 @@ def build_runtime(
     )
     install_batched_bbox(
         model.detector,
+        score_threshold=score_threshold,
+    )
+    install_prefiltered_predict(
+        model,
         score_threshold=score_threshold,
     )
     model.set_attribute_backend(
