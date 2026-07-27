@@ -5,9 +5,27 @@ import unittest
 import torch
 
 from rtdetr_head_face.postprocessing import filter_detections
+from rtdetr_head_face.preprocessing import make_batch
 
 
 class FaceDetectionPostprocessingTest(unittest.TestCase):
+    def test_batch_spatial_metadata_uses_width_height_order(self) -> None:
+        frame = torch.zeros((1080, 1920, 3), dtype=torch.uint8).numpy()
+
+        batch, original_sizes, padding, scale, input_sizes = make_batch(
+            [frame],
+            (512, 896),
+            torch.device("cpu"),
+            None,
+            False,
+        )
+
+        self.assertEqual(tuple(batch.shape), (1, 3, 512, 896))
+        self.assertEqual(original_sizes.tolist(), [[1920.0, 1080.0]])
+        self.assertEqual(input_sizes.tolist(), [[896.0, 512.0]])
+        self.assertEqual(padding.tolist(), [[0.0, 4.0]])
+        self.assertAlmostEqual(scale.item(), 896.0 / 1920.0, places=6)
+
     def test_filters_score_class_area_and_applies_nms(self) -> None:
         labels = torch.tensor([2, 2, 1, 2])
         boxes = torch.tensor(

@@ -41,7 +41,10 @@ def make_batch(
             .float()
             .div_(255.0)
         )
-        sizes.append((frame.shape[0], frame.shape[1]))
+        # RT-DETR's postprocessor repeats these pairs as [x, y, x, y],
+        # so spatial metadata must be [width, height], not NumPy's
+        # [height, width] order.
+        sizes.append((frame.shape[1], frame.shape[0]))
         paddings.append(padding)
         scales.append(scale)
     batch = torch.stack(tensors).to(device)
@@ -54,7 +57,11 @@ def make_batch(
         torch.tensor(sizes, device=device, dtype=torch.float32),
         torch.tensor(paddings, device=device, dtype=torch.float32),
         torch.tensor(scales, device=device, dtype=torch.float32),
-        torch.tensor([input_size] * len(frames), device=device, dtype=torch.float32),
+        torch.tensor(
+            [(input_size[1], input_size[0])] * len(frames),
+            device=device,
+            dtype=torch.float32,
+        ),
     )
 
 
