@@ -17,6 +17,7 @@ ENGINE_FILES = {
     "mask_head": "engines/mask_head.engine",
 }
 PLUGIN_FILE = "plugins/codino_msda_direct_mh0_sm120.so"
+PREPROCESS_PLUGIN_FILE = "plugins/mh0_preprocess_fused_sm120.so"
 
 
 def sha256_file(path: Path) -> str:
@@ -32,6 +33,7 @@ class Mh0EngineBundle:
     manifest_path: Path
     engines: dict[str, Path]
     plugin: Path
+    preprocess_plugin: Path
     batch_size: int
 
 
@@ -69,12 +71,25 @@ def load_engine_bundle(
         engines[name] = path.resolve()
     plugin = manifest.parent / PLUGIN_FILE
     _verify(plugin, records.get("plugin"), hashes=verify == "engines")
-    return Mh0EngineBundle(manifest, engines, plugin.resolve(), 16)
+    preprocess_plugin = manifest.parent / PREPROCESS_PLUGIN_FILE
+    _verify(
+        preprocess_plugin,
+        records.get("preprocess_plugin"),
+        hashes=verify == "engines",
+    )
+    return Mh0EngineBundle(
+        manifest,
+        engines,
+        plugin.resolve(),
+        preprocess_plugin.resolve(),
+        16,
+    )
 
 
 __all__ = [
     "ENGINE_FILES",
     "PLUGIN_FILE",
+    "PREPROCESS_PLUGIN_FILE",
     "PROFILE",
     "SCHEMA",
     "Mh0EngineBundle",

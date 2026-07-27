@@ -14,6 +14,7 @@ from pathlib import Path
 from bundle import (
     ENGINE_FILES,
     PLUGIN_FILE,
+    PREPROCESS_PLUGIN_FILE,
     PROFILE,
     SCHEMA,
     load_engine_bundle,
@@ -38,8 +39,11 @@ BUILD_SOURCES = (
     OPT / "export_trt_transformer.py",
     OPT / "export_trt_mask_head.py",
     OPT / "fast_engine_build.py",
+    OPT / "build_fused_preprocess.py",
     OPT / "native" / "msda_direct_mh0.cpp",
     OPT / "native" / "msda_direct_mh0.cu",
+    OPT / "native" / "preprocess_fused.cpp",
+    OPT / "native" / "preprocess_fused.cu",
 )
 
 
@@ -66,6 +70,9 @@ def _write_manifest(
         for name, relative in ENGINE_FILES.items()
     }
     artifacts["plugin"] = _record(output / PLUGIN_FILE)
+    artifacts["preprocess_plugin"] = _record(
+        output / PREPROCESS_PLUGIN_FILE
+    )
     payload = {
         "schema": SCHEMA,
         "profile": PROFILE,
@@ -163,6 +170,7 @@ def main() -> int:
     for directory in (onnx, engines, plugins, metadata):
         directory.mkdir(parents=True, exist_ok=True)
     plugin = output / PLUGIN_FILE
+    preprocess_plugin = output / PREPROCESS_PLUGIN_FILE
     environment = dict(os.environ)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["CUDA_HOME"] = str(python.parent.parent)
@@ -192,6 +200,17 @@ def main() -> int:
             str(engines / "backbone_neck.engine"),
             "--workspace-gb",
             str(args.workspace_gb),
+        ],
+        environment,
+    )
+    _run(
+        [
+            str(python),
+            str(OPT / "build_fused_preprocess.py"),
+            "--build-dir",
+            str(output / "native-preprocess-build"),
+            "--output",
+            str(preprocess_plugin),
         ],
         environment,
     )

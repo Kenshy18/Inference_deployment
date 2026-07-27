@@ -30,6 +30,7 @@ try:
         DEFAULT_TRT_BUNDLE,
         build_runtime,
     )
+    from .pipeline import run_mh0_video_inference
 except ImportError:
     from adapter import Mh0Adapter
     from model import (
@@ -38,6 +39,7 @@ except ImportError:
         DEFAULT_TRT_BUNDLE,
         build_runtime,
     )
+    from pipeline import run_mh0_video_inference
 
 from mask_geometry import DEFAULT_MAX_MASK_POINTS
 from persistence import AsyncSqliteWriter
@@ -130,7 +132,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         overwrite=args.overwrite,
         safe=not args.fast_sqlite,
     )
-    summary = run_video_inference(
+    pipeline = (
+        run_mh0_video_inference
+        if args.backend == "tensorrt-fast"
+        else run_video_inference
+    )
+    summary = pipeline(
         input_path=input_path,
         adapter=adapter,
         writer=writer,

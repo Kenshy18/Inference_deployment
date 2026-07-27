@@ -19,7 +19,14 @@ from .trt_transformer import install_trt_transformer
 
 SUPPORTED_BACKENDS = frozenset({"tensorrt-fast", "pytorch"})
 TRT_ARTIFACT_NAMES = frozenset(
-    {"backbone_neck", "query_encoder", "decoder", "mask_head", "plugin"}
+    {
+        "backbone_neck",
+        "query_encoder",
+        "decoder",
+        "mask_head",
+        "plugin",
+        "preprocess_plugin",
+    }
 )
 
 
@@ -120,6 +127,7 @@ def build_backend_model(
         model._mh0_gpu_preprocessor = GPUPreprocessor(
             device,
             model._mh0_batch_size,
+            fused_extension=trt_artifacts["preprocess_plugin"],
         )
     return model
 

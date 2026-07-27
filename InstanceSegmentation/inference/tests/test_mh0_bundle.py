@@ -8,6 +8,7 @@ from pathlib import Path
 from dinov3_codino_mh0.trt.bundle import (
     ENGINE_FILES,
     PLUGIN_FILE,
+    PREPROCESS_PLUGIN_FILE,
     PROFILE,
     SCHEMA,
     load_engine_bundle,
@@ -32,6 +33,10 @@ class Mh0BundleTest(unittest.TestCase):
         plugin.parent.mkdir(parents=True, exist_ok=True)
         plugin.write_bytes(b"plugin")
         artifacts["plugin"] = _record(plugin)
+        preprocess_plugin = root / PREPROCESS_PLUGIN_FILE
+        preprocess_plugin.parent.mkdir(parents=True, exist_ok=True)
+        preprocess_plugin.write_bytes(b"preprocess-plugin")
+        artifacts["preprocess_plugin"] = _record(preprocess_plugin)
         manifest = root / "manifest.json"
         manifest.write_text(
             json.dumps(
@@ -63,6 +68,10 @@ class Mh0BundleTest(unittest.TestCase):
             )
             self.assertEqual(bundle.batch_size, 16)
             self.assertEqual(set(bundle.engines), set(ENGINE_FILES))
+            self.assertEqual(
+                bundle.preprocess_plugin.name,
+                Path(PREPROCESS_PLUGIN_FILE).name,
+            )
 
     def test_tampered_engine_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

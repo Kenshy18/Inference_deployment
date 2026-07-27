@@ -11,6 +11,7 @@ import numpy as np
 
 from contracts import Frame, FrameBatch
 from dinov3_codino_mh0.adapter import Mh0Adapter
+from dinov3_codino_mh0.pipeline import run_mh0_video_inference
 from persistence import SqliteWriter
 from pipelines import run_video_inference
 from video import VideoMetadata
@@ -226,6 +227,101 @@ class Mh0AdapterTest(unittest.TestCase):
                         "SELECT value FROM metadata WHERE key='model_id'"
                     ).fetchone()[0],
                     "dinov3_codino_mh0_pytorch",
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "PRAGMA integrity_check"
+                    ).fetchone()[0],
+                    "ok",
+                )
+
+    def test_overlapped_pipeline_preserves_source_order(self) -> None:
+        batches = tuple(
+            FrameBatch.from_sequence(
+                [
+                    Frame(
+                        index=index,
+                        timestamp_sec=index / 30,
+                        image=np.zeros((12, 16, 3), dtype=np.uint8),
+                    )
+                ]
+            )
+            for index in range(3)
+        )
+        raw_by_frame = {
+            index: [
+                _raw_result(
+                    [[index, 1, index + 3, 5, 0.9]],
+                    [
+                        _mask(
+                            regions=(
+                                (slice(1, 5), slice(index, index + 3)),
+                            )
+                        )
+                    ],
+                )
+            ]
+            for index in range(3)
+        }
+
+        class FakeDecoder:
+            def __init__(self, *args, **kwargs) -> None:
+                del args, kwargs
+                self.metadata = VideoMetadata(
+                    frames=3,
+                    fps=30.0,
+                    width=16,
+                    height=12,
+                )
+
+            def __iter__(self):
+                yield from batches
+
+            def close(self) -> None:
+                return None
+
+        adapter = Mh0Adapter(_runtime(), score_threshold=0.5)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "mh0-overlapped.sqlite"
+            writer = SqliteWriter(output)
+
+            def fake_infer(_runtime, images):
+                index = int(images[0][0, 0, 0])
+                return raw_by_frame[index]
+
+            for index, batch in enumerate(batches):
+                batch.frames[0].image[0, 0, 0] = index
+            with (
+                patch(
+                    "dinov3_codino_mh0.adapter.infer",
+                    side_effect=fake_infer,
+                ),
+                patch(
+                    "dinov3_codino_mh0.pipeline.AsyncVideoDecoder",
+                    FakeDecoder,
+                ),
+            ):
+                summary = run_mh0_video_inference(
+                    input_path=Path("fake.mp4"),
+                    adapter=adapter,
+                    writer=writer,
+                    batch_size=1,
+                    max_frames=None,
+                    warmup_frames=0,
+                    output_queue_batches=2,
+                )
+
+            self.assertEqual(summary.processed_frames, 3)
+            self.assertEqual(summary.result_items, 3)
+            with sqlite3.connect(output) as connection:
+                self.assertEqual(
+                    [
+                        row[0]
+                        for row in connection.execute(
+                            "SELECT frame_index FROM frames ORDER BY rowid"
+                        )
+                    ],
+                    [0, 1, 2],
                 )
                 self.assertEqual(
                     connection.execute(

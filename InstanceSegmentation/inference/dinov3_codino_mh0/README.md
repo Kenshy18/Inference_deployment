@@ -20,7 +20,11 @@ TensorRT版は次の4区間と専用MSDA CUDA pluginで構成されます。
 4. FP32 N16 mask refinement head
 
 未使用P6の削除、固定query幾何のキャッシュ、バッチbbox後処理、
-ROI-local semantic convolution、union-cropped mask pasteを含みます。
+ROI-local semantic convolution、union-cropped mask pasteに加えて、
+BGR letterbox・RGB変換・ImageNet正規化を1 kernelで行うCUDA pluginを
+含みます。モデル推論中には、前バッチのmask polygon化と共通契約への変換を
+1 workerで重ねます。キューは有界で、SQLiteへの書き込み順序は元フレーム順を
+維持します。
 
 ## Repository-wide inference
 
@@ -142,8 +146,11 @@ engineをその環境で再生成してください。ビルド後はPyTorch版�
 
 ## Validated performance
 
-RTX 5090、1920x1080、5,290フレームの動画では、モデル推論部分が
-142.532 FPSでした。固定入力100 iterationでは153.452 images/sです。
+RTX 5090、1920x1080、5,290フレームの動画では、CUDA融合前処理と
+CPU契約変換のoverlapを有効にしたモデル推論部分が149.734 FPS、
+decode・polygon化・SQLite enqueueを含む推論ループが146.201 FPSでした。
+プロセス起動とengine検証を含む全体は44.15秒です。
+固定入力100 iterationでは153.452 images/sです。
 動画全域から5フレーム間隔で1,058フレームをPyTorch版と比較した結果:
 
 - detection-count agreement: 98.866%
@@ -152,5 +159,5 @@ RTX 5090、1920x1080、5,290フレームの動画では、モデル推論部分�
 
 この比較はPyTorchとの数値parityであり、教師ラベルに対するmAPではありません。
 
-共通Adapterでmask polygon化まで含めた300フレーム測定は118.898 FPS、
-動画decodeとSQLite書き込み込みでは85.316 FPSでした。
+上記5,290フレームでは最適化前の同一出力SQLiteと全テーブル・全行が一致し、
+プロセス全体は46.67秒から44.15秒へ5.4%短縮しました。

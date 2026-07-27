@@ -45,8 +45,18 @@ class Mh0Adapter:
             ),
         )
 
-    def predict(self, batch: FrameBatch) -> tuple[SegmentationFrame, ...]:
-        raw_results = infer(self.runtime, batch.images)
+    def infer_raw(self, batch: FrameBatch) -> Any:
+        """Run the model while leaving CPU contract conversion to the caller."""
+
+        return infer(self.runtime, batch.images)
+
+    def convert_raw(
+        self,
+        batch: FrameBatch,
+        raw_results: Any,
+    ) -> tuple[SegmentationFrame, ...]:
+        """Convert already-materialized model output to the shared contract."""
+
         output = []
         for frame, raw in zip(batch.frames, raw_results):
             box_results, segmentation_results = _normalize_result(raw)
@@ -88,6 +98,9 @@ class Mh0Adapter:
                 )
             )
         return tuple(output)
+
+    def predict(self, batch: FrameBatch) -> tuple[SegmentationFrame, ...]:
+        return self.convert_raw(batch, self.infer_raw(batch))
 
     def synchronize(self) -> None:
         if (

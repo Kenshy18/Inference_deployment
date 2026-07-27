@@ -2,7 +2,7 @@
   "schema": "dinov3-codino-mh0-trt-bundle-v1",
   "profile": "fast-sm120-fixed-b16-v1",
   "status": "complete",
-  "created_at_utc": "2026-07-27T13:48:06.996315+00:00",
+  "created_at_utc": "2026-07-27T21:18:05.105362+00:00",
   "batch_size": 16,
   "input_size": [
     16,
@@ -43,17 +43,17 @@
     },
     "builder": {
       "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino_mh0/trt/build_fast_engines.py",
-      "size": 8245,
-      "sha256": "ea30154561734c56942d6afeaa39786b3abfad0f4d8827c1a9f565f2b866d191"
+      "size": 8824,
+      "sha256": "ec2836fc67763177e1836674954acb84a0806a0dea3b307fb1ec4fc881756241"
     },
     "builder_sources": {
       "trt/build_fast_engines.py": {
-        "size": 8245,
-        "sha256": "ea30154561734c56942d6afeaa39786b3abfad0f4d8827c1a9f565f2b866d191"
+        "size": 8824,
+        "sha256": "ec2836fc67763177e1836674954acb84a0806a0dea3b307fb1ec4fc881756241"
       },
       "bootstrap.py": {
-        "size": 2146,
-        "sha256": "27cda8615539d55ff361411f6fad5b160de210a8c926d98fc5c9056ff8cd7ebd"
+        "size": 2145,
+        "sha256": "e52df425bab413862bb6745536816f7b5f827369c2a78c958d2f41d258a124c9"
       },
       "optimization/build_trt_backbone.py": {
         "size": 10061,
@@ -68,8 +68,12 @@
         "sha256": "66677ea2e7538da34188da8c05495639b8efbb8af20f97dae2fda6906360082e"
       },
       "optimization/fast_engine_build.py": {
-        "size": 16379,
-        "sha256": "5b3497cbb03cd14d747020757517a639a501ab5b28eacb09fee76c1d8ee5b794"
+        "size": 16376,
+        "sha256": "d85bf2e096efd3deaa919b0d4477649121552722b54725147f60354cb9f39994"
+      },
+      "optimization/build_fused_preprocess.py": {
+        "size": 1853,
+        "sha256": "ae99cd294c6bd93f8d219cdfaf216b13d0c16e958371f6f0048e79514ba9b374"
       },
       "optimization/native/msda_direct_mh0.cpp": {
         "size": 390,
@@ -78,6 +82,14 @@
       "optimization/native/msda_direct_mh0.cu": {
         "size": 6356,
         "sha256": "cfb699fc02c9854dcafe4f762f6924dfd06f27670fd50021bbbe1fbe79b651dd"
+      },
+      "optimization/native/preprocess_fused.cpp": {
+        "size": 370,
+        "sha256": "d59d31004bf4c0d9155fcea7d68f9673de35b8014fa491f1058526a144aefe1b"
+      },
+      "optimization/native/preprocess_fused.cu": {
+        "size": 4501,
+        "sha256": "f65475aa814e12917490e0d70825c8d48a8089d41ce1d897f3fcce075421da4d"
       }
     },
     "runtime_source_archives": {
@@ -111,6 +123,10 @@
     "plugin": {
       "size": 283576,
       "sha256": "6081f074af3a086e4b60164cff6a4764a143775599db1441bf1f874f33bfee6d"
+    },
+    "preprocess_plugin": {
+      "size": 283344,
+      "sha256": "b63020d4672ddaf3b2b24401be29c9992e0853d579a54db5fad2345793ede13f"
     }
   }
 }

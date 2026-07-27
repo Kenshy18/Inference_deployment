@@ -68,6 +68,7 @@ def build_runtime(
         artifact_paths = {
             **bundle.engines,
             "plugin": bundle.plugin,
+            "preprocess_plugin": bundle.preprocess_plugin,
         }
     model = build_backend_model(
         config=config,
