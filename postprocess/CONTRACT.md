@@ -144,6 +144,28 @@ segmentation_points(polygon_id, point_index, x, y)
 共通の読み書きには`contracts.read_mask_rows`と
 `contracts.write_mask_sqlite`を使用します。
 
+標準のraw入力パイプラインが生成する`tracked_sqlite`と
+`predictions_sqlite`には、カット検出結果も次の監査テーブルとして保持します。
+
+```text
+cuts(frame INTEGER PRIMARY KEY)
+cut_detection_metadata(
+  id INTEGER PRIMARY KEY,       -- 常に1
+  schema_version INTEGER,       -- 現在1
+  method TEXT,
+  elapsed_seconds REAL,
+  cut_count INTEGER,
+  frame_semantics TEXT          -- first_frame_of_new_scene
+)
+```
+
+`cuts.frame`は新しいシーンの先頭となる0-basedフレーム番号です。
+`cut_detection_metadata`がある場合、最終validatorは1行だけであること、
+`cut_count`と`cuts`の件数が一致することを検証します。旧来の追跡済みSQLiteを
+入力する場合を考慮し、これらの監査テーブルがないSQLiteも読み込み可能です。
+後処理の各マスク変換は参照SQLiteを安全にbackupしてから`masks`だけを書き換える
+ため、カット情報はポリゴン・楕円のどちらでも最終SQLiteまで伝搬します。
+
 ## 6. 新実装の条件
 
 1. 所有する機能ディレクトリ内に実装する。

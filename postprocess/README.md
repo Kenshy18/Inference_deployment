@@ -100,6 +100,11 @@ python run_pipeline.py \
 `pipeline_manifest.json`が生成されます。manifestには使用実装、要求・提供
 成果物、実行時間、全成果物のパスが記録されます。
 
+raw入力からカット検出を実行した場合、最終`predictions.sqlite`には
+`cuts`（新シーン先頭フレーム）と`cut_detection_metadata`（方式、所要時間、
+件数、フレーム意味論）が保持されます。マスク変換後にも件数とメタデータの
+整合性を最終validatorが確認します。
+
 ## モジュールの交換・追加
 
 標準構成は`configs/pipelines/*.json`で確認できます。`--pipeline-config`に

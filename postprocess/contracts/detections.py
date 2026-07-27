@@ -11,6 +11,7 @@ the detections documented in ``CONTRACT.md``.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -97,10 +98,21 @@ class CutList:
         frames = value.get("frames")
         if not isinstance(frames, list):
             raise ValueError(f"{path}: cut-list frames must be a list")
+        normalized_frames = tuple(sorted({int(frame) for frame in frames}))
+        if any(frame < 0 for frame in normalized_frames):
+            raise ValueError(f"{path}: cut-list frames must be non-negative")
+        method = str(value.get("method", "")).strip()
+        if not method:
+            raise ValueError(f"{path}: cut-list method must not be empty")
+        elapsed_seconds = float(value.get("elapsed_seconds", 0.0))
+        if not math.isfinite(elapsed_seconds) or elapsed_seconds < 0:
+            raise ValueError(
+                f"{path}: cut-list elapsed_seconds must be finite and non-negative"
+            )
         return cls(
-            frames=tuple(sorted({int(frame) for frame in frames})),
-            method=str(value.get("method", "unknown")),
-            elapsed_seconds=float(value.get("elapsed_seconds", 0.0)),
+            frames=normalized_frames,
+            method=method,
+            elapsed_seconds=elapsed_seconds,
         )
 
 

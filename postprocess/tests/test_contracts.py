@@ -148,6 +148,27 @@ class OutputContractTests(unittest.TestCase):
                 connection.execute(
                     "CREATE TABLE tracks(track_id TEXT PRIMARY KEY, label TEXT)"
                 )
+                connection.execute("CREATE TABLE cuts(frame INTEGER PRIMARY KEY)")
+                connection.execute(
+                    """
+                    CREATE TABLE cut_detection_metadata(
+                        id INTEGER PRIMARY KEY,
+                        schema_version INTEGER,
+                        method TEXT,
+                        elapsed_seconds REAL,
+                        cut_count INTEGER,
+                        frame_semantics TEXT
+                    )
+                    """
+                )
+                connection.execute("INSERT INTO cuts(frame) VALUES (3)")
+                connection.execute(
+                    """
+                    INSERT INTO cut_detection_metadata
+                    VALUES (1, 1, 'fixed', 0.25, 1,
+                            'first_frame_of_new_scene')
+                    """
+                )
                 connection.commit()
 
                 write_mask_sqlite(
@@ -170,6 +191,53 @@ class OutputContractTests(unittest.TestCase):
                     1,
                     copied.execute("SELECT COUNT(*) FROM masks").fetchone()[0],
                 )
+                self.assertEqual(
+                    [(3,)],
+                    copied.execute("SELECT frame FROM cuts").fetchall(),
+                )
+                self.assertEqual(
+                    [("fixed", 1)],
+                    copied.execute(
+                        "SELECT method, cut_count FROM cut_detection_metadata"
+                    ).fetchall(),
+                )
+            stats = validate_mask_sqlite(output)
+            self.assertEqual(stats.cuts, 1)
+            self.assertEqual(stats.cut_detection_method, "fixed")
+
+    def test_cut_metadata_count_mismatch_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "predictions.sqlite"
+            self._write_sqlite(
+                path,
+                json.dumps([[[0, 0], [1, 0], [1, 1]]]),
+            )
+            with sqlite3.connect(str(path)) as connection:
+                connection.execute("CREATE TABLE cuts(frame INTEGER PRIMARY KEY)")
+                connection.execute(
+                    """
+                    CREATE TABLE cut_detection_metadata(
+                        id INTEGER PRIMARY KEY,
+                        schema_version INTEGER,
+                        method TEXT,
+                        elapsed_seconds REAL,
+                        cut_count INTEGER,
+                        frame_semantics TEXT
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO cut_detection_metadata
+                    VALUES (1, 1, 'fixed', 0.1, 1,
+                            'first_frame_of_new_scene')
+                    """
+                )
+            with self.assertRaisesRegex(
+                OutputContractError,
+                "cut_count does not match",
+            ):
+                validate_mask_sqlite(path)
 
 
 if __name__ == "__main__":

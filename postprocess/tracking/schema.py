@@ -9,7 +9,14 @@ def create_schema(connection: sqlite3.Connection) -> None:
     """Create a fresh tracked-mask schema on an open connection."""
 
     cursor = connection.cursor()
-    for table in ("masks", "tracks", "cuts", "raw_tracked_masks", "raw_tracks"):
+    for table in (
+        "masks",
+        "tracks",
+        "cuts",
+        "cut_detection_metadata",
+        "raw_tracked_masks",
+        "raw_tracks",
+    ):
         cursor.execute(f"DROP TABLE IF EXISTS {table}")
 
     cursor.execute(
@@ -30,6 +37,19 @@ def create_schema(connection: sqlite3.Connection) -> None:
     )
     cursor.execute("CREATE TABLE tracks(track_id TEXT PRIMARY KEY, label TEXT)")
     cursor.execute("CREATE TABLE cuts(frame INTEGER PRIMARY KEY)")
+    cursor.execute(
+        """
+        CREATE TABLE cut_detection_metadata(
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            schema_version INTEGER NOT NULL,
+            method TEXT NOT NULL CHECK(length(method) > 0),
+            elapsed_seconds REAL NOT NULL CHECK(elapsed_seconds >= 0),
+            cut_count INTEGER NOT NULL CHECK(cut_count >= 0),
+            frame_semantics TEXT NOT NULL
+                CHECK(frame_semantics = 'first_frame_of_new_scene')
+        )
+        """
+    )
     cursor.execute(
         """
         CREATE TABLE raw_tracked_masks(

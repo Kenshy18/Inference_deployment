@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -61,10 +62,18 @@ class WorkflowTests(unittest.TestCase):
             manifest = OrchestrationRunner(config).run()
 
             self.assertEqual("complete", manifest["status"])
-            self.assertTrue(
-                Path(manifest["artifacts"]["tracked_sqlite"]).is_file()
-            )
+            self.assertTrue(Path(manifest["artifacts"]["tracked_sqlite"]).is_file())
             self.assertTrue(Path(manifest["artifacts"]["final_sqlite"]).is_file())
+            with sqlite3.connect(manifest["artifacts"]["final_sqlite"]) as connection:
+                self.assertEqual(
+                    [("disabled", 0, "first_frame_of_new_scene")],
+                    connection.execute(
+                        """
+                        SELECT method, cut_count, frame_semantics
+                        FROM cut_detection_metadata
+                        """
+                    ).fetchall(),
+                )
             for mode in ("raw", "tracked", "final", "faces"):
                 path = Path(manifest["artifacts"][f"overlay_{mode}"])
                 self.assertTrue(path.is_file())
@@ -87,4 +96,3 @@ class WorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

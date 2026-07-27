@@ -51,9 +51,7 @@ class ConfigTests(unittest.TestCase):
                             {
                                 "input_video": str(video),
                                 "output_root": str(root / "output"),
-                                "execution": {
-                                    "runtime_python": sys.executable
-                                },
+                                "execution": {"runtime_python": sys.executable},
                                 "inference": {
                                     "enabled": False,
                                     "input_sqlite": str(sqlite),
@@ -94,6 +92,20 @@ class ConfigTests(unittest.TestCase):
                         self.assertEqual(
                             command[command.index("--cpu-workers") + 1],
                             "0",
+                        )
+                    elif execution_mode == "cpu":
+                        self.assertEqual(
+                            command[command.index("--h264-crf") + 1],
+                            "18",
+                        )
+                        self.assertEqual(
+                            command[command.index("--h264-preset") + 1],
+                            "veryfast",
+                        )
+                    else:
+                        self.assertEqual(
+                            command[command.index("--nvenc-cq") + 1],
+                            "18",
                         )
 
     def test_dry_run_builds_inference_command_without_executing_model(self) -> None:
@@ -217,6 +229,47 @@ class ConfigTests(unittest.TestCase):
                 command[command.index("--nvenc-gpu") + 1],
                 "0",
             )
+
+    def test_overlay_quality_settings_are_typed_and_forwarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation",
+                        },
+                        "postprocess": {"enabled": False},
+                        "overlay": {
+                            "enabled": True,
+                            "execution_mode": "cpu",
+                            "raw": True,
+                            "tracked": False,
+                            "final": False,
+                            "h264_crf": 16,
+                            "h264_preset": "fast",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            command = OrchestrationRunner(config, dry_run=True).overlay_command(
+                mode="raw",
+                source_sqlite=sqlite,
+                output=root / "output" / "raw.mp4",
+            )
+            self.assertEqual(command[command.index("--h264-crf") + 1], "16")
+            self.assertEqual(command[command.index("--h264-preset") + 1], "fast")
 
     def test_legacy_experimental_backend_maps_to_fast_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

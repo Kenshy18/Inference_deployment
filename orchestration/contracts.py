@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from pathlib import Path
 
@@ -21,10 +22,7 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
 
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    return {
-        str(row[1])
-        for row in connection.execute(f'PRAGMA table_info("{table}")')
-    }
+    return {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
 
 
 def validate_inference_sqlite(
@@ -141,9 +139,7 @@ def validate_mask_sqlite(path: Path) -> dict[str, object]:
         tables = _tables(connection)
         if "masks" not in tables:
             raise ArtifactError(f"{source}: masks table is absent")
-        missing = {"frame", "track_id", "polygons"} - _columns(
-            connection, "masks"
-        )
+        missing = {"frame", "track_id", "polygons"} - _columns(connection, "masks")
         if missing:
             raise ArtifactError(f"{source}: masks columns missing: {sorted(missing)}")
         row = connection.execute(
@@ -158,11 +154,75 @@ def validate_mask_sqlite(path: Path) -> dict[str, object]:
             decoded = json.loads(str(polygons))
             if not isinstance(decoded, list):
                 raise ArtifactError(f"{source}: polygons must decode to a list")
+        cut_count = 0
+        if "cuts" in tables:
+            if "frame" not in _columns(connection, "cuts"):
+                raise ArtifactError(f"{source}: cuts.frame is absent")
+            for (cut_frame,) in connection.execute(
+                "SELECT frame FROM cuts ORDER BY frame"
+            ):
+                if cut_frame is None or int(cut_frame) < 0:
+                    raise ArtifactError(f"{source}: invalid cut frame {cut_frame!r}")
+                cut_count += 1
+
+        cut_method: str | None = None
+        if "cut_detection_metadata" in tables:
+            if "cuts" not in tables:
+                raise ArtifactError(f"{source}: cut metadata requires cuts")
+            required_metadata_columns = {
+                "id",
+                "schema_version",
+                "method",
+                "elapsed_seconds",
+                "cut_count",
+                "frame_semantics",
+            }
+            missing_metadata_columns = required_metadata_columns - _columns(
+                connection, "cut_detection_metadata"
+            )
+            if missing_metadata_columns:
+                raise ArtifactError(
+                    f"{source}: cut metadata columns missing: "
+                    f"{sorted(missing_metadata_columns)}"
+                )
+            metadata = connection.execute(
+                """
+                SELECT id, schema_version, method, elapsed_seconds, cut_count,
+                       frame_semantics
+                FROM cut_detection_metadata
+                """
+            ).fetchall()
+            if len(metadata) != 1:
+                raise ArtifactError(
+                    f"{source}: cut metadata must contain exactly one row"
+                )
+            (
+                metadata_id,
+                schema_version,
+                method,
+                elapsed_seconds,
+                metadata_cut_count,
+                frame_semantics,
+            ) = metadata[0]
+            if int(metadata_id) != 1 or int(schema_version) != 1:
+                raise ArtifactError(f"{source}: unsupported cut metadata contract")
+            cut_method = str(method)
+            elapsed_value = float(elapsed_seconds)
+            if (
+                not cut_method
+                or not math.isfinite(elapsed_value)
+                or elapsed_value < 0
+                or int(metadata_cut_count) != cut_count
+                or str(frame_semantics) != "first_frame_of_new_scene"
+            ):
+                raise ArtifactError(f"{source}: invalid or inconsistent cut metadata")
         return {
             "path": str(source),
             "masks": int(row[0]),
             "first_frame": None if row[1] is None else int(row[1]),
             "last_frame": None if row[2] is None else int(row[2]),
+            "cuts": cut_count,
+            "cut_detection_method": cut_method,
         }
 
 

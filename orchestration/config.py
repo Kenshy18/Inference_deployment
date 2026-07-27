@@ -151,6 +151,9 @@ class OverlayConfig:
     box_thickness: int = 2
     show_labels: bool = True
     codec: str = "mp4v"
+    h264_crf: int = 18
+    h264_preset: str = "veryfast"
+    nvenc_cq: int = 18
     workers: int = 6
     cpu_workers: int = 0
     copy_audio: bool = False
@@ -272,9 +275,7 @@ class OrchestrationConfig:
                 if inference_raw.get("segmentation_model") in (None, "")
                 else str(inference_raw["segmentation_model"])
             ),
-            segmentation_backend=str(
-                inference_raw.get("segmentation_backend", "auto")
-            ),
+            segmentation_backend=str(inference_raw.get("segmentation_backend", "auto")),
             face_model=str(inference_raw.get("face_model", "rtdetr_head_face")),
             face_classes=_string_tuple(
                 face_classes_value,
@@ -286,9 +287,7 @@ class OrchestrationConfig:
                 "inference.max_frames",
             ),
             warmup_frames=int(inference_raw.get("warmup_frames", 0)),
-            face_warmup_iterations=int(
-                inference_raw.get("face_warmup_iterations", 3)
-            ),
+            face_warmup_iterations=int(inference_raw.get("face_warmup_iterations", 3)),
             fast_sqlite=bool(inference_raw.get("fast_sqlite", False)),
             extra_args=_string_tuple(
                 inference_raw.get("extra_args"),
@@ -388,6 +387,9 @@ class OrchestrationConfig:
             "box_thickness",
             "show_labels",
             "codec",
+            "h264_crf",
+            "h264_preset",
+            "nvenc_cq",
             "workers",
             "cpu_workers",
             "copy_audio",
@@ -402,9 +404,7 @@ class OrchestrationConfig:
         }
         _reject_unknown(overlay_raw, overlay_allowed, "overlay")
         configured_execution_mode = overlay_raw.get("execution_mode")
-        configured_backend = str(
-            overlay_raw.get("backend", "python_opencv")
-        )
+        configured_backend = str(overlay_raw.get("backend", "python_opencv"))
         configured_codec = str(overlay_raw.get("codec", "mp4v"))
         if configured_execution_mode is None:
             if configured_backend in {"experimental_cpp", "native"}:
@@ -414,9 +414,7 @@ class OrchestrationConfig:
             else:
                 overlay_execution_mode = "cpu"
             overlay_backend = (
-                "native"
-                if overlay_execution_mode == "fast"
-                else "python_opencv"
+                "native" if overlay_execution_mode == "fast" else "python_opencv"
             )
             overlay_codec = configured_codec
         else:
@@ -424,31 +422,20 @@ class OrchestrationConfig:
             if overlay_execution_mode == "fast_parallel":
                 overlay_execution_mode = "fast"
             expected_backend = (
-                "native"
-                if overlay_execution_mode == "fast"
-                else "python_opencv"
+                "native" if overlay_execution_mode == "fast" else "python_opencv"
             )
             expected_codec = (
-                "h264_nvenc"
-                if overlay_execution_mode in {"nvenc", "fast"}
-                else "h264"
+                "h264_nvenc" if overlay_execution_mode in {"nvenc", "fast"} else "h264"
             )
-            if (
-                "backend" in overlay_raw
-                and configured_backend
-                not in (
-                    {"native", "experimental_cpp"}
-                    if overlay_execution_mode == "fast"
-                    else {expected_backend}
-                )
+            if "backend" in overlay_raw and configured_backend not in (
+                {"native", "experimental_cpp"}
+                if overlay_execution_mode == "fast"
+                else {expected_backend}
             ):
                 raise OrchestrationConfigError(
                     "overlay.backend conflicts with overlay.execution_mode"
                 )
-            if (
-                "codec" in overlay_raw
-                and configured_codec.lower() != expected_codec
-            ):
+            if "codec" in overlay_raw and configured_codec.lower() != expected_codec:
                 raise OrchestrationConfigError(
                     "overlay.codec conflicts with overlay.execution_mode"
                 )
@@ -462,14 +449,15 @@ class OrchestrationConfig:
             tracked=bool(overlay_raw.get("tracked", True)),
             final=bool(overlay_raw.get("final", True)),
             faces=bool(overlay_raw.get("faces", False)),
-            final_include_faces=bool(
-                overlay_raw.get("final_include_faces", False)
-            ),
+            final_include_faces=bool(overlay_raw.get("final_include_faces", False)),
             mask_alpha=float(overlay_raw.get("mask_alpha", 0.32)),
             outline_thickness=int(overlay_raw.get("outline_thickness", 2)),
             box_thickness=int(overlay_raw.get("box_thickness", 2)),
             show_labels=bool(overlay_raw.get("show_labels", True)),
             codec=overlay_codec,
+            h264_crf=int(overlay_raw.get("h264_crf", 18)),
+            h264_preset=str(overlay_raw.get("h264_preset", "veryfast")),
+            nvenc_cq=int(overlay_raw.get("nvenc_cq", 18)),
             workers=int(overlay_raw.get("workers", 6)),
             cpu_workers=int(overlay_raw.get("cpu_workers", 0)),
             copy_audio=bool(overlay_raw.get("copy_audio", False)),
@@ -480,9 +468,7 @@ class OrchestrationConfig:
             nvenc_preset=str(
                 overlay_raw.get(
                     "nvenc_preset",
-                    "p1"
-                    if overlay_execution_mode == "fast"
-                    else "p5",
+                    "p1" if overlay_execution_mode == "fast" else "p5",
                 )
             ),
             nvenc_gpu=int(overlay_raw.get("nvenc_gpu", 0)),
@@ -551,7 +537,10 @@ class OrchestrationConfig:
                 raise OrchestrationConfigError(
                     "inference.input_sqlite is only valid when inference.enabled=false"
                 )
-            if self.inference.uses_segmentation and not self.inference.segmentation_model:
+            if (
+                self.inference.uses_segmentation
+                and not self.inference.segmentation_model
+            ):
                 raise OrchestrationConfigError(
                     "inference.segmentation_model is required"
                 )
@@ -630,9 +619,7 @@ class OrchestrationConfig:
                 "overlay.end_frame must be >= overlay.start_frame"
             )
         if not 0.0 <= self.overlay.mask_alpha <= 1.0:
-            raise OrchestrationConfigError(
-                "overlay.mask_alpha must be between 0 and 1"
-            )
+            raise OrchestrationConfigError("overlay.mask_alpha must be between 0 and 1")
         if self.overlay.backend not in {
             "python_opencv",
             "native",
@@ -649,9 +636,7 @@ class OrchestrationConfig:
                 "overlay.execution_mode must be cpu, nvenc, or fast"
             )
         expected_backend = (
-            "native"
-            if self.overlay.execution_mode == "fast"
-            else "python_opencv"
+            "native" if self.overlay.execution_mode == "fast" else "python_opencv"
         )
         if self.overlay.backend != expected_backend:
             raise OrchestrationConfigError(
@@ -670,9 +655,7 @@ class OrchestrationConfig:
                 "requires codec=h264_nvenc"
             )
         if self.overlay.workers < 1:
-            raise OrchestrationConfigError(
-                "overlay.workers must be at least 1"
-            )
+            raise OrchestrationConfigError("overlay.workers must be at least 1")
         if not 0 <= self.overlay.cpu_workers <= self.overlay.workers:
             raise OrchestrationConfigError(
                 "overlay.cpu_workers must be between 0 and overlay.workers"
@@ -684,8 +667,36 @@ class OrchestrationConfig:
                 "overlay.target_bitrate_mbps must be positive"
             )
         if self.overlay.nvenc_gpu < 0:
+            raise OrchestrationConfigError("overlay.nvenc_gpu must be non-negative")
+        if not 0 <= self.overlay.h264_crf <= 51:
+            raise OrchestrationConfigError("overlay.h264_crf must be between 0 and 51")
+        if self.overlay.h264_preset not in {
+            "ultrafast",
+            "superfast",
+            "veryfast",
+            "faster",
+            "fast",
+            "medium",
+            "slow",
+            "slower",
+            "veryslow",
+        }:
             raise OrchestrationConfigError(
-                "overlay.nvenc_gpu must be non-negative"
+                "overlay.h264_preset is not a supported libx264 preset"
+            )
+        if not 0 <= self.overlay.nvenc_cq <= 51:
+            raise OrchestrationConfigError("overlay.nvenc_cq must be between 0 and 51")
+        if self.overlay.nvenc_preset not in {
+            "p1",
+            "p2",
+            "p3",
+            "p4",
+            "p5",
+            "p6",
+            "p7",
+        }:
+            raise OrchestrationConfigError(
+                "overlay.nvenc_preset must be between p1 and p7"
             )
         if self.overlay.execution_mode == "fast":
             if not self.overlay.uses_nvenc:
@@ -698,18 +709,13 @@ class OrchestrationConfig:
                 )
         elif self.overlay.copy_audio:
             raise OrchestrationConfigError(
-                "overlay.copy_audio requires "
-                "execution_mode=fast"
+                "overlay.copy_audio requires " "execution_mode=fast"
             )
         elif self.overlay.cpu_workers != 0:
             raise OrchestrationConfigError(
-                "overlay.cpu_workers is only used by "
-                "execution_mode=fast"
+                "overlay.cpu_workers is only used by " "execution_mode=fast"
             )
-        if (
-            len(self.overlay.codec) != 4
-            and not self.overlay.uses_nvenc
-        ):
+        if len(self.overlay.codec) != 4 and not self.overlay.uses_nvenc:
             raise OrchestrationConfigError(
                 "overlay.codec must be a four-character FourCC or h264_nvenc"
             )
@@ -730,6 +736,10 @@ class OrchestrationConfig:
                 "--box-thickness",
                 "--no-labels",
                 "--codec",
+                "--h264-crf",
+                "--h264-preset",
+                "--nvenc-cq",
+                "--target-bitrate-mbps",
                 "--start-frame",
                 "--end-frame",
                 "--progress-every",

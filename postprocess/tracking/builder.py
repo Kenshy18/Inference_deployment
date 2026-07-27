@@ -299,6 +299,20 @@ def build_tracked_sqlite(
                 "INSERT OR IGNORE INTO cuts(frame) VALUES (?)",
                 [(frame,) for frame in cut_frames],
             )
+        connection.execute(
+            """
+            INSERT INTO cut_detection_metadata(
+                id, schema_version, method, elapsed_seconds, cut_count,
+                frame_semantics
+            )
+            VALUES (1, 1, ?, ?, ?, 'first_frame_of_new_scene')
+            """,
+            (
+                cut_result.method,
+                cut_result.elapsed_seconds,
+                len(cut_frames),
+            ),
+        )
 
     removed_rows = sum(track_lengths[track_id] for track_id in removed_track_ids)
     mixed_label_tracks = sum(

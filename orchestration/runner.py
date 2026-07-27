@@ -208,6 +208,15 @@ class OrchestrationRunner:
             command.append("--no-labels")
         if settings.execution_mode == "cpu" and settings.codec != "h264":
             command.extend(["--codec", settings.codec])
+        if settings.execution_mode == "cpu" and settings.codec == "h264":
+            command.extend(
+                [
+                    "--h264-crf",
+                    str(settings.h264_crf),
+                    "--h264-preset",
+                    settings.h264_preset,
+                ]
+            )
         if settings.target_bitrate_mbps is not None:
             command.extend(
                 [
@@ -218,6 +227,8 @@ class OrchestrationRunner:
         if settings.uses_nvenc:
             command.extend(
                 [
+                    "--nvenc-cq",
+                    str(settings.nvenc_cq),
                     "--nvenc-preset",
                     settings.nvenc_preset,
                     "--nvenc-gpu",
@@ -238,9 +249,7 @@ class OrchestrationRunner:
             if settings.faststart:
                 command.append("--faststart")
         if face_sqlite is not None:
-            command.extend(
-                ["--include-faces", "--face-sqlite", str(face_sqlite)]
-            )
+            command.extend(["--include-faces", "--face-sqlite", str(face_sqlite)])
         command.extend(settings.extra_args)
         return command
 
@@ -390,8 +399,7 @@ class OrchestrationRunner:
             require_faces=(
                 self.config.overlay.enabled
                 and (
-                    self.config.overlay.faces
-                    or self.config.overlay.final_include_faces
+                    self.config.overlay.faces or self.config.overlay.final_include_faces
                 )
             ),
         )
@@ -596,7 +604,9 @@ class OrchestrationRunner:
         )
         if previous is None or previous.get("status") not in {"complete", "reused"}:
             return False
-        return all(path.is_file() and path.stat().st_size > 0 for path in artifacts.values())
+        return all(
+            path.is_file() and path.stat().st_size > 0 for path in artifacts.values()
+        )
 
     def _replace_stage_record(self, record: dict[str, Any]) -> None:
         stages = [

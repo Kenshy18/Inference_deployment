@@ -29,6 +29,7 @@
     "outline_thickness": 2,
     "box_thickness": 2,
     "show_labels": true,
+    "nvenc_cq": 18,
     "workers": 6,
     "cpu_workers": 0,
     "copy_audio": true,

@@ -105,12 +105,28 @@ postprocessも再利用する場合は、tracked/finalを明示します。
 {
   "overlay": {
     "execution_mode": "nvenc",
+    "nvenc_cq": 18,
     "nvenc_preset": "p5",
-    "nvenc_gpu": 0,
-    "extra_args": ["--nvenc-cq", "18"]
+    "nvenc_gpu": 0
   }
 }
 ```
+
+通常CPU:
+
+```json
+{
+  "overlay": {
+    "execution_mode": "cpu",
+    "h264_crf": 18,
+    "h264_preset": "veryfast"
+  }
+}
+```
+
+`h264_crf`と`nvenc_cq`は0～51で、小さいほど高品質です。
+`target_bitrate_mbps`を指定した場合はCRF/CQよりbitrate制約が優先されます。
+新規の3実行方式はすべてMP4コンテナ、H.264、yuv420pで出力します。
 
 高速:
 

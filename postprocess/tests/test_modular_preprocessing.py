@@ -98,6 +98,24 @@ class ModularPreprocessingTests(unittest.TestCase):
                     [(2,)], connection.execute("SELECT frame FROM cuts").fetchall()
                 )
                 self.assertEqual(
+                    [
+                        (
+                            1,
+                            "fixed_test_detector",
+                            0.001,
+                            1,
+                            "first_frame_of_new_scene",
+                        )
+                    ],
+                    connection.execute(
+                        """
+                        SELECT schema_version, method, elapsed_seconds,
+                               cut_count, frame_semantics
+                        FROM cut_detection_metadata
+                        """
+                    ).fetchall(),
+                )
+                self.assertEqual(
                     [("1",), ("2",)],
                     connection.execute(
                         "SELECT track_id FROM tracks ORDER BY CAST(track_id AS INTEGER)"

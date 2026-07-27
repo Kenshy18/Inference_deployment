@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import sqlite3
 import tempfile
 import unittest
 from dataclasses import dataclass
@@ -36,7 +37,7 @@ class FixedCutStage:
 
     def run(self, context: StageContext) -> StageResult:
         output = context.stage_dir / "cuts.json"
-        write_cut_list(output, CutList((), self.name))
+        write_cut_list(output, CutList((3,), self.name, 0.125))
         return StageResult({"cuts_json": output})
 
 
@@ -185,6 +186,32 @@ class ArchitectureTests(unittest.TestCase):
             )
             self.assertTrue(Path(manifest["artifacts"]["predictions_sqlite"]).is_file())
             self.assertTrue(Path(manifest["artifacts"]["validation_report"]).is_file())
+            with sqlite3.connect(
+                manifest["artifacts"]["predictions_sqlite"]
+            ) as connection:
+                self.assertEqual(
+                    [(3,)],
+                    connection.execute(
+                        "SELECT frame FROM cuts ORDER BY frame"
+                    ).fetchall(),
+                )
+                self.assertEqual(
+                    [
+                        (
+                            "fixed_cut",
+                            0.125,
+                            1,
+                            "first_frame_of_new_scene",
+                        )
+                    ],
+                    connection.execute(
+                        """
+                        SELECT method, elapsed_seconds, cut_count,
+                               frame_semantics
+                        FROM cut_detection_metadata
+                        """
+                    ).fetchall(),
+                )
 
 
 if __name__ == "__main__":
