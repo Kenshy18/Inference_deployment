@@ -226,7 +226,54 @@ def validate_mask_sqlite(path: Path) -> dict[str, object]:
         }
 
 
-def read_postprocess_manifest(path: Path) -> tuple[Path, Path]:
+def validate_legacy_mask_sqlite(path: Path) -> dict[str, object]:
+    """Validate the exact former Dinov3_postprocess final SQLite shape."""
+
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    expected_columns = {
+        "masks": [
+            "frame",
+            "track_id",
+            "polygons",
+            "shape_type",
+            "dilate_px",
+            "feather_px",
+            "mosaic_block",
+            "mosaic_alias",
+            "label",
+        ],
+        "tracks": ["track_id", "label"],
+        "cuts": ["frame"],
+    }
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as connection:
+        tables = {
+            table for table in _tables(connection) if not table.startswith("sqlite_")
+        }
+        if tables != set(expected_columns):
+            raise ArtifactError(
+                f"{source}: legacy tables must be exactly "
+                f"{sorted(expected_columns)}, got {sorted(tables)}"
+            )
+        for table, expected in expected_columns.items():
+            actual = [
+                str(row[1])
+                for row in connection.execute(f'PRAGMA table_info("{table}")')
+            ]
+            if actual != expected:
+                raise ArtifactError(
+                    f"{source}: legacy {table} columns must be {expected}, "
+                    f"got {actual}"
+                )
+    stats = validate_mask_sqlite(source)
+    stats["schema"] = "dinov3_postprocess_final_mask_sqlite_v1"
+    return stats
+
+
+def read_postprocess_artifacts(
+    path: Path,
+) -> tuple[Path, Path, Path | None]:
     manifest_path = Path(path).expanduser().resolve()
     if not manifest_path.is_file():
         raise FileNotFoundError(manifest_path)
@@ -245,12 +292,29 @@ def read_postprocess_manifest(path: Path) -> tuple[Path, Path]:
         ) from exc
     validate_mask_sqlite(tracked)
     validate_mask_sqlite(final)
+    legacy_value = artifacts.get("legacy_predictions_sqlite")
+    legacy = (
+        None
+        if legacy_value in (None, "")
+        else Path(str(legacy_value)).expanduser().resolve()
+    )
+    if legacy is not None:
+        validate_legacy_mask_sqlite(legacy)
+    return tracked, final, legacy
+
+
+def read_postprocess_manifest(path: Path) -> tuple[Path, Path]:
+    """Read the original required artifact pair without changing its API."""
+
+    tracked, final, _legacy = read_postprocess_artifacts(path)
     return tracked, final
 
 
 __all__ = [
     "ArtifactError",
+    "read_postprocess_artifacts",
     "read_postprocess_manifest",
     "validate_inference_sqlite",
+    "validate_legacy_mask_sqlite",
     "validate_mask_sqlite",
 ]

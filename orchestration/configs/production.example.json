@@ -20,6 +20,7 @@
   },
   "postprocess": {
     "enabled": true,
+    "export_legacy_sqlite": false,
     "shape_mode": "polygon",
     "score_min": 0.35,
     "cut_detect": true,

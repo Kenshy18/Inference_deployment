@@ -179,6 +179,39 @@ class ConfigTests(unittest.TestCase):
             ):
                 OrchestrationConfig.load(config_path)
 
+    def test_legacy_sqlite_export_is_typed_and_forwarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "export_legacy_sqlite": True,
+                            "device": "cpu",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            self.assertTrue(config.postprocess.export_legacy_sqlite)
+            command = OrchestrationRunner(config).postprocess_command(sqlite)
+            self.assertIn("--export-legacy-sqlite", command)
+
     def test_nvenc_overlay_is_planned_as_gpu_stage(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

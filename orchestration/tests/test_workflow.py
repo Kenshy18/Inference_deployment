@@ -40,6 +40,7 @@ class WorkflowTests(unittest.TestCase):
                         },
                         "postprocess": {
                             "enabled": True,
+                            "export_legacy_sqlite": True,
                             "shape_mode": "polygon",
                             "cut_detect": False,
                             "remove_short_tracks_max_frames": 0,
@@ -64,6 +65,8 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual("complete", manifest["status"])
             self.assertTrue(Path(manifest["artifacts"]["tracked_sqlite"]).is_file())
             self.assertTrue(Path(manifest["artifacts"]["final_sqlite"]).is_file())
+            legacy = Path(manifest["artifacts"]["legacy_final_sqlite"])
+            self.assertTrue(legacy.is_file())
             with sqlite3.connect(manifest["artifacts"]["final_sqlite"]) as connection:
                 self.assertEqual(
                     [("disabled", 0, "first_frame_of_new_scene")],
@@ -73,6 +76,28 @@ class WorkflowTests(unittest.TestCase):
                         FROM cut_detection_metadata
                         """
                     ).fetchall(),
+                )
+                self.assertIn(
+                    "raw_tracked_masks",
+                    {
+                        row[0]
+                        for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        )
+                    },
+                )
+            with sqlite3.connect(legacy) as connection:
+                tables = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master "
+                        "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                    )
+                }
+                self.assertEqual({"masks", "tracks", "cuts"}, tables)
+                self.assertEqual(
+                    0,
+                    connection.execute("SELECT COUNT(*) FROM cuts").fetchone()[0],
                 )
             for mode in ("raw", "tracked", "final", "faces"):
                 path = Path(manifest["artifacts"][f"overlay_{mode}"])

@@ -105,6 +105,31 @@ raw入力からカット検出を実行した場合、最終`predictions.sqlite`
 件数、フレーム意味論）が保持されます。マスク変換後にも件数とメタデータの
 整合性を最終validatorが確認します。
 
+旧`Dinov3_postprocess`の`AI後処理最終.sqlite`を読むソフトウェア向けには、
+現行成果物を残したまま互換SQLiteを追加出力できます。
+
+```bash
+python run_pipeline.py \
+  --input-sqlite input/inference.sqlite \
+  --input-video input/video.mp4 \
+  --output-dir output/postprocess \
+  --export-legacy-sqlite
+```
+
+`pipeline_manifest.json`の`legacy_predictions_sqlite`が互換成果物です。
+このSQLiteは旧契約と同じ`masks`、`tracks`、`cuts`だけを持ちます。旧形式にも
+カット位置`cuts(frame)`は含まれますが、現行の監査用`raw_tracked_masks`、
+`raw_tracks`、`cut_detection_metadata`は含めません。現行
+`predictions_sqlite`が正本であり、互換版は追加成果物です。
+
+変換だけを行うtentative CLIもあります。
+
+```bash
+python -m tentative.export_legacy_sqlite \
+  --input-sqlite output/postprocess/current.sqlite \
+  --output-sqlite output/postprocess/legacy.sqlite
+```
+
 ## モジュールの交換・追加
 
 標準構成は`configs/pipelines/*.json`で確認できます。`--pipeline-config`に

@@ -67,6 +67,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-root", type=Path)
     parser.add_argument("--k2-run-dir", type=Path)
     parser.add_argument("--device")
+    parser.add_argument(
+        "--export-legacy-sqlite",
+        "--export-dinov3-legacy-sqlite",
+        dest="export_legacy_sqlite",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "also export a tentative Dinov3_postprocess-compatible "
+            "masks/tracks/cuts SQLite"
+        ),
+    )
     return parser
 
 
@@ -76,10 +87,10 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
         if args.input_sqlite is not None
         else None
     )
-    include_raw_stages = (
-        args.input_jsonl is not None
-        or input_sqlite_kind in {"raw_detection", "unified_inference"}
-    )
+    include_raw_stages = args.input_jsonl is not None or input_sqlite_kind in {
+        "raw_detection",
+        "unified_inference",
+    }
     if args.pipeline_config is not None:
         source = load_pipeline_config(args.pipeline_config)
     elif args.shape_mode == "polygon":
@@ -87,10 +98,10 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
     else:
         source = default_ellipse_pipeline(include_preprocess=include_raw_stages)
 
-    if (
-        args.pipeline_config is None
-        and input_sqlite_kind in {"raw_detection", "unified_inference"}
-    ):
+    if args.pipeline_config is None and input_sqlite_kind in {
+        "raw_detection",
+        "unified_inference",
+    }:
         source = PipelineConfig(
             source.name.replace("_modular", "_raw_sqlite_modular"),
             tuple(
@@ -165,6 +176,16 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                 stage.implementation,
                 options,
                 stage.enabled,
+            )
+        )
+    if args.export_legacy_sqlite and not any(
+        stage.enabled and stage.implementation == "artifacts.legacy_sqlite"
+        for stage in stages
+    ):
+        stages.append(
+            StageSpec(
+                "legacy_sqlite_export",
+                "artifacts.legacy_sqlite",
             )
         )
     return PipelineConfig(source.name, tuple(stages))

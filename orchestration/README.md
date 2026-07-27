@@ -59,6 +59,10 @@ postprocessも再利用する場合は、tracked/finalを明示します。
 }
 ```
 
+Postprocess実行時に旧`Dinov3_postprocess`互換SQLiteも作る場合は、
+`postprocess.export_legacy_sqlite: true`を設定します。現行成果物はそのまま
+生成され、互換版が追加されます。
+
 ## Overlay設定
 
 実行方式は3種類です。
@@ -192,3 +196,8 @@ output_root/
 `pipeline_manifest.json`にある`tracked_sqlite`と`predictions_sqlite`を
 使用します。各overlay JSONには選択した実行方式、overlay種別、入力role、
 encode設定と処理結果が記録されます。
+
+`postprocess.export_legacy_sqlite: true`では、現行`final_sqlite`とは別に旧
+`Dinov3_postprocess`互換の`legacy_final_sqlite`もrun manifestへ公開します。
+互換版は旧契約の`masks`、`tracks`、`cuts`のみを持ち、元マスクおよび詳細な
+カット検出メタデータは現行SQLiteにだけ保持されます。

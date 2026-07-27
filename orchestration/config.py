@@ -134,6 +134,7 @@ class PostprocessConfig:
     k2_run_dir: Path | None = None
     device: str = "cpu"
     extra_args: tuple[str, ...] = ()
+    export_legacy_sqlite: bool = False
 
 
 @dataclass(frozen=True)
@@ -300,6 +301,7 @@ class OrchestrationConfig:
             "enabled",
             "tracked_sqlite",
             "final_sqlite",
+            "export_legacy_sqlite",
             "shape_mode",
             "pipeline_config",
             "class_policy_json",
@@ -325,6 +327,9 @@ class OrchestrationConfig:
                 postprocess_raw.get("final_sqlite"),
                 base=base,
                 field="postprocess.final_sqlite",
+            ),
+            export_legacy_sqlite=bool(
+                postprocess_raw.get("export_legacy_sqlite", False)
             ),
             shape_mode=str(postprocess_raw.get("shape_mode", "polygon")),
             pipeline_config=_resolve_path(
@@ -586,10 +591,19 @@ class OrchestrationConfig:
                 "--model-root",
                 "--k2-run-dir",
                 "--device",
+                "--export-legacy-sqlite",
+                "--no-export-legacy-sqlite",
+                "--export-dinov3-legacy-sqlite",
+                "--no-export-dinov3-legacy-sqlite",
             },
             "postprocess.extra_args",
         )
         if not self.postprocess.enabled:
+            if self.postprocess.export_legacy_sqlite:
+                raise OrchestrationConfigError(
+                    "postprocess.export_legacy_sqlite requires "
+                    "postprocess.enabled=true"
+                )
             if self.overlay.enabled and self.overlay.tracked:
                 if self.postprocess.tracked_sqlite is None:
                     raise OrchestrationConfigError(

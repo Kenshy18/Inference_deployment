@@ -9,6 +9,7 @@ from typing import Any
 from contracts.stages import StageContext, StageResult
 
 from .contract import validate_mask_sqlite
+from .legacy_sqlite import export_legacy_sqlite
 from .sqlite import union2sqlite_main
 
 
@@ -49,3 +50,21 @@ class OutputValidationStage:
             encoding="utf-8",
         )
         return StageResult({"validation_report": output}, stats.as_dict())
+
+
+@dataclass(frozen=True)
+class LegacySqliteExportStage:
+    """Tentative projection for former Dinov3_postprocess consumers."""
+
+    options: dict[str, Any] = field(default_factory=dict)
+    name: str = "legacy_sqlite_export"
+    requires: frozenset[str] = frozenset({"predictions_sqlite"})
+    provides: frozenset[str] = frozenset({"legacy_predictions_sqlite"})
+
+    def run(self, context: StageContext) -> StageResult:
+        output = context.stage_dir / "predictions.legacy.sqlite"
+        summary = export_legacy_sqlite(
+            context.artifacts["predictions_sqlite"],
+            output,
+        )
+        return StageResult({"legacy_predictions_sqlite": output}, summary)

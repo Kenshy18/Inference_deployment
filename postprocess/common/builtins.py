@@ -106,6 +106,12 @@ def validate_output(options: dict[str, Any]) -> PostprocessStage:
     return OutputValidationStage(options)
 
 
+def legacy_sqlite(options: dict[str, Any]) -> PostprocessStage:
+    from artifacts.stages import LegacySqliteExportStage
+
+    return LegacySqliteExportStage(options)
+
+
 register_stage("preprocessing.normalize", normalization)
 register_stage("preprocessing.raw_sqlite", raw_sqlite_normalization)
 register_stage("preprocessing.score_policy", score_policy)
@@ -122,3 +128,4 @@ register_stage("evaluation.ellipse.exact", ellipse_evaluation)
 register_stage("evaluation.mask_iou", mask_evaluation)
 register_stage("artifacts.union_sqlite", union_sqlite)
 register_stage("artifacts.validate", validate_output)
+register_stage("artifacts.legacy_sqlite", legacy_sqlite)

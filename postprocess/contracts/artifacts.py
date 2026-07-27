@@ -155,6 +155,54 @@ def _validate_mask_sqlite(path: Path) -> None:
                 raise ArtifactContractError(f"{path}: polygons must decode to a list")
 
 
+def _validate_legacy_mask_sqlite(path: Path) -> None:
+    with sqlite3.connect(str(path)) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        expected_tables = {"masks", "tracks", "cuts"}
+        if tables != expected_tables:
+            raise ArtifactContractError(
+                f"{path}: legacy tables must be exactly "
+                f"{sorted(expected_tables)}, got {sorted(tables)}"
+            )
+        expected_columns = {
+            "masks": [
+                "frame",
+                "track_id",
+                "polygons",
+                "shape_type",
+                "dilate_px",
+                "feather_px",
+                "mosaic_block",
+                "mosaic_alias",
+                "label",
+            ],
+            "tracks": ["track_id", "label"],
+            "cuts": ["frame"],
+        }
+        for table, expected in expected_columns.items():
+            actual = [
+                str(row[1])
+                for row in connection.execute(f'PRAGMA table_info("{table}")')
+            ]
+            if actual != expected:
+                raise ArtifactContractError(
+                    f"{path}: legacy {table} columns must be {expected}, "
+                    f"got {actual}"
+                )
+        _validate_mask_sqlite(path)
+        for (frame,) in connection.execute("SELECT frame FROM cuts"):
+            if frame is None or int(frame) < 0:
+                raise ArtifactContractError(
+                    f"{path}: invalid legacy cut frame {frame!r}"
+                )
+
+
 def _validate_metrics_csv(path: Path) -> None:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -218,6 +266,10 @@ for _name in (
     "predictions_sqlite",
 ):
     register_artifact_contract(_name, _validate_mask_sqlite)
+register_artifact_contract(
+    "legacy_predictions_sqlite",
+    _validate_legacy_mask_sqlite,
+)
 for _name in ("approximation_metrics_csv", "filled_metrics_csv"):
     register_artifact_contract(_name, _validate_metrics_csv)
 register_artifact_contract("keyframes_json", _validate_keyframes_json)

@@ -166,6 +166,34 @@ cut_detection_metadata(
 後処理の各マスク変換は参照SQLiteを安全にbackupしてから`masks`だけを書き換える
 ため、カット情報はポリゴン・楕円のどちらでも最終SQLiteまで伝搬します。
 
+### 旧Dinov3_postprocess互換SQLite
+
+`--export-legacy-sqlite`を指定した場合、通常の`predictions_sqlite`に加えて
+`legacy_predictions_sqlite`を生成します。この互換成果物のテーブルは
+`masks`、`tracks`、`cuts`の3つだけで、旧`AI後処理最終.sqlite`と同じ列順・
+主キーを持ちます。
+
+```text
+masks(
+  frame INTEGER NOT NULL,
+  track_id TEXT NOT NULL,
+  polygons TEXT,
+  shape_type TEXT,
+  dilate_px INTEGER NOT NULL DEFAULT 0,
+  feather_px INTEGER NOT NULL DEFAULT 0,
+  mosaic_block INTEGER NOT NULL DEFAULT 0,
+  mosaic_alias REAL NOT NULL DEFAULT 0,
+  label TEXT,
+  PRIMARY KEY(frame, track_id)
+)
+tracks(track_id TEXT PRIMARY KEY, label TEXT)
+cuts(frame INTEGER PRIMARY KEY)
+```
+
+現行固有の`raw_tracked_masks`、`raw_tracks`、`cut_detection_metadata`は意図的に
+除外します。互換出力はtentativeな境界アダプターであり、内部処理および新規
+連携では監査情報を保持する`predictions_sqlite`を使用します。
+
 ## 6. 新実装の条件
 
 1. 所有する機能ディレクトリ内に実装する。

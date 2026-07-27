@@ -20,6 +20,7 @@ dev = ["black>=24", "pytest>=8"]
 
 [project.scripts]
 postprocess = "run_pipeline:main"
+postprocess-export-legacy-sqlite = "tentative.export_legacy_sqlite:main"
 
 [tool.hatch.build.targets.wheel]
 packages = [
@@ -35,6 +36,7 @@ packages = [
   "evaluation",
   "artifacts",
   "visualization",
+  "tentative",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]

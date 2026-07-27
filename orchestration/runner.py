@@ -14,8 +14,9 @@ from typing import Any
 
 from .config import OrchestrationConfig
 from .contracts import (
-    read_postprocess_manifest,
+    read_postprocess_artifacts,
     validate_inference_sqlite,
+    validate_legacy_mask_sqlite,
     validate_mask_sqlite,
 )
 
@@ -37,6 +38,7 @@ class WorkflowArtifacts:
     inference_sqlite: Path
     tracked_sqlite: Path | None = None
     final_sqlite: Path | None = None
+    legacy_final_sqlite: Path | None = None
 
 
 def _utc_now() -> str:
@@ -163,6 +165,8 @@ class OrchestrationRunner:
         for flag, value in optional:
             if value is not None:
                 command.extend([flag, str(value)])
+        if settings.export_legacy_sqlite:
+            command.append("--export-legacy-sqlite")
         command.extend(settings.extra_args)
         return command
 
@@ -421,26 +425,36 @@ class OrchestrationRunner:
                 "postprocess",
                 {"postprocess_manifest": manifest_path},
             ):
-                tracked, final = read_postprocess_manifest(manifest_path)
+                tracked, final, legacy = read_postprocess_artifacts(manifest_path)
             else:
                 command = self.postprocess_command(artifacts.inference_sqlite)
                 self._execute("postprocess", command, cpu_only=True)
-                tracked, final = read_postprocess_manifest(manifest_path)
+                tracked, final, legacy = read_postprocess_artifacts(manifest_path)
+            if settings.export_legacy_sqlite and legacy is None:
+                raise OrchestrationError(
+                    "postprocess did not publish legacy_predictions_sqlite"
+                )
+            published = {
+                "postprocess_manifest": manifest_path,
+                "tracked_sqlite": tracked,
+                "final_sqlite": final,
+            }
+            validation = {
+                "tracked_sqlite": validate_mask_sqlite(tracked),
+                "final_sqlite": validate_mask_sqlite(final),
+            }
+            if legacy is not None:
+                published["legacy_final_sqlite"] = legacy
+                validation["legacy_final_sqlite"] = validate_legacy_mask_sqlite(legacy)
             self._publish_artifacts(
-                {
-                    "postprocess_manifest": manifest_path,
-                    "tracked_sqlite": tracked,
-                    "final_sqlite": final,
-                },
-                validation={
-                    "tracked_sqlite": validate_mask_sqlite(tracked),
-                    "final_sqlite": validate_mask_sqlite(final),
-                },
+                published,
+                validation=validation,
             )
             return WorkflowArtifacts(
                 inference_sqlite=artifacts.inference_sqlite,
                 tracked_sqlite=tracked,
                 final_sqlite=final,
+                legacy_final_sqlite=legacy,
             )
         tracked = settings.tracked_sqlite
         final = settings.final_sqlite

@@ -1,6 +1,7 @@
 """Postprocess artifact writers."""
 
 from .contract import OutputContractError, OutputStats, validate_mask_sqlite
+from .legacy_sqlite import export_legacy_sqlite
 from contracts.mask_sqlite import (
     MaskRow,
     read_mask_rows,
@@ -21,6 +22,7 @@ __all__ = [
     "OutputContractError",
     "OutputStats",
     "MaskRow",
+    "export_legacy_sqlite",
     "read_mask_rows",
     "track_sort_key",
     "union2sqlite_main",

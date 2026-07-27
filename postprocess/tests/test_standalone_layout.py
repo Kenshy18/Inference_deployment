@@ -25,6 +25,7 @@ class StandaloneLayoutTests(unittest.TestCase):
             "evaluation",
             "artifacts",
             "visualization",
+            "tentative",
         ):
             self.assertTrue((root / feature / "__init__.py").is_file(), feature)
         self.assertFalse((root / "atosyori_postprocess").exists())
