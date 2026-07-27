@@ -1,0 +1,13 @@
+{
+  "source": "/home/kenshin/native_linux_transfer/dinov3_vitl_head_selection_v1_full/Distillation/assets/checkpoints/video_pseudo_mh0_epoch6.pth",
+  "source_sha256": "560357d04750dec9cfdc4fd6f73586805ec3e9cf965af482d4a806cdbf9d0030",
+  "output": "/home/kenshin/native_linux_transfer/dinov3_vitl_head_selection_v1_full/Distillation/assets/packages/vitsplus_mh0_video_pseudo_epoch6_inference_20260727/checkpoints/video_pseudo_mh0_epoch6_ema_deploy.pth",
+  "output_sha256": "755345eb1d5d252f630371c7d7895397e03a6aca0ee7f3e3d323d0b7bdc0bd9c",
+  "tensors": 442,
+  "normalized_compile_keys": 254,
+  "raw_fallback_keys": [],
+  "omitted_nonpersistent_keys": [
+    "query_head.positional_encoding._dim_t"
+  ],
+  "bytes": 200387211
+}

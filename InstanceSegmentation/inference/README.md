@@ -32,11 +32,15 @@ python run_inference.py \
 ```
 
 選択可能なセグメンテーションモデルは`dinov3_codino`、
-`dinov3_cascade`、`eva02_cascade`です。Co-DINOでは
+`dinov3_codino_mh0`、`dinov3_cascade`、`eva02_cascade`です。
+Co-DINOとcompact Co-DINO MH0では
 `--segmentation-backend tensorrt-fast|pytorch`、EVA-02では
 `--segmentation-backend tensorrt-backbone|pytorch`を選択できます。
-顔検出は既定でRT-DETRの`Face`と`Head`を保存します。
-`--face-classes`へ値を渡さなければ、`VisibleBody`を含む全クラスを保存します。
+顔検出は既定でRT-DETRの`Face`と`Head`を保存します。第2モデルとして
+`--face-model face_dino_v2`を選択でき、DINOv3 ViT-S+、compact Co-DINO、
+Face楕円・キーポイント・occlusion branchの固定B8 TensorRT推論を利用できます。
+RT-DETRで`--face-classes`へ値を渡さなければ、`VisibleBody`を含む全クラスを
+保存します。`face_dino_v2`が持つクラスは`Head`と`Face`です。
 
 各`<model>/infer.py`はモデルフォルダ単体の保守・検証用入口として残します。
 統一pipelineはモデルを隔離プロセスで順番に実行し、成功した全結果だけを最後に

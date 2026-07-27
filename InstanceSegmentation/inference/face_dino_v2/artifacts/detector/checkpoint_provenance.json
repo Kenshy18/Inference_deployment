@@ -1,0 +1,6 @@
+{
+  "source": "/home/kenshin/face_detection/runs/face_dino_overnight_best_20260727/model_residual_v2.pth",
+  "packaged": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/face_dino_v2/artifacts/detector/model_residual_v2.pth",
+  "size": 170916579,
+  "sha256": "0f1021887b99019fd0de12eacb2a474a7c2110f87ea6876b0f61ec7f2e385c52"
+}

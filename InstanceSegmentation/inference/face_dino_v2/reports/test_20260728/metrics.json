@@ -1,0 +1,4572 @@
+{
+  "checkpoint": "/home/kenshin/face_detection/runs/face_dino_overnight_best_20260727/model_residual_v2.pth",
+  "checkpoint_epoch_zero_based": -1,
+  "checkpoint_stage": null,
+  "annotation_set": "face_dino_v3",
+  "attribute_engine": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/face_dino_v2/artifacts/trt/fast-sm120-fixed-b8-v1/engines/attribute.engine",
+  "cuda_graph_detector": false,
+  "backbone_engine": null,
+  "backbone_neck_engine": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/face_dino_v2/artifacts/trt/fast-sm120-fixed-b8-v1/engines/backbone_neck.engine",
+  "transformer_tensorrt": {
+    "query_engine": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/face_dino_v2/artifacts/trt/fast-sm120-fixed-b8-v1/engines/query_encoder.engine",
+    "decoder_engine": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/face_dino_v2/artifacts/trt/fast-sm120-fixed-b8-v1/engines/decoder.engine",
+    "plugin": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/face_dino_v2/artifacts/trt/fast-sm120-fixed-b8-v1/plugins/codino_msda_direct_mh0_sm120.so"
+  },
+  "batched_bbox": {
+    "enabled": true,
+    "early_score_threshold": 0.0
+  },
+  "splits": [
+    {
+      "split": "test",
+      "mode": "full",
+      "images": 528,
+      "elapsed_seconds": 16.56284174398752,
+      "images_per_second": 31.878587513019582,
+      "oracle_gt_head_roi": {
+        "positive_instances": 766,
+        "face_presence": {
+          "instances": 805,
+          "present": 766,
+          "absent": 39,
+          "recommended_threshold_present_recall_ge_0.98": "0.01",
+          "recommended": {
+            "tp": 752,
+            "fp": 15,
+            "fn": 14,
+            "tn": 24,
+            "present_precision": 0.9804432855280313,
+            "present_recall": 0.9817232375979112,
+            "present_f1": 0.9810828440965428,
+            "absent_precision": 0.631578947368421,
+            "absent_recall": 0.6153846153846154,
+            "absent_f1": 0.6233766233766234,
+            "macro_f1": 0.8022297337365831,
+            "false_face_rate_on_absent": 0.38461538461538464
+          },
+          "recommended_threshold_balanced_macro_f1": "0.20",
+          "recommended_balanced": {
+            "tp": 745,
+            "fp": 9,
+            "fn": 21,
+            "tn": 30,
+            "present_precision": 0.9880636604774535,
+            "present_recall": 0.9725848563968669,
+            "present_f1": 0.9802631578947368,
+            "absent_precision": 0.5882352941176471,
+            "absent_recall": 0.7692307692307693,
+            "absent_f1": 0.6666666666666667,
+            "macro_f1": 0.8234649122807018,
+            "false_face_rate_on_absent": 0.23076923076923078
+          },
+          "thresholds": {
+            "0.01": {
+              "tp": 752,
+              "fp": 15,
+              "fn": 14,
+              "tn": 24,
+              "present_precision": 0.9804432855280313,
+              "present_recall": 0.9817232375979112,
+              "present_f1": 0.9810828440965428,
+              "absent_precision": 0.631578947368421,
+              "absent_recall": 0.6153846153846154,
+              "absent_f1": 0.6233766233766234,
+              "macro_f1": 0.8022297337365831,
+              "false_face_rate_on_absent": 0.38461538461538464
+            },
+            "0.02": {
+              "tp": 750,
+              "fp": 14,
+              "fn": 16,
+              "tn": 25,
+              "present_precision": 0.981675392670157,
+              "present_recall": 0.97911227154047,
+              "present_f1": 0.9803921568627451,
+              "absent_precision": 0.6097560975609756,
+              "absent_recall": 0.6410256410256411,
+              "absent_f1": 0.625,
+              "macro_f1": 0.8026960784313726,
+              "false_face_rate_on_absent": 0.358974358974359
+            },
+            "0.05": {
+              "tp": 748,
+              "fp": 12,
+              "fn": 18,
+              "tn": 27,
+              "present_precision": 0.9842105263157894,
+              "present_recall": 0.9765013054830287,
+              "present_f1": 0.9803407601572739,
+              "absent_precision": 0.6,
+              "absent_recall": 0.6923076923076923,
+              "absent_f1": 0.6428571428571429,
+              "macro_f1": 0.8115989515072084,
+              "false_face_rate_on_absent": 0.3076923076923077
+            },
+            "0.10": {
+              "tp": 746,
+              "fp": 11,
+              "fn": 20,
+              "tn": 28,
+              "present_precision": 0.9854689564068693,
+              "present_recall": 0.9738903394255874,
+              "present_f1": 0.979645436638214,
+              "absent_precision": 0.5833333333333334,
+              "absent_recall": 0.717948717948718,
+              "absent_f1": 0.6436781609195402,
+              "macro_f1": 0.8116617987788771,
+              "false_face_rate_on_absent": 0.28205128205128205
+            },
+            "0.15": {
+              "tp": 745,
+              "fp": 11,
+              "fn": 21,
+              "tn": 28,
+              "present_precision": 0.9854497354497355,
+              "present_recall": 0.9725848563968669,
+              "present_f1": 0.9789750328515111,
+              "absent_precision": 0.5714285714285714,
+              "absent_recall": 0.717948717948718,
+              "absent_f1": 0.6363636363636365,
+              "macro_f1": 0.8076693346075738,
+              "false_face_rate_on_absent": 0.28205128205128205
+            },
+            "0.20": {
+              "tp": 745,
+              "fp": 9,
+              "fn": 21,
+              "tn": 30,
+              "present_precision": 0.9880636604774535,
+              "present_recall": 0.9725848563968669,
+              "present_f1": 0.9802631578947368,
+              "absent_precision": 0.5882352941176471,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6666666666666667,
+              "macro_f1": 0.8234649122807018,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.25": {
+              "tp": 744,
+              "fp": 9,
+              "fn": 22,
+              "tn": 30,
+              "present_precision": 0.9880478087649402,
+              "present_recall": 0.9712793733681462,
+              "present_f1": 0.9795918367346939,
+              "absent_precision": 0.5769230769230769,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6593406593406593,
+              "macro_f1": 0.8194662480376766,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.30": {
+              "tp": 744,
+              "fp": 9,
+              "fn": 22,
+              "tn": 30,
+              "present_precision": 0.9880478087649402,
+              "present_recall": 0.9712793733681462,
+              "present_f1": 0.9795918367346939,
+              "absent_precision": 0.5769230769230769,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6593406593406593,
+              "macro_f1": 0.8194662480376766,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.35": {
+              "tp": 744,
+              "fp": 9,
+              "fn": 22,
+              "tn": 30,
+              "present_precision": 0.9880478087649402,
+              "present_recall": 0.9712793733681462,
+              "present_f1": 0.9795918367346939,
+              "absent_precision": 0.5769230769230769,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6593406593406593,
+              "macro_f1": 0.8194662480376766,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.40": {
+              "tp": 741,
+              "fp": 9,
+              "fn": 25,
+              "tn": 30,
+              "present_precision": 0.988,
+              "present_recall": 0.9673629242819843,
+              "present_f1": 0.9775725593667546,
+              "absent_precision": 0.5454545454545454,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6382978723404256,
+              "macro_f1": 0.8079352158535901,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.45": {
+              "tp": 740,
+              "fp": 9,
+              "fn": 26,
+              "tn": 30,
+              "present_precision": 0.9879839786381842,
+              "present_recall": 0.9660574412532638,
+              "present_f1": 0.976897689768977,
+              "absent_precision": 0.5357142857142857,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6315789473684211,
+              "macro_f1": 0.804238318568699,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.50": {
+              "tp": 740,
+              "fp": 9,
+              "fn": 26,
+              "tn": 30,
+              "present_precision": 0.9879839786381842,
+              "present_recall": 0.9660574412532638,
+              "present_f1": 0.976897689768977,
+              "absent_precision": 0.5357142857142857,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6315789473684211,
+              "macro_f1": 0.804238318568699,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.55": {
+              "tp": 740,
+              "fp": 9,
+              "fn": 26,
+              "tn": 30,
+              "present_precision": 0.9879839786381842,
+              "present_recall": 0.9660574412532638,
+              "present_f1": 0.976897689768977,
+              "absent_precision": 0.5357142857142857,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6315789473684211,
+              "macro_f1": 0.804238318568699,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.60": {
+              "tp": 740,
+              "fp": 9,
+              "fn": 26,
+              "tn": 30,
+              "present_precision": 0.9879839786381842,
+              "present_recall": 0.9660574412532638,
+              "present_f1": 0.976897689768977,
+              "absent_precision": 0.5357142857142857,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6315789473684211,
+              "macro_f1": 0.804238318568699,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.65": {
+              "tp": 739,
+              "fp": 9,
+              "fn": 27,
+              "tn": 30,
+              "present_precision": 0.9879679144385026,
+              "present_recall": 0.9647519582245431,
+              "present_f1": 0.9762219286657859,
+              "absent_precision": 0.5263157894736842,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.625,
+              "macro_f1": 0.8006109643328929,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.70": {
+              "tp": 739,
+              "fp": 8,
+              "fn": 27,
+              "tn": 31,
+              "present_precision": 0.9892904953145917,
+              "present_recall": 0.9647519582245431,
+              "present_f1": 0.976867151354924,
+              "absent_precision": 0.5344827586206896,
+              "absent_recall": 0.7948717948717948,
+              "absent_f1": 0.6391752577319587,
+              "macro_f1": 0.8080212045434414,
+              "false_face_rate_on_absent": 0.20512820512820512
+            },
+            "0.75": {
+              "tp": 739,
+              "fp": 8,
+              "fn": 27,
+              "tn": 31,
+              "present_precision": 0.9892904953145917,
+              "present_recall": 0.9647519582245431,
+              "present_f1": 0.976867151354924,
+              "absent_precision": 0.5344827586206896,
+              "absent_recall": 0.7948717948717948,
+              "absent_f1": 0.6391752577319587,
+              "macro_f1": 0.8080212045434414,
+              "false_face_rate_on_absent": 0.20512820512820512
+            },
+            "0.80": {
+              "tp": 739,
+              "fp": 8,
+              "fn": 27,
+              "tn": 31,
+              "present_precision": 0.9892904953145917,
+              "present_recall": 0.9647519582245431,
+              "present_f1": 0.976867151354924,
+              "absent_precision": 0.5344827586206896,
+              "absent_recall": 0.7948717948717948,
+              "absent_f1": 0.6391752577319587,
+              "macro_f1": 0.8080212045434414,
+              "false_face_rate_on_absent": 0.20512820512820512
+            },
+            "0.85": {
+              "tp": 738,
+              "fp": 8,
+              "fn": 28,
+              "tn": 31,
+              "present_precision": 0.9892761394101877,
+              "present_recall": 0.9634464751958225,
+              "present_f1": 0.9761904761904763,
+              "absent_precision": 0.5254237288135594,
+              "absent_recall": 0.7948717948717948,
+              "absent_f1": 0.6326530612244898,
+              "macro_f1": 0.804421768707483,
+              "false_face_rate_on_absent": 0.20512820512820512
+            },
+            "0.90": {
+              "tp": 738,
+              "fp": 8,
+              "fn": 28,
+              "tn": 31,
+              "present_precision": 0.9892761394101877,
+              "present_recall": 0.9634464751958225,
+              "present_f1": 0.9761904761904763,
+              "absent_precision": 0.5254237288135594,
+              "absent_recall": 0.7948717948717948,
+              "absent_f1": 0.6326530612244898,
+              "macro_f1": 0.804421768707483,
+              "false_face_rate_on_absent": 0.20512820512820512
+            },
+            "0.95": {
+              "tp": 735,
+              "fp": 8,
+              "fn": 31,
+              "tn": 31,
+              "present_precision": 0.9892328398384926,
+              "present_recall": 0.9595300261096605,
+              "present_f1": 0.974155069582505,
+              "absent_precision": 0.5,
+              "absent_recall": 0.7948717948717948,
+              "absent_f1": 0.6138613861386139,
+              "macro_f1": 0.7940082278605594,
+              "false_face_rate_on_absent": 0.20512820512820512
+            }
+          }
+        },
+        "ellipse": {
+          "instances": 766,
+          "iou_mean": 0.7305172759749677,
+          "iou_median": 0.7960577978476142,
+          "iou_p10": 0.43577976897344395,
+          "iou_at_0.50": 0.8720626631853786,
+          "iou_at_0.75": 0.6109660574412533,
+          "center_nme_mean": 0.051233153428912666,
+          "major_relative_error_mean": 0.11203307115614536,
+          "minor_relative_error_mean": 0.1745526472667351,
+          "angle_error_degrees_mean_eccentric": 8.809153024574318
+        },
+        "points": {
+          "recommended_threshold": "0.80",
+          "recommended": {
+            "threshold": 0.8000000000000002,
+            "faces": 766,
+            "predictions": 3008,
+            "targets": 3034,
+            "micro_recall_at_nme_0.05": 0.8586025049439684,
+            "micro_recall_at_nme_0.10": 0.8938694792353329,
+            "macro_f1_at_nme_0.05": 0.8636490806326135,
+            "macro_f1_at_nme_0.10": 0.8992342062010996,
+            "matched_nme_mean_at_0.10": 0.014529764250539924,
+            "visible_nme_mean_at_0.10": 0.012689789859364722,
+            "occluded_nme_mean_at_0.10": 0.0290504801835193,
+            "per_class": {
+              "eye": {
+                "predictions": 1249,
+                "targets": 1289,
+                "at_nme_0.05": {
+                  "precision": 0.8751000800640513,
+                  "recall": 0.847944142746315,
+                  "f1": 0.8613081166272656
+                },
+                "at_nme_0.10": {
+                  "precision": 0.911128903122498,
+                  "recall": 0.8828549262994569,
+                  "f1": 0.8967691095350669
+                }
+              },
+              "nose": {
+                "predictions": 631,
+                "targets": 627,
+                "at_nme_0.05": {
+                  "precision": 0.8684627575277337,
+                  "recall": 0.8740031897926634,
+                  "f1": 0.8712241653418124
+                },
+                "at_nme_0.10": {
+                  "precision": 0.9049128367670365,
+                  "recall": 0.9106858054226475,
+                  "f1": 0.9077901430842606
+                }
+              },
+              "mouth": {
+                "predictions": 1128,
+                "targets": 1118,
+                "at_nme_0.05": {
+                  "precision": 0.8546099290780141,
+                  "recall": 0.8622540250447227,
+                  "f1": 0.8584149599287623
+                },
+                "at_nme_0.10": {
+                  "precision": 0.8891843971631206,
+                  "recall": 0.8971377459749553,
+                  "f1": 0.8931433659839716
+                }
+              }
+            },
+            "state": {
+              "accuracy": 0.9240412979351033,
+              "macro_f1": 0.820440298469086,
+              "confusion_gt_rows_pred_columns": [
+                [
+                  223,
+                  82
+                ],
+                [
+                  124,
+                  2283
+                ]
+              ],
+              "per_state": {
+                "occluded": {
+                  "support": 305,
+                  "precision": 0.6426512968299711,
+                  "recall": 0.7311475409836066,
+                  "f1": 0.6840490797546013
+                },
+                "visible": {
+                  "support": 2407,
+                  "precision": 0.9653276955602537,
+                  "recall": 0.9484835895305359,
+                  "f1": 0.9568315171835707
+                }
+              }
+            },
+            "e2e_occluded_point": {
+              "true_positives": 223,
+              "predictions": 484,
+              "targets": 437,
+              "precision": 0.4607438016528926,
+              "recall": 0.5102974828375286,
+              "f1": 0.48425624321389793
+            }
+          },
+          "thresholds": {
+            "0.10": {
+              "threshold": 0.1,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.15": {
+              "threshold": 0.15000000000000002,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.20": {
+              "threshold": 0.20000000000000004,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.25": {
+              "threshold": 0.25000000000000006,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.30": {
+              "threshold": 0.30000000000000004,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.35": {
+              "threshold": 0.3500000000000001,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.40": {
+              "threshold": 0.40000000000000013,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.45": {
+              "threshold": 0.45000000000000007,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.50": {
+              "threshold": 0.5000000000000001,
+              "faces": 766,
+              "predictions": 3300,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8856295319709954,
+              "micro_recall_at_nme_0.10": 0.9321028345418589,
+              "macro_f1_at_nme_0.05": 0.8499424625218123,
+              "macro_f1_at_nme_0.10": 0.8941513933902844,
+              "matched_nme_mean_at_0.10": 0.01553327127178804,
+              "visible_nme_mean_at_0.10": 0.013365846131353717,
+              "occluded_nme_mean_at_0.10": 0.03068075657527536,
+              "per_class": {
+                "eye": {
+                  "predictions": 1367,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.825164594001463,
+                    "recall": 0.8750969743987588,
+                    "f1": 0.8493975903614458
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8705193855157278,
+                    "recall": 0.9231962761830876,
+                    "f1": 0.8960843373493975
+                  }
+                },
+                "nose": {
+                  "predictions": 675,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8281481481481482,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.8586789554531491
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8696296296296296,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9016897081413211
+                  }
+                },
+                "mouth": {
+                  "predictions": 1258,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.794912559618442,
+                    "recall": 0.8944543828264758,
+                    "f1": 0.8417508417508418
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8354531001589826,
+                    "recall": 0.9400715563506261,
+                    "f1": 0.8846801346801346
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9140735502121641,
+                "macro_f1": 0.8142819886737536,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    256,
+                    98
+                  ],
+                  [
+                    145,
+                    2329
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 354,
+                    "precision": 0.6384039900249376,
+                    "recall": 0.7231638418079096,
+                    "f1": 0.6781456953642384
+                  },
+                  "visible": {
+                    "support": 2474,
+                    "precision": 0.9596209311907705,
+                    "recall": 0.9413904607922393,
+                    "f1": 0.9504182819832687
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 256,
+                "predictions": 634,
+                "targets": 437,
+                "precision": 0.4037854889589905,
+                "recall": 0.585812356979405,
+                "f1": 0.47805788982259567
+              }
+            },
+            "0.55": {
+              "threshold": 0.5500000000000002,
+              "faces": 766,
+              "predictions": 3263,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8833223467369808,
+              "micro_recall_at_nme_0.10": 0.9284772577455505,
+              "macro_f1_at_nme_0.05": 0.8524530867665798,
+              "macro_f1_at_nme_0.10": 0.8958231476722762,
+              "matched_nme_mean_at_0.10": 0.015400278292191594,
+              "visible_nme_mean_at_0.10": 0.013239153373865584,
+              "occluded_nme_mean_at_0.10": 0.030633121645078063,
+              "per_class": {
+                "eye": {
+                  "predictions": 1352,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.8328402366863905,
+                    "recall": 0.873545384018619,
+                    "f1": 0.85270730783794
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8772189349112426,
+                    "recall": 0.9200930954228084,
+                    "f1": 0.898144642180992
+                  }
+                },
+                "nose": {
+                  "predictions": 673,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8306092124814265,
+                    "recall": 0.8915470494417863,
+                    "f1": 0.86
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8722139673105498,
+                    "recall": 0.9362041467304625,
+                    "f1": 0.9030769230769231
+                  }
+                },
+                "mouth": {
+                  "predictions": 1238,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.8037156704361874,
+                    "recall": 0.8899821109123435,
+                    "f1": 0.8446519524617996
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8432956381260097,
+                    "recall": 0.9338103756708408,
+                    "f1": 0.8862478777589134
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9148029818956337,
+                "macro_f1": 0.8145921729858756,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    253,
+                    97
+                  ],
+                  [
+                    143,
+                    2324
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 350,
+                    "precision": 0.6388888888888888,
+                    "recall": 0.7228571428571429,
+                    "f1": 0.67828418230563
+                  },
+                  "visible": {
+                    "support": 2467,
+                    "precision": 0.9599339116067741,
+                    "recall": 0.9420348601540333,
+                    "f1": 0.9509001636661212
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 253,
+                "predictions": 611,
+                "targets": 437,
+                "precision": 0.41407528641571195,
+                "recall": 0.5789473684210527,
+                "f1": 0.48282442748091603
+              }
+            },
+            "0.60": {
+              "threshold": 0.6000000000000002,
+              "faces": 766,
+              "predictions": 3228,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8803559657218194,
+              "micro_recall_at_nme_0.10": 0.9241924851680949,
+              "macro_f1_at_nme_0.05": 0.8538033387161694,
+              "macro_f1_at_nme_0.10": 0.8961268992272085,
+              "matched_nme_mean_at_0.10": 0.015289563740739056,
+              "visible_nme_mean_at_0.10": 0.013128292653953563,
+              "occluded_nme_mean_at_0.10": 0.03064333348443484,
+              "per_class": {
+                "eye": {
+                  "predictions": 1335,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.8411985018726592,
+                    "recall": 0.8712179984484096,
+                    "f1": 0.8559451219512196
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8838951310861424,
+                    "recall": 0.9154383242823895,
+                    "f1": 0.899390243902439
+                  }
+                },
+                "nose": {
+                  "predictions": 668,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8323353293413174,
+                    "recall": 0.886762360446571,
+                    "f1": 0.8586872586872588
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8727544910179641,
+                    "recall": 0.9298245614035088,
+                    "f1": 0.9003861003861003
+                  }
+                },
+                "mouth": {
+                  "predictions": 1225,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.809795918367347,
+                    "recall": 0.8872987477638641,
+                    "f1": 0.8467776355100299
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8497959183673469,
+                    "recall": 0.9311270125223614,
+                    "f1": 0.8886043533930857
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.916191155492154,
+                "macro_f1": 0.8168690878277445,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    252,
+                    94
+                  ],
+                  [
+                    141,
+                    2317
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 346,
+                    "precision": 0.6412213740458015,
+                    "recall": 0.7283236994219653,
+                    "f1": 0.6820027063599459
+                  },
+                  "visible": {
+                    "support": 2458,
+                    "precision": 0.9610120282040647,
+                    "recall": 0.9426362896663955,
+                    "f1": 0.9517354692955432
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 252,
+                "predictions": 599,
+                "targets": 437,
+                "precision": 0.42070116861435725,
+                "recall": 0.5766590389016019,
+                "f1": 0.4864864864864865
+              }
+            },
+            "0.65": {
+              "threshold": 0.6500000000000001,
+              "faces": 766,
+              "predictions": 3190,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8773895847066578,
+              "micro_recall_at_nme_0.10": 0.9195781147000659,
+              "macro_f1_at_nme_0.05": 0.8563181510646477,
+              "macro_f1_at_nme_0.10": 0.897519869859177,
+              "matched_nme_mean_at_0.10": 0.015166539323253734,
+              "visible_nme_mean_at_0.10": 0.013051447728889788,
+              "occluded_nme_mean_at_0.10": 0.030356742591867523,
+              "per_class": {
+                "eye": {
+                  "predictions": 1317,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.85041761579347,
+                    "recall": 0.8688906128782001,
+                    "f1": 0.8595548733691482
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8921791951404707,
+                    "recall": 0.9115593483320403,
+                    "f1": 0.9017651573292401
+                  }
+                },
+                "nose": {
+                  "predictions": 662,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8398791540785498,
+                    "recall": 0.886762360446571,
+                    "f1": 0.8626842513576415
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8806646525679759,
+                    "recall": 0.9298245614035088,
+                    "f1": 0.904577191621412
+                  }
+                },
+                "mouth": {
+                  "predictions": 1211,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.8142031379025598,
+                    "recall": 0.8819320214669052,
+                    "f1": 0.8467153284671532
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8521882741535921,
+                    "recall": 0.9230769230769231,
+                    "f1": 0.8862172606268786
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.917921146953405,
+                "macro_f1": 0.8184850314286729,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    248,
+                    93
+                  ],
+                  [
+                    136,
+                    2313
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 341,
+                    "precision": 0.6458333333333334,
+                    "recall": 0.7272727272727273,
+                    "f1": 0.6841379310344828
+                  },
+                  "visible": {
+                    "support": 2449,
+                    "precision": 0.9613466334164589,
+                    "recall": 0.944467129440588,
+                    "f1": 0.9528321318228631
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 248,
+                "predictions": 579,
+                "targets": 437,
+                "precision": 0.4283246977547496,
+                "recall": 0.5675057208237986,
+                "f1": 0.4881889763779528
+              }
+            },
+            "0.70": {
+              "threshold": 0.7000000000000002,
+              "faces": 766,
+              "predictions": 3153,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8740936058009229,
+              "micro_recall_at_nme_0.10": 0.914963744232037,
+              "macro_f1_at_nme_0.05": 0.8580684027676879,
+              "macro_f1_at_nme_0.10": 0.8984367768003813,
+              "matched_nme_mean_at_0.10": 0.015057914944310516,
+              "visible_nme_mean_at_0.10": 0.012984101466750548,
+              "occluded_nme_mean_at_0.10": 0.030220347615572327,
+              "per_class": {
+                "eye": {
+                  "predictions": 1301,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.8578016910069177,
+                    "recall": 0.8657874321179209,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.897770945426595,
+                    "recall": 0.9061287820015516,
+                    "f1": 0.9019305019305018
+                  }
+                },
+                "nose": {
+                  "predictions": 658,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8434650455927052,
+                    "recall": 0.8851674641148325,
+                    "f1": 0.8638132295719845
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8844984802431611,
+                    "recall": 0.9282296650717703,
+                    "f1": 0.9058365758754864
+                  }
+                },
+                "mouth": {
+                  "predictions": 1194,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.821608040201005,
+                    "recall": 0.8774597495527728,
+                    "f1": 0.8486159169550173
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8592964824120602,
+                    "recall": 0.9177101967799642,
+                    "f1": 0.8875432525951557
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9189481268011528,
+                "macro_f1": 0.8180964077389699,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    242,
+                    92
+                  ],
+                  [
+                    133,
+                    2309
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 334,
+                    "precision": 0.6453333333333333,
+                    "recall": 0.7245508982035929,
+                    "f1": 0.6826516220028209
+                  },
+                  "visible": {
+                    "support": 2442,
+                    "precision": 0.9616826322365681,
+                    "recall": 0.9455364455364456,
+                    "f1": 0.9535411934751187
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 242,
+                "predictions": 555,
+                "targets": 437,
+                "precision": 0.436036036036036,
+                "recall": 0.5537757437070938,
+                "f1": 0.4879032258064516
+              }
+            },
+            "0.75": {
+              "threshold": 0.7500000000000002,
+              "faces": 766,
+              "predictions": 3088,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8671720500988793,
+              "micro_recall_at_nme_0.10": 0.9060646011865524,
+              "macro_f1_at_nme_0.05": 0.8603205488989802,
+              "macro_f1_at_nme_0.10": 0.8987198124083178,
+              "matched_nme_mean_at_0.10": 0.014888618012409397,
+              "visible_nme_mean_at_0.10": 0.01288918982143514,
+              "occluded_nme_mean_at_0.10": 0.029853474071398836,
+              "per_class": {
+                "eye": {
+                  "predictions": 1277,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.8668754894283477,
+                    "recall": 0.8588052754072925,
+                    "f1": 0.86282151208106
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9060297572435395,
+                    "recall": 0.8975950349107835,
+                    "f1": 0.9017926734216679
+                  }
+                },
+                "nose": {
+                  "predictions": 648,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8518518518518519,
+                    "recall": 0.8803827751196173,
+                    "f1": 0.8658823529411765
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8888888888888888,
+                    "recall": 0.9186602870813397,
+                    "f1": 0.9035294117647059
+                  }
+                },
+                "mouth": {
+                  "predictions": 1163,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.8357695614789338,
+                    "recall": 0.8694096601073346,
+                    "f1": 0.8522577816747042
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8736027515047291,
+                    "recall": 0.9087656529516994,
+                    "f1": 0.8908373520385795
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9210622044379775,
+                "macro_f1": 0.8195144738963989,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    235,
+                    89
+                  ],
+                  [
+                    128,
+                    2297
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 324,
+                    "precision": 0.6473829201101928,
+                    "recall": 0.7253086419753086,
+                    "f1": 0.6841339155749636
+                  },
+                  "visible": {
+                    "support": 2425,
+                    "precision": 0.962699077954736,
+                    "recall": 0.9472164948453609,
+                    "f1": 0.9548950322178341
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 235,
+                "predictions": 521,
+                "targets": 437,
+                "precision": 0.4510556621880998,
+                "recall": 0.5377574370709383,
+                "f1": 0.4906054279749478
+              }
+            },
+            "0.80": {
+              "threshold": 0.8000000000000002,
+              "faces": 766,
+              "predictions": 3008,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8586025049439684,
+              "micro_recall_at_nme_0.10": 0.8938694792353329,
+              "macro_f1_at_nme_0.05": 0.8636490806326135,
+              "macro_f1_at_nme_0.10": 0.8992342062010996,
+              "matched_nme_mean_at_0.10": 0.014529764250539924,
+              "visible_nme_mean_at_0.10": 0.012689789859364722,
+              "occluded_nme_mean_at_0.10": 0.0290504801835193,
+              "per_class": {
+                "eye": {
+                  "predictions": 1249,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.8751000800640513,
+                    "recall": 0.847944142746315,
+                    "f1": 0.8613081166272656
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.911128903122498,
+                    "recall": 0.8828549262994569,
+                    "f1": 0.8967691095350669
+                  }
+                },
+                "nose": {
+                  "predictions": 631,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8684627575277337,
+                    "recall": 0.8740031897926634,
+                    "f1": 0.8712241653418124
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9049128367670365,
+                    "recall": 0.9106858054226475,
+                    "f1": 0.9077901430842606
+                  }
+                },
+                "mouth": {
+                  "predictions": 1128,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.8546099290780141,
+                    "recall": 0.8622540250447227,
+                    "f1": 0.8584149599287623
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8891843971631206,
+                    "recall": 0.8971377459749553,
+                    "f1": 0.8931433659839716
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9240412979351033,
+                "macro_f1": 0.820440298469086,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    223,
+                    82
+                  ],
+                  [
+                    124,
+                    2283
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 305,
+                    "precision": 0.6426512968299711,
+                    "recall": 0.7311475409836066,
+                    "f1": 0.6840490797546013
+                  },
+                  "visible": {
+                    "support": 2407,
+                    "precision": 0.9653276955602537,
+                    "recall": 0.9484835895305359,
+                    "f1": 0.9568315171835707
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 223,
+                "predictions": 484,
+                "targets": 437,
+                "precision": 0.4607438016528926,
+                "recall": 0.5102974828375286,
+                "f1": 0.48425624321389793
+              }
+            },
+            "0.85": {
+              "threshold": 0.8500000000000002,
+              "faces": 766,
+              "predictions": 2911,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8431114040870138,
+              "micro_recall_at_nme_0.10": 0.8757415952537904,
+              "macro_f1_at_nme_0.05": 0.8619289743874439,
+              "macro_f1_at_nme_0.10": 0.8948451634269518,
+              "matched_nme_mean_at_0.10": 0.01430015988158047,
+              "visible_nme_mean_at_0.10": 0.012532237836104606,
+              "occluded_nme_mean_at_0.10": 0.02878610937530658,
+              "per_class": {
+                "eye": {
+                  "predictions": 1215,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.8864197530864197,
+                    "recall": 0.8355314197051978,
+                    "f1": 0.8602236421725239
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9209876543209876,
+                    "recall": 0.8681148176881304,
+                    "f1": 0.8937699680511182
+                  }
+                },
+                "nose": {
+                  "predictions": 610,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.8819672131147541,
+                    "recall": 0.8580542264752791,
+                    "f1": 0.8698464025869037
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9131147540983606,
+                    "recall": 0.8883572567783095,
+                    "f1": 0.9005658852061438
+                  }
+                },
+                "mouth": {
+                  "predictions": 1086,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.8683241252302025,
+                    "recall": 0.8434704830053668,
+                    "f1": 0.8557168784029038
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9033149171270718,
+                    "recall": 0.8774597495527728,
+                    "f1": 0.8901996370235934
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9269853217914942,
+                "macro_f1": 0.8228837087840345,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    213,
+                    76
+                  ],
+                  [
+                    118,
+                    2250
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 289,
+                    "precision": 0.6435045317220544,
+                    "recall": 0.7370242214532872,
+                    "f1": 0.6870967741935483
+                  },
+                  "visible": {
+                    "support": 2368,
+                    "precision": 0.9673258813413586,
+                    "recall": 0.950168918918919,
+                    "f1": 0.9586706433745207
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 213,
+                "predictions": 443,
+                "targets": 437,
+                "precision": 0.48081264108352145,
+                "recall": 0.4874141876430206,
+                "f1": 0.48409090909090907
+              }
+            },
+            "0.90": {
+              "threshold": 0.9000000000000002,
+              "faces": 766,
+              "predictions": 2731,
+              "targets": 3034,
+              "micro_recall_at_nme_0.05": 0.8147659854976929,
+              "micro_recall_at_nme_0.10": 0.8408042188529994,
+              "macro_f1_at_nme_0.05": 0.8580216463319682,
+              "macro_f1_at_nme_0.10": 0.8854548100346727,
+              "matched_nme_mean_at_0.10": 0.013630061391508755,
+              "visible_nme_mean_at_0.10": 0.01215477629869887,
+              "occluded_nme_mean_at_0.10": 0.026913412658534214,
+              "per_class": {
+                "eye": {
+                  "predictions": 1152,
+                  "targets": 1289,
+                  "at_nme_0.05": {
+                    "precision": 0.9097222222222222,
+                    "recall": 0.813033359193173,
+                    "f1": 0.8586644817697665
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9409722222222222,
+                    "recall": 0.8409619860356866,
+                    "f1": 0.8881605899221631
+                  }
+                },
+                "nose": {
+                  "predictions": 574,
+                  "targets": 627,
+                  "at_nme_0.05": {
+                    "precision": 0.9006968641114983,
+                    "recall": 0.8245614035087719,
+                    "f1": 0.8609492089925063
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9303135888501742,
+                    "recall": 0.8516746411483254,
+                    "f1": 0.8892589508742714
+                  }
+                },
+                "mouth": {
+                  "predictions": 1005,
+                  "targets": 1118,
+                  "at_nme_0.05": {
+                    "precision": 0.9024875621890547,
+                    "recall": 0.8112701252236136,
+                    "f1": 0.8544512482336316
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9283582089552239,
+                    "recall": 0.8345259391771019,
+                    "f1": 0.8789448893075835
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9321834574676597,
+                "macro_f1": 0.8262191100188735,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    193,
+                    62
+                  ],
+                  [
+                    111,
+                    2185
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 255,
+                    "precision": 0.6348684210526315,
+                    "recall": 0.7568627450980392,
+                    "f1": 0.6905187835420393
+                  },
+                  "visible": {
+                    "support": 2296,
+                    "precision": 0.9724076546506453,
+                    "recall": 0.9516550522648084,
+                    "f1": 0.9619194364957077
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 193,
+                "predictions": 376,
+                "targets": 437,
+                "precision": 0.5132978723404256,
+                "recall": 0.4416475972540046,
+                "f1": 0.4747847478474785
+              }
+            }
+          }
+        },
+        "selection_objective": 0.821240957141854,
+        "selection_objective_balanced": 0.821240957141854,
+        "selection_objective_high_recall": 0.8159321625058243,
+        "fixed_val_calibration": {
+          "face_threshold": 0.55,
+          "face_presence": {
+            "tp": 740,
+            "fp": 9,
+            "fn": 26,
+            "tn": 30,
+            "present_precision": 0.9879839786381842,
+            "present_recall": 0.9660574412532638,
+            "present_f1": 0.976897689768977,
+            "absent_precision": 0.5357142857142857,
+            "absent_recall": 0.7692307692307693,
+            "absent_f1": 0.6315789473684211,
+            "macro_f1": 0.804238318568699,
+            "false_face_rate_on_absent": 0.23076923076923078
+          },
+          "point_threshold": 0.75,
+          "points": {
+            "threshold": 0.75,
+            "faces": 766,
+            "predictions": 3088,
+            "targets": 3034,
+            "micro_recall_at_nme_0.05": 0.8671720500988793,
+            "micro_recall_at_nme_0.10": 0.9060646011865524,
+            "macro_f1_at_nme_0.05": 0.8603205488989802,
+            "macro_f1_at_nme_0.10": 0.8987198124083178,
+            "matched_nme_mean_at_0.10": 0.014888618012409397,
+            "visible_nme_mean_at_0.10": 0.01288918982143514,
+            "occluded_nme_mean_at_0.10": 0.029853474071398836,
+            "per_class": {
+              "eye": {
+                "predictions": 1277,
+                "targets": 1289,
+                "at_nme_0.05": {
+                  "precision": 0.8668754894283477,
+                  "recall": 0.8588052754072925,
+                  "f1": 0.86282151208106
+                },
+                "at_nme_0.10": {
+                  "precision": 0.9060297572435395,
+                  "recall": 0.8975950349107835,
+                  "f1": 0.9017926734216679
+                }
+              },
+              "nose": {
+                "predictions": 648,
+                "targets": 627,
+                "at_nme_0.05": {
+                  "precision": 0.8518518518518519,
+                  "recall": 0.8803827751196173,
+                  "f1": 0.8658823529411765
+                },
+                "at_nme_0.10": {
+                  "precision": 0.8888888888888888,
+                  "recall": 0.9186602870813397,
+                  "f1": 0.9035294117647059
+                }
+              },
+              "mouth": {
+                "predictions": 1163,
+                "targets": 1118,
+                "at_nme_0.05": {
+                  "precision": 0.8357695614789338,
+                  "recall": 0.8694096601073346,
+                  "f1": 0.8522577816747042
+                },
+                "at_nme_0.10": {
+                  "precision": 0.8736027515047291,
+                  "recall": 0.9087656529516994,
+                  "f1": 0.8908373520385795
+                }
+              }
+            },
+            "state": {
+              "accuracy": 0.9210622044379775,
+              "macro_f1": 0.8195144738963989,
+              "confusion_gt_rows_pred_columns": [
+                [
+                  235,
+                  89
+                ],
+                [
+                  128,
+                  2297
+                ]
+              ],
+              "per_state": {
+                "occluded": {
+                  "support": 324,
+                  "precision": 0.6473829201101928,
+                  "recall": 0.7253086419753086,
+                  "f1": 0.6841339155749636
+                },
+                "visible": {
+                  "support": 2425,
+                  "precision": 0.962699077954736,
+                  "recall": 0.9472164948453609,
+                  "f1": 0.9548950322178341
+                }
+              }
+            },
+            "e2e_occluded_point": {
+              "true_positives": 235,
+              "predictions": 521,
+              "targets": 437,
+              "precision": 0.4510556621880998,
+              "recall": 0.5377574370709383,
+              "f1": 0.4906054279749478
+            }
+          }
+        }
+      },
+      "worst_oracle_ellipse_images": [
+        {
+          "image_id": 178,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.1217008797653959
+        },
+        {
+          "image_id": 348,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.17425519955030916
+        },
+        {
+          "image_id": 495,
+          "positive_instances": 5,
+          "oracle_ellipse_iou_mean": 0.18768726337575498
+        },
+        {
+          "image_id": 476,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.19483374553448748
+        },
+        {
+          "image_id": 448,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.25742574257425743
+        },
+        {
+          "image_id": 328,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.2684729064039409
+        },
+        {
+          "image_id": 422,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.2789862302933546
+        },
+        {
+          "image_id": 73,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.2967418800815588
+        },
+        {
+          "image_id": 509,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.3153591651591737
+        },
+        {
+          "image_id": 26,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.3567782601033799
+        },
+        {
+          "image_id": 300,
+          "positive_instances": 3,
+          "oracle_ellipse_iou_mean": 0.3609431455231245
+        },
+        {
+          "image_id": 313,
+          "positive_instances": 3,
+          "oracle_ellipse_iou_mean": 0.38517514302917744
+        },
+        {
+          "image_id": 160,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.4034426650680826
+        },
+        {
+          "image_id": 247,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.41123809523809524
+        },
+        {
+          "image_id": 387,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.4149132632981139
+        },
+        {
+          "image_id": 25,
+          "positive_instances": 3,
+          "oracle_ellipse_iou_mean": 0.4155437643221776
+        },
+        {
+          "image_id": 364,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.431096127841223
+        },
+        {
+          "image_id": 394,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.43623615486231077
+        },
+        {
+          "image_id": 158,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.4625251727910099
+        },
+        {
+          "image_id": 173,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.4686073670606953
+        },
+        {
+          "image_id": 91,
+          "positive_instances": 3,
+          "oracle_ellipse_iou_mean": 0.47131362172566593
+        },
+        {
+          "image_id": 18,
+          "positive_instances": 3,
+          "oracle_ellipse_iou_mean": 0.4729012762284592
+        },
+        {
+          "image_id": 82,
+          "positive_instances": 3,
+          "oracle_ellipse_iou_mean": 0.47291316443534187
+        },
+        {
+          "image_id": 452,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.4757200399883488
+        },
+        {
+          "image_id": 251,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.4786570407233476
+        },
+        {
+          "image_id": 496,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.4835265761674841
+        },
+        {
+          "image_id": 408,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.49154208788161446
+        },
+        {
+          "image_id": 521,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.49213161393563803
+        },
+        {
+          "image_id": 347,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.49452429117541824
+        },
+        {
+          "image_id": 85,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.4981103552532124
+        },
+        {
+          "image_id": 78,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5073043821606792
+        },
+        {
+          "image_id": 447,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5158123538130854
+        },
+        {
+          "image_id": 265,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5235449070149877
+        },
+        {
+          "image_id": 16,
+          "positive_instances": 3,
+          "oracle_ellipse_iou_mean": 0.5279026023360697
+        },
+        {
+          "image_id": 499,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.5281473899692938
+        },
+        {
+          "image_id": 93,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5359133070925882
+        },
+        {
+          "image_id": 445,
+          "positive_instances": 3,
+          "oracle_ellipse_iou_mean": 0.5393371293566419
+        },
+        {
+          "image_id": 501,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5395359001839984
+        },
+        {
+          "image_id": 150,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5411565237037242
+        },
+        {
+          "image_id": 314,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5429421581352549
+        },
+        {
+          "image_id": 83,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.5440233236151604
+        },
+        {
+          "image_id": 527,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5478447825452094
+        },
+        {
+          "image_id": 510,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.5518686692280824
+        },
+        {
+          "image_id": 528,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5527476035820142
+        },
+        {
+          "image_id": 81,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5552777469529675
+        },
+        {
+          "image_id": 502,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5569636541239836
+        },
+        {
+          "image_id": 205,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.5573549825432214
+        },
+        {
+          "image_id": 193,
+          "positive_instances": 1,
+          "oracle_ellipse_iou_mean": 0.5589490968801314
+        },
+        {
+          "image_id": 199,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5614296895075217
+        },
+        {
+          "image_id": 84,
+          "positive_instances": 2,
+          "oracle_ellipse_iou_mean": 0.5627883690623459
+        }
+      ],
+      "coco_bbox": {
+        "AP": 0.7495926414961019,
+        "AP50": 0.9633394331392696,
+        "AP75": 0.8704551967542101,
+        "AP_small": 0.052542146106502534,
+        "AP_medium": 0.3909650900804962,
+        "AP_large": 0.7710738918518685,
+        "AR_max1": 0.4995037220843672,
+        "AR_max10": 0.8008684863523573,
+        "AR_max100": 0.8169975186104219,
+        "AR_small": 0.2,
+        "AR_medium": 0.5354166666666667,
+        "AR_large": 0.8365079365079364
+      },
+      "attributes_end_to_end": {
+        "positive_instances": 730,
+        "face_presence": {
+          "instances": 756,
+          "present": 730,
+          "absent": 26,
+          "recommended_threshold_present_recall_ge_0.98": "0.02",
+          "recommended": {
+            "tp": 726,
+            "fp": 9,
+            "fn": 4,
+            "tn": 17,
+            "present_precision": 0.9877551020408163,
+            "present_recall": 0.9945205479452055,
+            "present_f1": 0.9911262798634812,
+            "absent_precision": 0.8095238095238095,
+            "absent_recall": 0.6538461538461539,
+            "absent_f1": 0.7234042553191489,
+            "macro_f1": 0.857265267591315,
+            "false_face_rate_on_absent": 0.34615384615384615
+          },
+          "recommended_threshold_balanced_macro_f1": "0.02",
+          "recommended_balanced": {
+            "tp": 726,
+            "fp": 9,
+            "fn": 4,
+            "tn": 17,
+            "present_precision": 0.9877551020408163,
+            "present_recall": 0.9945205479452055,
+            "present_f1": 0.9911262798634812,
+            "absent_precision": 0.8095238095238095,
+            "absent_recall": 0.6538461538461539,
+            "absent_f1": 0.7234042553191489,
+            "macro_f1": 0.857265267591315,
+            "false_face_rate_on_absent": 0.34615384615384615
+          },
+          "thresholds": {
+            "0.01": {
+              "tp": 726,
+              "fp": 12,
+              "fn": 4,
+              "tn": 14,
+              "present_precision": 0.983739837398374,
+              "present_recall": 0.9945205479452055,
+              "present_f1": 0.9891008174386922,
+              "absent_precision": 0.7777777777777778,
+              "absent_recall": 0.5384615384615384,
+              "absent_f1": 0.6363636363636364,
+              "macro_f1": 0.8127322269011643,
+              "false_face_rate_on_absent": 0.46153846153846156
+            },
+            "0.02": {
+              "tp": 726,
+              "fp": 9,
+              "fn": 4,
+              "tn": 17,
+              "present_precision": 0.9877551020408163,
+              "present_recall": 0.9945205479452055,
+              "present_f1": 0.9911262798634812,
+              "absent_precision": 0.8095238095238095,
+              "absent_recall": 0.6538461538461539,
+              "absent_f1": 0.7234042553191489,
+              "macro_f1": 0.857265267591315,
+              "false_face_rate_on_absent": 0.34615384615384615
+            },
+            "0.05": {
+              "tp": 724,
+              "fp": 9,
+              "fn": 6,
+              "tn": 17,
+              "present_precision": 0.9877216916780355,
+              "present_recall": 0.9917808219178083,
+              "present_f1": 0.9897470950102529,
+              "absent_precision": 0.7391304347826086,
+              "absent_recall": 0.6538461538461539,
+              "absent_f1": 0.693877551020408,
+              "macro_f1": 0.8418123230153305,
+              "false_face_rate_on_absent": 0.34615384615384615
+            },
+            "0.10": {
+              "tp": 724,
+              "fp": 8,
+              "fn": 6,
+              "tn": 18,
+              "present_precision": 0.9890710382513661,
+              "present_recall": 0.9917808219178083,
+              "present_f1": 0.9904240766073872,
+              "absent_precision": 0.75,
+              "absent_recall": 0.6923076923076923,
+              "absent_f1": 0.7199999999999999,
+              "macro_f1": 0.8552120383036935,
+              "false_face_rate_on_absent": 0.3076923076923077
+            },
+            "0.15": {
+              "tp": 723,
+              "fp": 8,
+              "fn": 7,
+              "tn": 18,
+              "present_precision": 0.9890560875512996,
+              "present_recall": 0.9904109589041096,
+              "present_f1": 0.9897330595482546,
+              "absent_precision": 0.72,
+              "absent_recall": 0.6923076923076923,
+              "absent_f1": 0.7058823529411765,
+              "macro_f1": 0.8478077062447156,
+              "false_face_rate_on_absent": 0.3076923076923077
+            },
+            "0.20": {
+              "tp": 722,
+              "fp": 8,
+              "fn": 8,
+              "tn": 18,
+              "present_precision": 0.989041095890411,
+              "present_recall": 0.989041095890411,
+              "present_f1": 0.989041095890411,
+              "absent_precision": 0.6923076923076923,
+              "absent_recall": 0.6923076923076923,
+              "absent_f1": 0.6923076923076923,
+              "macro_f1": 0.8406743940990516,
+              "false_face_rate_on_absent": 0.3076923076923077
+            },
+            "0.25": {
+              "tp": 722,
+              "fp": 8,
+              "fn": 8,
+              "tn": 18,
+              "present_precision": 0.989041095890411,
+              "present_recall": 0.989041095890411,
+              "present_f1": 0.989041095890411,
+              "absent_precision": 0.6923076923076923,
+              "absent_recall": 0.6923076923076923,
+              "absent_f1": 0.6923076923076923,
+              "macro_f1": 0.8406743940990516,
+              "false_face_rate_on_absent": 0.3076923076923077
+            },
+            "0.30": {
+              "tp": 720,
+              "fp": 7,
+              "fn": 10,
+              "tn": 19,
+              "present_precision": 0.9903713892709766,
+              "present_recall": 0.9863013698630136,
+              "present_f1": 0.9883321894303364,
+              "absent_precision": 0.6551724137931034,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6909090909090909,
+              "macro_f1": 0.8396206401697137,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.35": {
+              "tp": 720,
+              "fp": 7,
+              "fn": 10,
+              "tn": 19,
+              "present_precision": 0.9903713892709766,
+              "present_recall": 0.9863013698630136,
+              "present_f1": 0.9883321894303364,
+              "absent_precision": 0.6551724137931034,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6909090909090909,
+              "macro_f1": 0.8396206401697137,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.40": {
+              "tp": 720,
+              "fp": 7,
+              "fn": 10,
+              "tn": 19,
+              "present_precision": 0.9903713892709766,
+              "present_recall": 0.9863013698630136,
+              "present_f1": 0.9883321894303364,
+              "absent_precision": 0.6551724137931034,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6909090909090909,
+              "macro_f1": 0.8396206401697137,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.45": {
+              "tp": 720,
+              "fp": 7,
+              "fn": 10,
+              "tn": 19,
+              "present_precision": 0.9903713892709766,
+              "present_recall": 0.9863013698630136,
+              "present_f1": 0.9883321894303364,
+              "absent_precision": 0.6551724137931034,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6909090909090909,
+              "macro_f1": 0.8396206401697137,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.50": {
+              "tp": 719,
+              "fp": 7,
+              "fn": 11,
+              "tn": 19,
+              "present_precision": 0.990358126721763,
+              "present_recall": 0.9849315068493151,
+              "present_f1": 0.9876373626373627,
+              "absent_precision": 0.6333333333333333,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6785714285714285,
+              "macro_f1": 0.8331043956043955,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.55": {
+              "tp": 719,
+              "fp": 7,
+              "fn": 11,
+              "tn": 19,
+              "present_precision": 0.990358126721763,
+              "present_recall": 0.9849315068493151,
+              "present_f1": 0.9876373626373627,
+              "absent_precision": 0.6333333333333333,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6785714285714285,
+              "macro_f1": 0.8331043956043955,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.60": {
+              "tp": 719,
+              "fp": 7,
+              "fn": 11,
+              "tn": 19,
+              "present_precision": 0.990358126721763,
+              "present_recall": 0.9849315068493151,
+              "present_f1": 0.9876373626373627,
+              "absent_precision": 0.6333333333333333,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6785714285714285,
+              "macro_f1": 0.8331043956043955,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.65": {
+              "tp": 718,
+              "fp": 7,
+              "fn": 12,
+              "tn": 19,
+              "present_precision": 0.9903448275862069,
+              "present_recall": 0.9835616438356164,
+              "present_f1": 0.9869415807560138,
+              "absent_precision": 0.6129032258064516,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6666666666666667,
+              "macro_f1": 0.8268041237113403,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.70": {
+              "tp": 718,
+              "fp": 7,
+              "fn": 12,
+              "tn": 19,
+              "present_precision": 0.9903448275862069,
+              "present_recall": 0.9835616438356164,
+              "present_f1": 0.9869415807560138,
+              "absent_precision": 0.6129032258064516,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6666666666666667,
+              "macro_f1": 0.8268041237113403,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.75": {
+              "tp": 717,
+              "fp": 7,
+              "fn": 13,
+              "tn": 19,
+              "present_precision": 0.9903314917127072,
+              "present_recall": 0.9821917808219178,
+              "present_f1": 0.986244841815681,
+              "absent_precision": 0.59375,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6551724137931033,
+              "macro_f1": 0.8207086278043921,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.80": {
+              "tp": 717,
+              "fp": 7,
+              "fn": 13,
+              "tn": 19,
+              "present_precision": 0.9903314917127072,
+              "present_recall": 0.9821917808219178,
+              "present_f1": 0.986244841815681,
+              "absent_precision": 0.59375,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6551724137931033,
+              "macro_f1": 0.8207086278043921,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.85": {
+              "tp": 717,
+              "fp": 7,
+              "fn": 13,
+              "tn": 19,
+              "present_precision": 0.9903314917127072,
+              "present_recall": 0.9821917808219178,
+              "present_f1": 0.986244841815681,
+              "absent_precision": 0.59375,
+              "absent_recall": 0.7307692307692307,
+              "absent_f1": 0.6551724137931033,
+              "macro_f1": 0.8207086278043921,
+              "false_face_rate_on_absent": 0.2692307692307692
+            },
+            "0.90": {
+              "tp": 717,
+              "fp": 6,
+              "fn": 13,
+              "tn": 20,
+              "present_precision": 0.991701244813278,
+              "present_recall": 0.9821917808219178,
+              "present_f1": 0.9869236063317275,
+              "absent_precision": 0.6060606060606061,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6779661016949152,
+              "macro_f1": 0.8324448540133214,
+              "false_face_rate_on_absent": 0.23076923076923078
+            },
+            "0.95": {
+              "tp": 715,
+              "fp": 6,
+              "fn": 15,
+              "tn": 20,
+              "present_precision": 0.9916782246879334,
+              "present_recall": 0.9794520547945206,
+              "present_f1": 0.9855272226051,
+              "absent_precision": 0.5714285714285714,
+              "absent_recall": 0.7692307692307693,
+              "absent_f1": 0.6557377049180327,
+              "macro_f1": 0.8206324637615663,
+              "false_face_rate_on_absent": 0.23076923076923078
+            }
+          }
+        },
+        "ellipse": {
+          "instances": 730,
+          "iou_mean": 0.7426724024403556,
+          "iou_median": 0.7980646941948841,
+          "iou_p10": 0.4900162124606575,
+          "iou_at_0.50": 0.8958904109589041,
+          "iou_at_0.75": 0.6397260273972603,
+          "center_nme_mean": 0.04770856572772796,
+          "major_relative_error_mean": 0.11125617764689569,
+          "minor_relative_error_mean": 0.16771001108130545,
+          "angle_error_degrees_mean_eccentric": 8.012006457830685
+        },
+        "points": {
+          "recommended_threshold": "0.75",
+          "recommended": {
+            "threshold": 0.7500000000000002,
+            "faces": 730,
+            "predictions": 3035,
+            "targets": 2947,
+            "micro_recall_at_nme_0.05": 0.8856464200882254,
+            "micro_recall_at_nme_0.10": 0.9243298269426535,
+            "macro_f1_at_nme_0.05": 0.8740721498782849,
+            "macro_f1_at_nme_0.10": 0.9112522072974091,
+            "matched_nme_mean_at_0.10": 0.014799315111261431,
+            "visible_nme_mean_at_0.10": 0.012757795531582029,
+            "occluded_nme_mean_at_0.10": 0.029816382448903164,
+            "per_class": {
+              "eye": {
+                "predictions": 1259,
+                "targets": 1246,
+                "at_nme_0.05": {
+                  "precision": 0.8681493248610008,
+                  "recall": 0.877207062600321,
+                  "f1": 0.8726546906187624
+                },
+                "at_nme_0.10": {
+                  "precision": 0.9134233518665608,
+                  "recall": 0.9229534510433387,
+                  "f1": 0.9181636726546907
+                }
+              },
+              "nose": {
+                "predictions": 632,
+                "targets": 610,
+                "at_nme_0.05": {
+                  "precision": 0.8670886075949367,
+                  "recall": 0.898360655737705,
+                  "f1": 0.8824476650563606
+                },
+                "at_nme_0.10": {
+                  "precision": 0.9003164556962026,
+                  "recall": 0.9327868852459016,
+                  "f1": 0.9162640901771335
+                }
+              },
+              "mouth": {
+                "predictions": 1144,
+                "targets": 1091,
+                "at_nme_0.05": {
+                  "precision": 0.847027972027972,
+                  "recall": 0.8881759853345554,
+                  "f1": 0.8671140939597315
+                },
+                "at_nme_0.10": {
+                  "precision": 0.8784965034965035,
+                  "recall": 0.921173235563703,
+                  "f1": 0.8993288590604027
+                }
+              }
+            },
+            "state": {
+              "accuracy": 0.9203377386196769,
+              "macro_f1": 0.8214955576821854,
+              "confusion_gt_rows_pred_columns": [
+                [
+                  240,
+                  86
+                ],
+                [
+                  131,
+                  2267
+                ]
+              ],
+              "per_state": {
+                "occluded": {
+                  "support": 326,
+                  "precision": 0.6469002695417789,
+                  "recall": 0.7361963190184049,
+                  "f1": 0.6886657101865136
+                },
+                "visible": {
+                  "support": 2398,
+                  "precision": 0.9634509137271569,
+                  "recall": 0.945371142618849,
+                  "f1": 0.9543254051778574
+                }
+              }
+            },
+            "e2e_occluded_point": {
+              "true_positives": 240,
+              "predictions": 522,
+              "targets": 412,
+              "precision": 0.45977011494252873,
+              "recall": 0.5825242718446602,
+              "f1": 0.5139186295503211
+            }
+          },
+          "thresholds": {
+            "0.10": {
+              "threshold": 0.1,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.15": {
+              "threshold": 0.15000000000000002,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.20": {
+              "threshold": 0.20000000000000004,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.25": {
+              "threshold": 0.25000000000000006,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.30": {
+              "threshold": 0.30000000000000004,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.35": {
+              "threshold": 0.3500000000000001,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.40": {
+              "threshold": 0.40000000000000013,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.45": {
+              "threshold": 0.45000000000000007,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.50": {
+              "threshold": 0.5000000000000001,
+              "faces": 730,
+              "predictions": 3239,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.9012555140821175,
+              "micro_recall_at_nme_0.10": 0.9467254835425857,
+              "macro_f1_at_nme_0.05": 0.8598030968720624,
+              "macro_f1_at_nme_0.10": 0.9020342891032547,
+              "matched_nme_mean_at_0.10": 0.015331111701406075,
+              "visible_nme_mean_at_0.10": 0.013179321442748356,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1344,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8303571428571429,
+                    "recall": 0.8956661316211878,
+                    "f1": 0.8617760617760618
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8779761904761905,
+                    "recall": 0.9470304975922953,
+                    "f1": 0.9111969111969112
+                  }
+                },
+                "nose": {
+                  "predictions": 666,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8303303303303303,
+                    "recall": 0.9065573770491804,
+                    "f1": 0.8667711598746082
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8663663663663663,
+                    "recall": 0.9459016393442623,
+                    "f1": 0.9043887147335423
+                  }
+                },
+                "mouth": {
+                  "predictions": 1229,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8030919446704637,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8508620689655172
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8405207485760781,
+                    "recall": 0.9468377635197067,
+                    "f1": 0.8905172413793103
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9146953405017921,
+                "macro_f1": 0.8158652795602196,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    145,
+                    2298
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6365914786967418,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.680965147453083
+                  },
+                  "visible": {
+                    "support": 2443,
+                    "precision": 0.9611041405269761,
+                    "recall": 0.9406467458043389,
+                    "f1": 0.9507654116673562
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 624,
+                "targets": 412,
+                "precision": 0.40705128205128205,
+                "recall": 0.616504854368932,
+                "f1": 0.4903474903474903
+              }
+            },
+            "0.55": {
+              "threshold": 0.5500000000000002,
+              "faces": 730,
+              "predictions": 3204,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.8998982015609094,
+              "micro_recall_at_nme_0.10": 0.9443501866304717,
+              "macro_f1_at_nme_0.05": 0.8633781826022355,
+              "macro_f1_at_nme_0.10": 0.9049810211711994,
+              "matched_nme_mean_at_0.10": 0.015290370539806336,
+              "visible_nme_mean_at_0.10": 0.013126593534479607,
+              "occluded_nme_mean_at_0.10": 0.030480459257316177,
+              "per_class": {
+                "eye": {
+                  "predictions": 1330,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8368421052631579,
+                    "recall": 0.8932584269662921,
+                    "f1": 0.8641304347826088
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8849624060150376,
+                    "recall": 0.9446227929373997,
+                    "f1": 0.9138198757763975
+                  }
+                },
+                "nose": {
+                  "predictions": 659,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8376327769347496,
+                    "recall": 0.9049180327868852,
+                    "f1": 0.8699763593380615
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.874051593323217,
+                    "recall": 0.9442622950819672,
+                    "f1": 0.9078014184397163
+                  }
+                },
+                "mouth": {
+                  "predictions": 1215,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8123456790123457,
+                    "recall": 0.9046746104491292,
+                    "f1": 0.8560277536860363
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8477366255144033,
+                    "recall": 0.9440879926672777,
+                    "f1": 0.8933217692974847
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9155587495508444,
+                "macro_f1": 0.8174949051050526,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    254,
+                    93
+                  ],
+                  [
+                    142,
+                    2294
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 347,
+                    "precision": 0.6414141414141414,
+                    "recall": 0.7319884726224783,
+                    "f1": 0.6837146702557201
+                  },
+                  "visible": {
+                    "support": 2436,
+                    "precision": 0.961038961038961,
+                    "recall": 0.9417077175697866,
+                    "f1": 0.9512751399543853
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 254,
+                "predictions": 606,
+                "targets": 412,
+                "precision": 0.41914191419141916,
+                "recall": 0.616504854368932,
+                "f1": 0.4990176817288801
+              }
+            },
+            "0.60": {
+              "threshold": 0.6000000000000002,
+              "faces": 730,
+              "predictions": 3170,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.8971835765184933,
+              "micro_recall_at_nme_0.10": 0.9406175771971497,
+              "macro_f1_at_nme_0.05": 0.865368542656395,
+              "macro_f1_at_nme_0.10": 0.906413314025387,
+              "matched_nme_mean_at_0.10": 0.015192821476764155,
+              "visible_nme_mean_at_0.10": 0.013071863423199855,
+              "occluded_nme_mean_at_0.10": 0.03021266728465828,
+              "per_class": {
+                "eye": {
+                  "predictions": 1309,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8464476699770818,
+                    "recall": 0.8892455858747994,
+                    "f1": 0.8673189823874756
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.893048128342246,
+                    "recall": 0.9382022471910112,
+                    "f1": 0.915068493150685
+                  }
+                },
+                "nose": {
+                  "predictions": 655,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8412213740458016,
+                    "recall": 0.9032786885245901,
+                    "f1": 0.8711462450592886
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8778625954198473,
+                    "recall": 0.9426229508196722,
+                    "f1": 0.9090909090909092
+                  }
+                },
+                "mouth": {
+                  "predictions": 1206,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8167495854063018,
+                    "recall": 0.9028414298808433,
+                    "f1": 0.8576404005224205
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8524046434494196,
+                    "recall": 0.9422548120989918,
+                    "f1": 0.8950805398345669
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9170274170274171,
+                "macro_f1": 0.8194157267726749,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    252,
+                    91
+                  ],
+                  [
+                    139,
+                    2290
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 343,
+                    "precision": 0.6445012787723785,
+                    "recall": 0.7346938775510204,
+                    "f1": 0.6866485013623979
+                  },
+                  "visible": {
+                    "support": 2429,
+                    "precision": 0.9617807643847123,
+                    "recall": 0.9427748044462742,
+                    "f1": 0.9521829521829521
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 252,
+                "predictions": 585,
+                "targets": 412,
+                "precision": 0.4307692307692308,
+                "recall": 0.6116504854368932,
+                "f1": 0.5055165496489469
+              }
+            },
+            "0.65": {
+              "threshold": 0.6500000000000001,
+              "faces": 730,
+              "predictions": 3131,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.8934509670851714,
+              "micro_recall_at_nme_0.10": 0.9351883271123176,
+              "macro_f1_at_nme_0.05": 0.8673593342498984,
+              "macro_f1_at_nme_0.10": 0.9069772914463364,
+              "matched_nme_mean_at_0.10": 0.015064506279838968,
+              "visible_nme_mean_at_0.10": 0.012966366165737556,
+              "occluded_nme_mean_at_0.10": 0.030176110673069377,
+              "per_class": {
+                "eye": {
+                  "predictions": 1295,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8540540540540541,
+                    "recall": 0.8876404494382022,
+                    "f1": 0.8705234159779616
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9003861003861003,
+                    "recall": 0.9357945425361156,
+                    "f1": 0.9177489177489176
+                  }
+                },
+                "nose": {
+                  "predictions": 651,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8463901689708141,
+                    "recall": 0.9032786885245901,
+                    "f1": 0.8739095955590801
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8817204301075269,
+                    "recall": 0.940983606557377,
+                    "f1": 0.9103885804916733
+                  }
+                },
+                "mouth": {
+                  "predictions": 1185,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8236286919831224,
+                    "recall": 0.8945921173235564,
+                    "f1": 0.8576449912126538
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8573839662447258,
+                    "recall": 0.9312557286892759,
+                    "f1": 0.8927943760984183
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.918722786647315,
+                "macro_f1": 0.8219120545378178,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    250,
+                    86
+                  ],
+                  [
+                    138,
+                    2282
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 336,
+                    "precision": 0.6443298969072165,
+                    "recall": 0.7440476190476191,
+                    "f1": 0.6906077348066298
+                  },
+                  "visible": {
+                    "support": 2420,
+                    "precision": 0.9636824324324325,
+                    "recall": 0.9429752066115702,
+                    "f1": 0.9532163742690059
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 250,
+                "predictions": 570,
+                "targets": 412,
+                "precision": 0.43859649122807015,
+                "recall": 0.6067961165048543,
+                "f1": 0.5091649694501018
+              }
+            },
+            "0.70": {
+              "threshold": 0.7000000000000002,
+              "faces": 730,
+              "predictions": 3084,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.8893790295215473,
+              "micro_recall_at_nme_0.10": 0.9300984051577876,
+              "macro_f1_at_nme_0.05": 0.8705005921238765,
+              "macro_f1_at_nme_0.10": 0.9093320710463072,
+              "matched_nme_mean_at_0.10": 0.014942761510706143,
+              "visible_nme_mean_at_0.10": 0.012881911067396916,
+              "occluded_nme_mean_at_0.10": 0.02994774510096365,
+              "per_class": {
+                "eye": {
+                  "predictions": 1275,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8611764705882353,
+                    "recall": 0.8812199036918138,
+                    "f1": 0.8710829036096788
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9074509803921569,
+                    "recall": 0.9285714285714286,
+                    "f1": 0.9178897262990877
+                  }
+                },
+                "nose": {
+                  "predictions": 642,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8566978193146417,
+                    "recall": 0.9016393442622951,
+                    "f1": 0.8785942492012779
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8909657320872274,
+                    "recall": 0.9377049180327869,
+                    "f1": 0.9137380191693291
+                  }
+                },
+                "mouth": {
+                  "predictions": 1167,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8337617823479005,
+                    "recall": 0.8918423464711274,
+                    "f1": 0.861824623560673
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8671808054841473,
+                    "recall": 0.9275893675527039,
+                    "f1": 0.8963684676705049
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9197373221452024,
+                "macro_f1": 0.8220192909342054,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    245,
+                    86
+                  ],
+                  [
+                    134,
+                    2276
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 331,
+                    "precision": 0.6464379947229552,
+                    "recall": 0.7401812688821753,
+                    "f1": 0.6901408450704226
+                  },
+                  "visible": {
+                    "support": 2410,
+                    "precision": 0.9635901778154107,
+                    "recall": 0.9443983402489626,
+                    "f1": 0.9538977367979884
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 245,
+                "predictions": 546,
+                "targets": 412,
+                "precision": 0.44871794871794873,
+                "recall": 0.5946601941747572,
+                "f1": 0.511482254697286
+              }
+            },
+            "0.75": {
+              "threshold": 0.7500000000000002,
+              "faces": 730,
+              "predictions": 3035,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.8856464200882254,
+              "micro_recall_at_nme_0.10": 0.9243298269426535,
+              "macro_f1_at_nme_0.05": 0.8740721498782849,
+              "macro_f1_at_nme_0.10": 0.9112522072974091,
+              "matched_nme_mean_at_0.10": 0.014799315111261431,
+              "visible_nme_mean_at_0.10": 0.012757795531582029,
+              "occluded_nme_mean_at_0.10": 0.029816382448903164,
+              "per_class": {
+                "eye": {
+                  "predictions": 1259,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8681493248610008,
+                    "recall": 0.877207062600321,
+                    "f1": 0.8726546906187624
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9134233518665608,
+                    "recall": 0.9229534510433387,
+                    "f1": 0.9181636726546907
+                  }
+                },
+                "nose": {
+                  "predictions": 632,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8670886075949367,
+                    "recall": 0.898360655737705,
+                    "f1": 0.8824476650563606
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9003164556962026,
+                    "recall": 0.9327868852459016,
+                    "f1": 0.9162640901771335
+                  }
+                },
+                "mouth": {
+                  "predictions": 1144,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.847027972027972,
+                    "recall": 0.8881759853345554,
+                    "f1": 0.8671140939597315
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8784965034965035,
+                    "recall": 0.921173235563703,
+                    "f1": 0.8993288590604027
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9203377386196769,
+                "macro_f1": 0.8214955576821854,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    240,
+                    86
+                  ],
+                  [
+                    131,
+                    2267
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 326,
+                    "precision": 0.6469002695417789,
+                    "recall": 0.7361963190184049,
+                    "f1": 0.6886657101865136
+                  },
+                  "visible": {
+                    "support": 2398,
+                    "precision": 0.9634509137271569,
+                    "recall": 0.945371142618849,
+                    "f1": 0.9543254051778574
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 240,
+                "predictions": 522,
+                "targets": 412,
+                "precision": 0.45977011494252873,
+                "recall": 0.5825242718446602,
+                "f1": 0.5139186295503211
+              }
+            },
+            "0.80": {
+              "threshold": 0.8000000000000002,
+              "faces": 730,
+              "predictions": 2954,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.8737699355276553,
+              "micro_recall_at_nme_0.10": 0.9087207329487614,
+              "macro_f1_at_nme_0.05": 0.8744560339666375,
+              "macro_f1_at_nme_0.10": 0.9083180362625715,
+              "matched_nme_mean_at_0.10": 0.014475851469455252,
+              "visible_nme_mean_at_0.10": 0.012650256891760496,
+              "occluded_nme_mean_at_0.10": 0.028732303862374176,
+              "per_class": {
+                "eye": {
+                  "predictions": 1229,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.8779495524816925,
+                    "recall": 0.8659711075441413,
+                    "f1": 0.871919191919192
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9186330349877949,
+                    "recall": 0.906099518459069,
+                    "f1": 0.9123232323232323
+                  }
+                },
+                "nose": {
+                  "predictions": 616,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8798701298701299,
+                    "recall": 0.8885245901639345,
+                    "f1": 0.8841761827079936
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9090909090909091,
+                    "recall": 0.9180327868852459,
+                    "f1": 0.9135399673735726
+                  }
+                },
+                "mouth": {
+                  "predictions": 1109,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8602344454463481,
+                    "recall": 0.8744271310724107,
+                    "f1": 0.8672727272727273
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.8917944093778178,
+                    "recall": 0.9065077910174152,
+                    "f1": 0.8990909090909092
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9249439880507841,
+                "macro_f1": 0.8251864553749324,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    227,
+                    77
+                  ],
+                  [
+                    124,
+                    2250
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 304,
+                    "precision": 0.6467236467236467,
+                    "recall": 0.7467105263157895,
+                    "f1": 0.6931297709923664
+                  },
+                  "visible": {
+                    "support": 2374,
+                    "precision": 0.9669101847872797,
+                    "recall": 0.9477674810446504,
+                    "f1": 0.9572431397574983
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 227,
+                "predictions": 482,
+                "targets": 412,
+                "precision": 0.470954356846473,
+                "recall": 0.5509708737864077,
+                "f1": 0.5078299776286354
+              }
+            },
+            "0.85": {
+              "threshold": 0.8500000000000002,
+              "faces": 730,
+              "predictions": 2860,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.8588394977943672,
+              "micro_recall_at_nme_0.10": 0.8907363420427553,
+              "macro_f1_at_nme_0.05": 0.8734568087893481,
+              "macro_f1_at_nme_0.10": 0.9049694240005729,
+              "matched_nme_mean_at_0.10": 0.01416317133943639,
+              "visible_nme_mean_at_0.10": 0.012465540101483248,
+              "occluded_nme_mean_at_0.10": 0.028156673902986755,
+              "per_class": {
+                "eye": {
+                  "predictions": 1194,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.890284757118928,
+                    "recall": 0.8531300160513644,
+                    "f1": 0.8713114754098361
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9288107202680067,
+                    "recall": 0.8900481540930979,
+                    "f1": 0.9090163934426231
+                  }
+                },
+                "nose": {
+                  "predictions": 601,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.8901830282861897,
+                    "recall": 0.8770491803278688,
+                    "f1": 0.8835672997522709
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9184692179700499,
+                    "recall": 0.9049180327868852,
+                    "f1": 0.9116432700247729
+                  }
+                },
+                "mouth": {
+                  "predictions": 1065,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.8760563380281691,
+                    "recall": 0.8551787351054079,
+                    "f1": 0.865491651205937
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9051643192488263,
+                    "recall": 0.8835930339138405,
+                    "f1": 0.8942486085343229
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9276190476190476,
+                "macro_f1": 0.8242882750340326,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    211,
+                    73
+                  ],
+                  [
+                    117,
+                    2224
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 284,
+                    "precision": 0.6432926829268293,
+                    "recall": 0.7429577464788732,
+                    "f1": 0.6895424836601307
+                  },
+                  "visible": {
+                    "support": 2341,
+                    "precision": 0.9682194166303875,
+                    "recall": 0.9500213583938488,
+                    "f1": 0.9590340664079344
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 211,
+                "predictions": 436,
+                "targets": 412,
+                "precision": 0.48394495412844035,
+                "recall": 0.5121359223300971,
+                "f1": 0.4976415094339623
+              }
+            },
+            "0.90": {
+              "threshold": 0.9000000000000002,
+              "faces": 730,
+              "predictions": 2700,
+              "targets": 2947,
+              "micro_recall_at_nme_0.05": 0.832032575500509,
+              "micro_recall_at_nme_0.10": 0.8585001696640652,
+              "macro_f1_at_nme_0.05": 0.8700747112188276,
+              "macro_f1_at_nme_0.10": 0.8965716742142593,
+              "matched_nme_mean_at_0.10": 0.01360760721923984,
+              "visible_nme_mean_at_0.10": 0.012146827337999797,
+              "occluded_nme_mean_at_0.10": 0.026812593606004995,
+              "per_class": {
+                "eye": {
+                  "predictions": 1142,
+                  "targets": 1246,
+                  "at_nme_0.05": {
+                    "precision": 0.9063047285464098,
+                    "recall": 0.8306581059390048,
+                    "f1": 0.8668341708542713
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9422066549912435,
+                    "recall": 0.8635634028892456,
+                    "f1": 0.9011725293132328
+                  }
+                },
+                "nose": {
+                  "predictions": 566,
+                  "targets": 610,
+                  "at_nme_0.05": {
+                    "precision": 0.9134275618374559,
+                    "recall": 0.8475409836065574,
+                    "f1": 0.8792517006802721
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9363957597173145,
+                    "recall": 0.8688524590163934,
+                    "f1": 0.9013605442176872
+                  }
+                },
+                "mouth": {
+                  "predictions": 992,
+                  "targets": 1091,
+                  "at_nme_0.05": {
+                    "precision": 0.907258064516129,
+                    "recall": 0.8249312557286893,
+                    "f1": 0.8641382621219396
+                  },
+                  "at_nme_0.10": {
+                    "precision": 0.9314516129032258,
+                    "recall": 0.846929422548121,
+                    "f1": 0.8871819491118579
+                  }
+                }
+              },
+              "state": {
+                "accuracy": 0.9316205533596837,
+                "macro_f1": 0.8243881027343041,
+                "confusion_gt_rows_pred_columns": [
+                  [
+                    190,
+                    62
+                  ],
+                  [
+                    111,
+                    2167
+                  ]
+                ],
+                "per_state": {
+                  "occluded": {
+                    "support": 252,
+                    "precision": 0.6312292358803987,
+                    "recall": 0.753968253968254,
+                    "f1": 0.6871609403254973
+                  },
+                  "visible": {
+                    "support": 2278,
+                    "precision": 0.9721848362494392,
+                    "recall": 0.9512730465320457,
+                    "f1": 0.9616152651431108
+                  }
+                }
+              },
+              "e2e_occluded_point": {
+                "true_positives": 190,
+                "predictions": 372,
+                "targets": 412,
+                "precision": 0.510752688172043,
+                "recall": 0.46116504854368934,
+                "f1": 0.48469387755102045
+              }
+            }
+          }
+        },
+        "selection_objective": 0.8387525406709169,
+        "selection_objective_balanced": 0.8387525406709169,
+        "selection_objective_high_recall": 0.8387525406709169,
+        "fixed_val_calibration": {
+          "face_threshold": 0.55,
+          "face_presence": {
+            "tp": 719,
+            "fp": 7,
+            "fn": 11,
+            "tn": 19,
+            "present_precision": 0.990358126721763,
+            "present_recall": 0.9849315068493151,
+            "present_f1": 0.9876373626373627,
+            "absent_precision": 0.6333333333333333,
+            "absent_recall": 0.7307692307692307,
+            "absent_f1": 0.6785714285714285,
+            "macro_f1": 0.8331043956043955,
+            "false_face_rate_on_absent": 0.2692307692307692
+          },
+          "point_threshold": 0.75,
+          "points": {
+            "threshold": 0.75,
+            "faces": 730,
+            "predictions": 3035,
+            "targets": 2947,
+            "micro_recall_at_nme_0.05": 0.8856464200882254,
+            "micro_recall_at_nme_0.10": 0.9243298269426535,
+            "macro_f1_at_nme_0.05": 0.8740721498782849,
+            "macro_f1_at_nme_0.10": 0.9112522072974091,
+            "matched_nme_mean_at_0.10": 0.014799315111261431,
+            "visible_nme_mean_at_0.10": 0.012757795531582029,
+            "occluded_nme_mean_at_0.10": 0.029816382448903164,
+            "per_class": {
+              "eye": {
+                "predictions": 1259,
+                "targets": 1246,
+                "at_nme_0.05": {
+                  "precision": 0.8681493248610008,
+                  "recall": 0.877207062600321,
+                  "f1": 0.8726546906187624
+                },
+                "at_nme_0.10": {
+                  "precision": 0.9134233518665608,
+                  "recall": 0.9229534510433387,
+                  "f1": 0.9181636726546907
+                }
+              },
+              "nose": {
+                "predictions": 632,
+                "targets": 610,
+                "at_nme_0.05": {
+                  "precision": 0.8670886075949367,
+                  "recall": 0.898360655737705,
+                  "f1": 0.8824476650563606
+                },
+                "at_nme_0.10": {
+                  "precision": 0.9003164556962026,
+                  "recall": 0.9327868852459016,
+                  "f1": 0.9162640901771335
+                }
+              },
+              "mouth": {
+                "predictions": 1144,
+                "targets": 1091,
+                "at_nme_0.05": {
+                  "precision": 0.847027972027972,
+                  "recall": 0.8881759853345554,
+                  "f1": 0.8671140939597315
+                },
+                "at_nme_0.10": {
+                  "precision": 0.8784965034965035,
+                  "recall": 0.921173235563703,
+                  "f1": 0.8993288590604027
+                }
+              }
+            },
+            "state": {
+              "accuracy": 0.9203377386196769,
+              "macro_f1": 0.8214955576821854,
+              "confusion_gt_rows_pred_columns": [
+                [
+                  240,
+                  86
+                ],
+                [
+                  131,
+                  2267
+                ]
+              ],
+              "per_state": {
+                "occluded": {
+                  "support": 326,
+                  "precision": 0.6469002695417789,
+                  "recall": 0.7361963190184049,
+                  "f1": 0.6886657101865136
+                },
+                "visible": {
+                  "support": 2398,
+                  "precision": 0.9634509137271569,
+                  "recall": 0.945371142618849,
+                  "f1": 0.9543254051778574
+                }
+              }
+            },
+            "e2e_occluded_point": {
+              "true_positives": 240,
+              "predictions": 522,
+              "targets": 412,
+              "precision": 0.45977011494252873,
+              "recall": 0.5825242718446602,
+              "f1": 0.5139186295503211
+            }
+          }
+        }
+      }
+    }
+  ]
+}

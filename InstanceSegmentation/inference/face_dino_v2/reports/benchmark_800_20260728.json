@@ -1,0 +1,19 @@
+{
+  "input": "/home/kenshin/face_detection/3月以降解析白カン動画-0210.mp4",
+  "source_resolution": [1920, 1080],
+  "input_shape": [8, 3, 736, 1280],
+  "batch_size": 8,
+  "frames": 800,
+  "warmup_iterations": 3,
+  "compute_images_per_second": 133.018,
+  "wall_frames_per_second": 127.009,
+  "sqlite": {
+    "mode": "fast",
+    "integrity_check": "ok",
+    "frames": 800,
+    "head_detections": 950,
+    "face_detections": 949,
+    "coordinate_bounds_violations": 0
+  },
+  "scope": "decode, fused GPU preprocessing, full model inference, GPU-to-CPU contract conversion, and asynchronous SQLite persistence"
+}

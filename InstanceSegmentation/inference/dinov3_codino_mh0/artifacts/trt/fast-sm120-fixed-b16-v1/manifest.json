@@ -1,0 +1,116 @@
+{
+  "schema": "dinov3-codino-mh0-trt-bundle-v1",
+  "profile": "fast-sm120-fixed-b16-v1",
+  "status": "complete",
+  "created_at_utc": "2026-07-27T13:48:06.996315+00:00",
+  "batch_size": 16,
+  "input_size": [
+    16,
+    3,
+    736,
+    1280
+  ],
+  "query_feature_shapes": [
+    [
+      92,
+      160
+    ],
+    [
+      46,
+      80
+    ],
+    [
+      23,
+      40
+    ]
+  ],
+  "precision": {
+    "backbone_neck": "BF16 with FP32 I/O",
+    "query_encoder": "FP16 with protected FP32 reductions",
+    "decoder": "FP32",
+    "mask_head": "FP32"
+  },
+  "source": {
+    "config": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino_mh0/artifacts/detector/resolved_config.py",
+      "size": 16233,
+      "sha256": "f239ed34905b2804ea139fbaeca989f1672db3f0c8b11555f0360452d93c24b1"
+    },
+    "checkpoint": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino_mh0/artifacts/detector/video_pseudo_mh0_epoch6_ema_deploy.pth",
+      "size": 200387211,
+      "sha256": "755345eb1d5d252f630371c7d7895397e03a6aca0ee7f3e3d323d0b7bdc0bd9c"
+    },
+    "builder": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino_mh0/trt/build_fast_engines.py",
+      "size": 8245,
+      "sha256": "ea30154561734c56942d6afeaa39786b3abfad0f4d8827c1a9f565f2b866d191"
+    },
+    "builder_sources": {
+      "trt/build_fast_engines.py": {
+        "size": 8245,
+        "sha256": "ea30154561734c56942d6afeaa39786b3abfad0f4d8827c1a9f565f2b866d191"
+      },
+      "bootstrap.py": {
+        "size": 2146,
+        "sha256": "27cda8615539d55ff361411f6fad5b160de210a8c926d98fc5c9056ff8cd7ebd"
+      },
+      "optimization/build_trt_backbone.py": {
+        "size": 10061,
+        "sha256": "c23f2667a39a503b4fb67ea7be608ed19aa061fac9bb20129c4dfb1e82f4ee29"
+      },
+      "optimization/export_trt_transformer.py": {
+        "size": 10277,
+        "sha256": "6343f124fe46b104a1545a0c14d25a815c776b8c5c779a447131445171df88ca"
+      },
+      "optimization/export_trt_mask_head.py": {
+        "size": 5061,
+        "sha256": "66677ea2e7538da34188da8c05495639b8efbb8af20f97dae2fda6906360082e"
+      },
+      "optimization/fast_engine_build.py": {
+        "size": 16379,
+        "sha256": "5b3497cbb03cd14d747020757517a639a501ab5b28eacb09fee76c1d8ee5b794"
+      },
+      "optimization/native/msda_direct_mh0.cpp": {
+        "size": 390,
+        "sha256": "741716c1b375f7b7b108d9e7125b6e74f137d74b5c297005e850f003de3ee787"
+      },
+      "optimization/native/msda_direct_mh0.cu": {
+        "size": 6356,
+        "sha256": "cfb699fc02c9854dcafe4f762f6924dfd06f27670fd50021bbbe1fbe79b651dd"
+      }
+    },
+    "runtime_source_archives": {
+      "codino.tar.gz": {
+        "size": 4564088,
+        "sha256": "f057511cb8e2e7b53c468797c11d73c07a11f461ad57dd225a7c6f91e345c96b"
+      },
+      "dinov3_root.tar.gz": {
+        "size": 242643,
+        "sha256": "840adce6e8fb5503f26b1e34c8faf1fca7c0608b2dadbb0c199fba3c1a5bd14d"
+      }
+    }
+  },
+  "artifacts": {
+    "backbone_neck": {
+      "size": 220343284,
+      "sha256": "55042ab21b2c63a558a6d64ede01fadc712fb6957acfb6d42665c724a82dfecc"
+    },
+    "query_encoder": {
+      "size": 164842532,
+      "sha256": "fd680e03c9ea0eb390629d4fe6f7ab96fc6be631550c0d955a9a8d09d11a457c"
+    },
+    "decoder": {
+      "size": 21755532,
+      "sha256": "54154b552a8c625f852efebd988b4d8709b475a4ae3625d8e53e421e7f2e5c61"
+    },
+    "mask_head": {
+      "size": 11573668,
+      "sha256": "7f0c17a1757d82221da668cdf744564a178ae37359b6ea302b634ff63a08e6f2"
+    },
+    "plugin": {
+      "size": 283576,
+      "sha256": "6081f074af3a086e4b60164cff6a4764a143775599db1441bf1f874f33bfee6d"
+    }
+  }
+}

@@ -31,6 +31,15 @@ _MODELS = {
             "--backend",
         ),
         ModelRegistration(
+            "dinov3_codino_mh0",
+            TaskType.INSTANCE_SEGMENTATION,
+            "dinov3_codino_mh0.adapter",
+            "Mh0Adapter",
+            ("tensorrt-fast", "pytorch"),
+            "tensorrt-fast",
+            "--backend",
+        ),
+        ModelRegistration(
             "dinov3_cascade",
             TaskType.INSTANCE_SEGMENTATION,
             "dinov3_cascade.adapter",
@@ -54,6 +63,14 @@ _MODELS = {
             "RtDetrHeadFaceAdapter",
             ("pytorch",),
             "pytorch",
+        ),
+        ModelRegistration(
+            "face_dino_v2",
+            TaskType.OBJECT_DETECTION,
+            "face_dino_v2.adapter",
+            "FaceDinoV2Adapter",
+            ("tensorrt-fast",),
+            "tensorrt-fast",
         ),
     )
 }

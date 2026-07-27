@@ -1,0 +1,64 @@
+{
+  "schema": "face-dino-v2-trt-bundle-v1",
+  "profile": "fast-sm120-fixed-b8-v1",
+  "status": "complete",
+  "batch_size": 8,
+  "input_shape": [
+    8,
+    3,
+    736,
+    1280
+  ],
+  "precision": {
+    "backbone_neck": "mixed_fp16_fp32",
+    "query_encoder": "mixed_fp16_fp32",
+    "decoder": "fp32",
+    "attribute": "fp16"
+  },
+  "checkpoint": {
+    "source": "/home/kenshin/face_detection/runs/face_dino_overnight_best_20260727/model_residual_v2.pth",
+    "size": 170916579,
+    "sha256": "0f1021887b99019fd0de12eacb2a474a7c2110f87ea6876b0f61ec7f2e385c52"
+  },
+  "artifacts": {
+    "backbone_neck": {
+      "path": "engines/backbone_neck.engine",
+      "size": 73354684,
+      "sha256": "c76f664f5d88e63189190f92049088fecf8d1983ab17adb1cc1bec4d7da834b0"
+    },
+    "query_encoder": {
+      "path": "engines/query_encoder.engine",
+      "size": 83515100,
+      "sha256": "70e9348eead51f1ec1aaf8ac5bd20de6d7a53f34cc467dc5c13fd7218f388544"
+    },
+    "decoder": {
+      "path": "engines/decoder.engine",
+      "size": 21339652,
+      "sha256": "4f9b7c6bd6a3bd7c51193ece358dc091d465c92670fd1c3af7e34d848eb20bdc"
+    },
+    "attribute": {
+      "path": "engines/attribute.engine",
+      "size": 11143924,
+      "sha256": "01ea196cabdda4f6f790a2c1915e0b90f0d0545623a60282526956a65a003f72"
+    },
+    "msda_plugin": {
+      "path": "plugins/codino_msda_direct_mh0_sm120.so",
+      "size": 283576,
+      "sha256": "6081f074af3a086e4b60164cff6a4764a143775599db1441bf1f874f33bfee6d"
+    },
+    "preprocess_plugin": {
+      "path": "plugins/face_preprocess_fused_sm120.so",
+      "size": 279152,
+      "sha256": "b5f8184799981176b3e0511784b9e3ec62e95bdfe6f9e6522826905a6eea7fa9"
+    }
+  },
+  "build": {
+    "elapsed_seconds": 170.95837785600452,
+    "python": "3.10.18 | packaged by conda-forge | (main, Jun  4 2025, 14:45:41) [GCC 13.3.0]",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "source_root": "/home/kenshin/face_detection",
+    "reference_root": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino_mh0",
+    "max_jobs": 1,
+    "workspace_gib": 12
+  }
+}
