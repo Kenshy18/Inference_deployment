@@ -344,6 +344,15 @@ class PersistenceTest(unittest.TestCase):
                         ),
                     ),
                 )
+                self.assertIsNone(
+                    connection.execute(
+                        """
+                        SELECT 1 FROM sqlite_master
+                        WHERE type='table'
+                          AND name='imported_detection_ids_staging'
+                        """
+                    ).fetchone()
+                )
 
 
 if __name__ == "__main__":

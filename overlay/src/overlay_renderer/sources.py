@@ -477,6 +477,119 @@ def iter_mask_frames(path: Path) -> Iterator[FrameOverlay]:
         connection.close()
 
 
+class _RichFaceDetailReader:
+    """Read and decompress only the currently rendered face observation."""
+
+    def __init__(self, connection: sqlite3.Connection, path: Path) -> None:
+        self._path = path
+        self._points = iter(
+            connection.execute(
+                """
+                SELECT observation_id, class_name, x, y,
+                       state, state_name, confidence, valid
+                FROM face_keypoints
+                ORDER BY observation_id, point_index
+                """
+            )
+        )
+        self._masks = iter(
+            connection.execute(
+                """
+                SELECT observation_id, encoding, width, height,
+                       box_x1, box_y1, box_x2, box_y2, data
+                FROM face_masks
+                ORDER BY observation_id
+                """
+            )
+        )
+        self._point = next(self._points, None)
+        self._mask = next(self._masks, None)
+        self._cached_observation_id: int | None = None
+        self._cached_details: (
+            tuple[tuple[FaceKeypointOverlay, ...], FaceMaskOverlay | None] | None
+        ) = None
+
+    def get(
+        self,
+        observation_id: int,
+    ) -> tuple[tuple[FaceKeypointOverlay, ...], FaceMaskOverlay | None]:
+        if observation_id == self._cached_observation_id:
+            assert self._cached_details is not None
+            return self._cached_details
+        if (
+            self._cached_observation_id is not None
+            and observation_id < self._cached_observation_id
+        ):
+            raise OverlayContractError(
+                f"{self._path}: face observations are not in render order"
+            )
+
+        points: list[FaceKeypointOverlay] = []
+        while (
+            self._point is not None
+            and int(self._point["observation_id"]) < observation_id
+        ):
+            self._point = next(self._points, None)
+        while (
+            self._point is not None
+            and int(self._point["observation_id"]) == observation_id
+        ):
+            point = self._point
+            points.append(
+                FaceKeypointOverlay(
+                    x=float(point["x"]),
+                    y=float(point["y"]),
+                    class_name=str(point["class_name"]),
+                    state=int(point["state"]),
+                    state_name=str(point["state_name"]),
+                    confidence=float(point["confidence"]),
+                    valid=bool(point["valid"]),
+                )
+            )
+            self._point = next(self._points, None)
+
+        while (
+            self._mask is not None
+            and int(self._mask["observation_id"]) < observation_id
+        ):
+            self._mask = next(self._masks, None)
+        face_mask = None
+        if (
+            self._mask is not None
+            and int(self._mask["observation_id"]) == observation_id
+        ):
+            face_mask = self._decode_mask(self._mask)
+            self._mask = next(self._masks, None)
+
+        details = (tuple(points), face_mask)
+        self._cached_observation_id = observation_id
+        self._cached_details = details
+        return details
+
+    def _decode_mask(self, mask: sqlite3.Row) -> FaceMaskOverlay:
+        if str(mask["encoding"]) != "zlib-u8-probability-v1":
+            raise OverlayContractError(f"{self._path}: unsupported face mask encoding")
+        width = int(mask["width"])
+        height = int(mask["height"])
+        try:
+            probabilities = zlib.decompress(bytes(mask["data"]))
+        except zlib.error as exc:
+            raise OverlayContractError(f"{self._path}: corrupt face mask") from exc
+        if len(probabilities) != width * height:
+            raise OverlayContractError(f"{self._path}: face mask size mismatch")
+        return FaceMaskOverlay(
+            width=width,
+            height=height,
+            box=(
+                float(mask["box_x1"]),
+                float(mask["box_y1"]),
+                float(mask["box_x2"]),
+                float(mask["box_y2"]),
+            ),
+            probabilities=probabilities,
+        )
+
+
 def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
     """Stream boxes plus optional rich face ellipses/keypoints by frame."""
 
@@ -486,65 +599,9 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
         _validate_inference(connection, resolved)
         _require_role(connection, resolved, "face_detection")
         has_rich_faces = "face_observations" in _tables(connection)
-        keypoints: dict[int, tuple[FaceKeypointOverlay, ...]] = {}
-        face_masks: dict[int, FaceMaskOverlay] = {}
-        if has_rich_faces:
-            grouped_points: dict[int, list[FaceKeypointOverlay]] = {}
-            for point in connection.execute(
-                """
-                SELECT observation_id, class_name, x, y,
-                       state, state_name, confidence, valid
-                FROM face_keypoints
-                ORDER BY observation_id, point_index
-                """
-            ):
-                grouped_points.setdefault(int(point["observation_id"]), []).append(
-                    FaceKeypointOverlay(
-                        x=float(point["x"]),
-                        y=float(point["y"]),
-                        class_name=str(point["class_name"]),
-                        state=int(point["state"]),
-                        state_name=str(point["state_name"]),
-                        confidence=float(point["confidence"]),
-                        valid=bool(point["valid"]),
-                    )
-                )
-            keypoints = {
-                observation_id: tuple(values)
-                for observation_id, values in grouped_points.items()
-            }
-            for mask in connection.execute(
-                """
-                SELECT observation_id, encoding, width, height,
-                       box_x1, box_y1, box_x2, box_y2, data
-                FROM face_masks
-                """
-            ):
-                if str(mask["encoding"]) != "zlib-u8-probability-v1":
-                    raise OverlayContractError(
-                        f"{resolved}: unsupported face mask encoding"
-                    )
-                width = int(mask["width"])
-                height = int(mask["height"])
-                try:
-                    probabilities = zlib.decompress(bytes(mask["data"]))
-                except zlib.error as exc:
-                    raise OverlayContractError(
-                        f"{resolved}: corrupt face mask"
-                    ) from exc
-                if len(probabilities) != width * height:
-                    raise OverlayContractError(f"{resolved}: face mask size mismatch")
-                face_masks[int(mask["observation_id"])] = FaceMaskOverlay(
-                    width=width,
-                    height=height,
-                    box=(
-                        float(mask["box_x1"]),
-                        float(mask["box_y1"]),
-                        float(mask["box_x2"]),
-                        float(mask["box_y2"]),
-                    ),
-                    probabilities=probabilities,
-                )
+        detail_reader = (
+            _RichFaceDetailReader(connection, resolved) if has_rich_faces else None
+        )
         rich_columns = (
             """
             , fo.id AS observation_id,
@@ -622,6 +679,13 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                     if is_rich_face
                     else None
                 )
+                rich_details = (
+                    detail_reader.get(observation_id)
+                    if is_rich_face
+                    and observation_id is not None
+                    and detail_reader is not None
+                    else ((), None)
+                )
                 yield frame, OverlayItem(
                     identity=f"face:{detection_id}",
                     color_key=f"face:{label}",
@@ -639,16 +703,8 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                         )
                     ),
                     ellipse=ellipse,
-                    keypoints=(
-                        keypoints.get(observation_id, ())
-                        if is_rich_face and observation_id is not None
-                        else ()
-                    ),
-                    face_mask=(
-                        face_masks.get(observation_id)
-                        if is_rich_face and observation_id is not None
-                        else None
-                    ),
+                    keypoints=rich_details[0],
+                    face_mask=rich_details[1],
                 )
                 if (
                     label.lower() == "head"
@@ -657,6 +713,8 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                     and bool(row["face_present"])
                     and row["geometry_type"] == "ellipse"
                 ):
+                    assert detail_reader is not None
+                    synthetic_details = detail_reader.get(observation_id)
                     yield frame, OverlayItem(
                         identity=f"face-observation:{observation_id}",
                         color_key="face:Face",
@@ -669,8 +727,8 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                             float(row["ellipse_minor_radius"]),
                             float(row["ellipse_theta_radians"]),
                         ),
-                        keypoints=keypoints.get(observation_id, ()),
-                        face_mask=face_masks.get(observation_id),
+                        keypoints=synthetic_details[0],
+                        face_mask=synthetic_details[1],
                     )
 
         for frame_index, grouped in itertools.groupby(

@@ -124,6 +124,15 @@ class ModularPreprocessingTests(unittest.TestCase):
                 self.assertEqual(
                     4, connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0]
                 )
+                self.assertEqual(
+                    [],
+                    connection.execute(
+                        """
+                        SELECT name FROM sqlite_master
+                        WHERE name LIKE '%_staging'
+                        """
+                    ).fetchall(),
+                )
 
     def test_tracking_builder_does_not_import_approximation_monolith(self) -> None:
         source = (

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 from overlay_renderer.sources import (
@@ -69,6 +71,81 @@ class SourceTests(unittest.TestCase):
             assert face.face_mask is not None
             self.assertEqual(16, len(face.face_mask.probabilities))
             self.assertEqual((12.0, 5.0, 48.0, 42.0), head.box)
+
+    def test_rich_face_masks_are_decompressed_lazily(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
+            with sqlite3.connect(path) as connection:
+                for observation_id, frame_id, detection_id in (
+                    (2, 3, 30),
+                    (3, 4, 40),
+                ):
+                    connection.executemany(
+                        """
+                        INSERT INTO detections(
+                            id, frame_id, model_execution_id, class_name, score,
+                            x1, y1, x2, y2, group_id
+                        ) VALUES (?, ?, 2, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            (
+                                detection_id,
+                                frame_id,
+                                "Face",
+                                0.9,
+                                18,
+                                10,
+                                42,
+                                34,
+                                observation_id,
+                            ),
+                            (
+                                detection_id + 1,
+                                frame_id,
+                                "Head",
+                                0.95,
+                                12,
+                                5,
+                                48,
+                                42,
+                                observation_id,
+                            ),
+                        ),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO face_observations VALUES(
+                            ?, ?, ?, ?, 0.9, 1, 'ellipse',
+                            30.0, 22.0, 12.0, 8.0, 0.25
+                        )
+                        """,
+                        (
+                            observation_id,
+                            detection_id + 1,
+                            detection_id + 1,
+                            detection_id,
+                        ),
+                    )
+                    payload = (
+                        zlib.compress(bytes(range(16)))
+                        if observation_id == 2
+                        else b"not-zlib"
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO face_masks VALUES(
+                            ?, 'zlib-u8-probability-v1', 4, 4,
+                            18.0, 10.0, 42.0, 34.0, ?
+                        )
+                        """,
+                        (observation_id, payload),
+                    )
+
+            frames = iter_face_frames(path)
+            first = next(frames)
+            self.assertEqual(1, first.frame_index)
+            with self.assertRaisesRegex(ValueError, "corrupt face mask"):
+                list(frames)
 
 
 if __name__ == "__main__":
