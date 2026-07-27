@@ -25,6 +25,7 @@ postprocess/
   gap_fill/
     ellipse/               楕円マスク補完
     polygon/               ポリゴン補完
+  face_privacy/            顔楕円・Eye点から顔/目マスクを生成・統合
   evaluation/              品質評価
   artifacts/               最終SQLite生成・検証
   visualization/           可視化
@@ -69,8 +70,18 @@ python run_pipeline.py \
 python run_pipeline.py \
   --input-sqlite input/tracked.sqlite \
   --output-dir output/ellipse \
-  --shape-mode ellipse
+  --shape-mode ellipse \
+  --device cuda:0
 ```
+
+楕円近似のK2ネットワークは`--device auto`（既定）でCUDAが利用可能なら
+GPUを使い、`--device cpu`でCPUへ固定できます。既定の
+`--k2-forward-mode states_only`は、最終楕円に不要なsoft mask生成を省いて
+同じstate出力を高速に計算します。性能調整用に
+`--k2-batch-size`、`--k2-prep-workers`、`--k2-precision`、
+`--k2-cudnn-benchmark`、`--k2-tf32`を指定できます。
+CPU版との数値的一致を優先する場合はFP32の
+`--k2-tf32 off`を使用してください。
 
 未追跡の検出SQLiteと元動画から開始する場合:
 
@@ -92,6 +103,39 @@ python run_pipeline.py \
 
 未追跡SQLiteの場合だけ、動画をカット検出に使用した後、スコア方針、NMS、
 トラッキングから実行します。
+
+### 顔・目マスクを性器マスクと統合する
+
+Face DINO v2を含むunified inference schema-v3では、顔検出の後処理を追加
+できます。目マスクは採用済みの余白設定で、回転楕円または回転長方形を
+選択します。
+
+```bash
+python run_pipeline.py \
+  --input-sqlite input/inference.sqlite \
+  --input-video input/video.mp4 \
+  --output-dir output/postprocess \
+  --shape-mode ellipse \
+  --face-mask-target eyes \
+  --eye-mask-shape ellipse \
+  --minimum-eye-confidence 0.35
+```
+
+`--face-mask-target face`では検出器の正確な顔楕円を使用します。
+`--face-mask-target eyes`では2つのvalidなEye点からマスクを導出し、不足・
+低信頼・幾何的に不自然な場合は顔楕円ベースへフォールバックします。
+
+生成される成果物は次の3つです。
+
+- `face_masks_sqlite`: 顔または目だけのマスクと導出監査情報
+- `combined_predictions_sqlite`: 性器と顔/目を同じ`masks`へ統合
+- `combined_validation_report`: 統合SQLiteの検証結果
+
+性器の`predictions_sqlite`は上書きしません。統合SQLiteでは
+`track_id=face:eyes:<observation_id>`または`face:face:<observation_id>`、
+`label=Eyes`または`Face`となるため、ソフトウェアは性器と同じ`masks`
+readerで読み込めます。`mask_provenance`には元の顔観測ID、直接Eye点か
+fallbackか、confidence、アルゴリズムversionを保存します。
 
 インストール後は、同じCLIを`postprocess`コマンドでも実行できます。モデルの
 配置を変える場合は`--model-root`または`POSTPROCESS_MODEL_ROOT`を使います。

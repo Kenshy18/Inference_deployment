@@ -170,10 +170,20 @@ overlay/native/build.sh
 ## GPU policy
 
 - inferenceは`inference.device`をモデルCLIへ渡します。
-- postprocessはrepository orchestrationではCPUだけを許可します。
+- postprocessは`shape_mode: ellipse`かつ`device: auto/cuda/cuda:N`の場合、
+  K2楕円近似へGPUを公開します。`device: cpu`でCPU実行を強制できます。
+- ポリゴン後処理は`postprocess.device`にかかわらずCPU処理です。
+- `postprocess.face_mask_target: face/eyes`はFace DINO v2の楕円・keypointから
+  CPUでprivacy maskを作り、性器の最終SQLiteへ統合します。
 - overlayは`nvenc`または`fast`だけにGPUを公開します。
 - `cpu` subprocessには`CUDA_VISIBLE_DEVICES=""`と
   `NVIDIA_VISIBLE_DEVICES=none`を設定します。
+
+楕円近似の標準設定は、下流で使わないsoft maskを生成しない
+`states_only`です。調整が必要な場合は`postprocess.extra_args`へ
+`--k2-batch-size 128`、`--k2-prep-workers 4`、
+`--k2-cudnn-benchmark on`などを指定できます。CPU版との数値的一致を
+優先する本番設定は`--k2-tf32 off`、最大速度優先は`--k2-tf32 on`です。
 
 ## 成果物
 
@@ -196,9 +206,10 @@ output_root/
 ```
 
 最終SQLiteの場所はstage番号から推測せず、postprocessの
-`pipeline_manifest.json`にある`tracked_sqlite`と`predictions_sqlite`を
-使用します。各overlay JSONには選択した実行方式、overlay種別、入力role、
-encode設定と処理結果が記録されます。
+`pipeline_manifest.json`を使用します。顔後処理が有効なら
+`combined_predictions_sqlite`、無効なら`predictions_sqlite`が最終成果物です。
+orchestrationはこの選択を自動で行います。各overlay JSONには選択した実行方式、
+overlay種別、入力role、encode設定と処理結果が記録されます。
 
 `postprocess.export_legacy_sqlite: true`では、現行`final_sqlite`とは別に旧
 `Dinov3_postprocess`互換の`legacy_final_sqlite`もrun manifestへ公開します。

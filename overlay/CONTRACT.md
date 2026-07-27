@@ -52,6 +52,36 @@ masks(
 両者の物理schemaは同じです。処理段階を推測せず、利用者がモードと成果物を
 明示します。
 
+## Face privacy mask sidecar SQLite
+
+`overlay-export-face-masks`はschema-v3の顔楕円・keypointから顔全体または目の
+privacy polygonを派生し、入力SQLiteとは別のsidecarへ書きます。既存の最小
+mask契約に加えて、由来を追跡する列を持ちます。
+
+```text
+schema_info(
+    key TEXT PRIMARY KEY,
+    value TEXT
+)
+masks(
+    frame INTEGER,
+    track_id TEXT,
+    polygons TEXT,
+    shape_type TEXT,             -- ellipse / rectangle
+    label TEXT,                  -- Face / Eyes
+    source_observation_id INTEGER,
+    derivation TEXT,             -- face-ellipse / eye-keypoints / ellipse-fallback
+    confidence REAL,
+    PRIMARY KEY(frame, track_id)
+)
+```
+
+`schema_name=face-privacy-mask-sqlite`、`schema_version=1`です。座標は元動画の
+画素座標、フレームは0-basedです。`face_present=0`や有効な顔楕円がない観測は
+マスクを出しません。`confidence`は顔楕円ではface score、Eye点採用時は2点の
+低い方のconfidence、幾何fallbackでは`0.0`です。入力推論SQLiteはread-onlyで
+開き、変更しません。
+
 ## Validation
 
 - SQLiteの必須table/columnと`PRAGMA integrity_check`を確認します。

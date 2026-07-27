@@ -13,6 +13,168 @@ from helpers import create_video
 
 
 class ConfigTests(unittest.TestCase):
+    def test_face_privacy_postprocess_options_are_typed_and_forwarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation-face",
+                            "face_model": "face_dino_v2",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "device": "cpu",
+                            "face_mask_target": "eyes",
+                            "eye_mask_shape": "rectangle",
+                            "minimum_eye_confidence": 0.4,
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = OrchestrationConfig.load(config_path)
+            command = OrchestrationRunner(
+                config,
+                dry_run=True,
+            ).postprocess_command(sqlite)
+
+            self.assertEqual("eyes", config.postprocess.face_mask_target)
+            self.assertEqual("rectangle", config.postprocess.eye_mask_shape)
+            self.assertEqual(
+                "eyes",
+                command[command.index("--face-mask-target") + 1],
+            )
+            self.assertEqual(
+                "rectangle",
+                command[command.index("--eye-mask-shape") + 1],
+            )
+            self.assertEqual(
+                "0.4",
+                command[command.index("--minimum-eye-confidence") + 1],
+            )
+
+    def test_face_privacy_requires_face_dino_v2_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "face_mask_target": "eyes",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                OrchestrationConfigError,
+                "requires face inference",
+            ):
+                OrchestrationConfig.load(config_path)
+
+    def test_ellipse_postprocess_accepts_cuda_and_is_planned_on_gpu(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "shape_mode": "ellipse",
+                            "device": "cuda:0",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            self.assertTrue(config.postprocess.uses_gpu)
+            plan = OrchestrationRunner(config, dry_run=True).plan()
+            postprocess = next(
+                stage for stage in plan["stages"]
+                if stage["stage"] == "postprocess"
+            )
+            self.assertTrue(postprocess["uses_gpu"])
+            self.assertEqual(
+                "cuda:0",
+                postprocess["command"][
+                    postprocess["command"].index("--device") + 1
+                ],
+            )
+
+    def test_invalid_postprocess_device_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "shape_mode": "ellipse",
+                            "device": "gpu",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                OrchestrationConfigError,
+                "must be cpu, auto, cuda",
+            ):
+                OrchestrationConfig.load(config_path)
+
     def test_three_overlay_execution_modes_select_expected_engines(self) -> None:
         cases = (
             ("cpu", "python_opencv", "h264", False),

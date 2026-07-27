@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -155,6 +156,117 @@ def _validate_mask_sqlite(path: Path) -> None:
                 raise ArtifactContractError(f"{path}: polygons must decode to a list")
 
 
+def _validate_face_masks_sqlite(path: Path) -> None:
+    _validate_mask_sqlite(path)
+    with sqlite3.connect(str(path)) as connection:
+        info = dict(connection.execute("SELECT key, value FROM schema_info"))
+        if (
+            info.get("schema_name") != "face-privacy-mask-sqlite"
+            or str(info.get("schema_version")) != "1"
+        ):
+            raise ArtifactContractError(f"{path}: unsupported face mask schema")
+        provenance_columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(mask_provenance)")
+        }
+        required = {
+            "frame",
+            "track_id",
+            "mask_kind",
+            "source_observation_id",
+            "derivation",
+            "confidence",
+            "algorithm_version",
+        }
+        missing = required - provenance_columns
+        if missing:
+            raise ArtifactContractError(
+                f"{path}: mask_provenance columns missing: {sorted(missing)}"
+            )
+        mask_count = int(
+            connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0]
+        )
+        provenance_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM mask_provenance"
+            ).fetchone()[0]
+        )
+        if mask_count != provenance_count:
+            raise ArtifactContractError(
+                f"{path}: every face mask must have one provenance row"
+            )
+        for (
+            frame,
+            track_id,
+            kind,
+            observation_id,
+            derivation,
+            confidence,
+            algorithm_version,
+        ) in connection.execute(
+            """
+            SELECT frame, track_id, mask_kind, source_observation_id,
+                   derivation, confidence, algorithm_version
+            FROM mask_provenance
+            """
+        ):
+            if (
+                int(frame) < 0
+                or not str(track_id).startswith("face:")
+                or str(kind) not in {"face", "eyes"}
+                or int(observation_id) < 1
+                or str(derivation)
+                not in {"face-ellipse", "eye-keypoints", "ellipse-fallback"}
+                or not math.isfinite(float(confidence))
+                or not 0.0 <= float(confidence) <= 1.0
+                or str(algorithm_version) != "face-privacy-geometry-v1"
+            ):
+                raise ArtifactContractError(
+                    f"{path}: invalid face mask provenance for {track_id}"
+                )
+
+
+def _validate_combined_mask_sqlite(path: Path) -> None:
+    _validate_mask_sqlite(path)
+    with sqlite3.connect(str(path)) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "mask_provenance" not in tables:
+            raise ArtifactContractError(
+                f"{path}: combined masks require mask_provenance"
+            )
+        missing_face_provenance = connection.execute(
+            """
+            SELECT 1
+            FROM masks m
+            LEFT JOIN mask_provenance p
+              ON p.frame=m.frame AND p.track_id=m.track_id
+            WHERE m.track_id LIKE 'face:%'
+              AND p.track_id IS NULL
+            LIMIT 1
+            """
+        ).fetchone()
+        orphan_provenance = connection.execute(
+            """
+            SELECT 1
+            FROM mask_provenance p
+            LEFT JOIN masks m
+              ON m.frame=p.frame AND m.track_id=p.track_id
+            WHERE m.track_id IS NULL
+               OR p.track_id NOT LIKE 'face:%'
+            LIMIT 1
+            """
+        ).fetchone()
+        if missing_face_provenance is not None or orphan_provenance is not None:
+            raise ArtifactContractError(
+                f"{path}: face masks and provenance must have a 1:1 relation"
+            )
+
+
 def _validate_legacy_mask_sqlite(path: Path) -> None:
     with sqlite3.connect(str(path)) as connection:
         tables = {
@@ -267,7 +379,16 @@ for _name in (
 ):
     register_artifact_contract(_name, _validate_mask_sqlite)
 register_artifact_contract(
+    "combined_predictions_sqlite",
+    _validate_combined_mask_sqlite,
+)
+register_artifact_contract("face_masks_sqlite", _validate_face_masks_sqlite)
+register_artifact_contract(
     "legacy_predictions_sqlite",
+    _validate_legacy_mask_sqlite,
+)
+register_artifact_contract(
+    "combined_legacy_predictions_sqlite",
     _validate_legacy_mask_sqlite,
 )
 for _name in ("approximation_metrics_csv", "filled_metrics_csv"):
@@ -275,5 +396,9 @@ for _name in ("approximation_metrics_csv", "filled_metrics_csv"):
 register_artifact_contract("keyframes_json", _validate_keyframes_json)
 for _name in ("interpolated_union_json", "filled_union_json"):
     register_artifact_contract(_name, _validate_union_json)
-for _name in ("evaluation_summary", "validation_report"):
+for _name in (
+    "evaluation_summary",
+    "validation_report",
+    "combined_validation_report",
+):
     register_artifact_contract(_name, _validate_json_object)

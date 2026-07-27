@@ -23,6 +23,7 @@ class FaceKeypointOverlay:
     state_name: str
     confidence: float
     valid: bool
+    state_confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,9 @@ class OverlayItem:
     ellipse: Ellipse | None = None
     keypoints: tuple[FaceKeypointOverlay, ...] = ()
     face_mask: FaceMaskOverlay | None = None
+    provenance: str | None = None
+    face_score: float | None = None
+    face_present: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,11 @@ class RenderSummary:
     fps: float
     codec: str
     elapsed_seconds: float
+    decode_seconds: float = 0.0
+    source_seconds: float = 0.0
+    draw_seconds: float = 0.0
+    write_seconds: float = 0.0
+    other_seconds: float = 0.0
 
     def as_dict(self) -> dict[str, object]:
         values = asdict(self)

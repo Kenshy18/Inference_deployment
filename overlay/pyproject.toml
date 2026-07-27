@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 overlay-render = "overlay_renderer.cli:main"
 overlay-validate = "overlay_renderer.validate:main"
+overlay-export-face-masks = "overlay_renderer.face_mask_export:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

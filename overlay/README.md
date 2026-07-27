@@ -11,9 +11,96 @@
 | `raw` | inference SQLite | AIの生出力instance mask |
 | `tracked` | `tracked.sqlite` | NMS、カット分割、tracking、短命track削除後 |
 | `final` | `predictions.sqlite` | 最終後処理後。顔boxを任意で追加可能 |
-| `faces` | inference SQLite | 顔・頭部boxのみ |
+| `faces` | inference SQLite | 顔・頭部box、楕円、確率mask、keypoint |
 
 `--mode`は`--overlay-type`の短い別名です。
+
+利用者向けの表示形式は、対象3種類×詳細度2種類のpresetで指定できます。
+
+```text
+genital-detailed   genital-simple
+face-detailed      face-simple
+combined-detailed  combined-simple
+```
+
+性器を含むpresetでは`--genital-source raw|final`を併用します。詳細な顔表示は
+Head box、face moment-maskの点線境界、顔楕円、可視/遮蔽keypointと確信度を
+表示します。簡易表示は性器の最終binary maskと、顔楕円・keypointだけです。
+左上の全体HUDは表示しません。
+性器を含む簡易presetは固定ピンク`RGB(255, 105, 180)`、mask alphaは
+既定`0.45`です。詳細版および従来表示のalphaは`0.32`です。必要なら
+`--mask-alpha`で明示的に上書きできます。
+
+`genital-source: final`の形状は後処理側で選択した`ellipse`または`polygon`を
+そのまま使用します。これは表示presetとは独立した後処理軸です。複数楕円や
+複数polygonが重なる場合は、偶奇塗りで相殺せずunionしたbinary maskとして
+表示します。
+
+```bash
+overlay-render \
+  --preset combined-detailed \
+  --genital-source final \
+  --execution-mode nvenc \
+  --video input.mp4 \
+  --sqlite predictions.sqlite \
+  --face-sqlite inference.sqlite \
+  --output output/combined_detailed.mp4
+```
+
+presetは表示形式を確定する段階のため、現在は`cpu`と`nvenc`が対応します。
+`fast`への移植は通常rendererとの表示検証後に行います。
+
+### 顔・目のプライバシーマスク
+
+Face DINO v2のschema-v3入力では、診断用の楕円・keypoint表示とは別に、実際の
+モザイク対象領域を半透明塗りで確認できます。既定は`none`なので従来表示を
+変更しません。
+
+```bash
+# 顔全体: 検出器の正確な顔楕円
+overlay-render \
+  --preset face-simple \
+  --face-mask-target face \
+  --video input.mp4 --sqlite inference.sqlite --output face.mp4
+
+# 目: 左右Eye点から求めた回転楕円
+overlay-render \
+  --preset face-simple \
+  --face-mask-target eyes \
+  --eye-mask-shape ellipse \
+  --video input.mp4 --sqlite inference.sqlite --output eyes.mp4
+
+# 目: より保護範囲の広い回転長方形
+overlay-render \
+  --preset face-simple \
+  --face-mask-target eyes \
+  --eye-mask-shape rectangle \
+  --video input.mp4 --sqlite inference.sqlite --output eyes_box.mp4
+```
+
+目マスクは、信頼度`--minimum-eye-confidence`以上の2つのvalidなEye点が顔楕円
+に対して幾何的に妥当なら、その中点・距離・傾きを使います。欠落、低信頼、
+不自然な間隔や向きの場合は、顔楕円とvalidな顔keypointから上顔面の安全な
+アイバンドへフォールバックします。領域はEye点そのものだけでなく、まぶた、
+眉、目尻まで含む余白を持ちます。詳細表示では導出方法もラベル表示します。
+`--no-face-keypoints`や`--no-face-ellipses`は診断描画だけを隠し、マスク導出に
+必要な値の読み込みは止めません。
+
+派生マスクを後続のモザイク処理へ渡す場合は、推論SQLiteを変更せず、別の
+監査可能なSQLiteへ出力します。
+
+```bash
+overlay-export-face-masks \
+  --sqlite inference.sqlite \
+  --output eyes.sqlite \
+  --target eyes \
+  --eye-shape ellipse
+```
+
+出力は既存readerが読める`masks(frame, track_id, polygons, shape_type, label)`
+契約を満たし、`source_observation_id`、`derivation`、`confidence`も保持します。
+出力先が既に存在する場合は`--overwrite`が必要です。入力と出力に同じSQLiteを
+指定することはできず、一時ファイル完成後のatomic replaceで確定します。
 
 ## 選択できる実行方式
 
@@ -121,6 +208,12 @@ overlay-render \
 --outline-thickness 2    mask輪郭の太さ
 --box-thickness 2        boxの太さ
 --no-labels              class、score、track IDを非表示
+--no-face-probability-masks  顔の確率mask塗りを省略
+--no-face-keypoints      顔keypointを省略
+--no-face-ellipses       顔楕円の代わりに検出boxを描画
+--face-mask-target       none / face / eyes
+--eye-mask-shape         ellipse / rectangle
+--minimum-eye-confidence Eye点を直接使う最低confidence（既定0.35）
 --h264-crf 18            CPU H.264品質（小さいほど高品質）
 --h264-preset veryfast   libx264 preset
 --nvenc-cq 18            通常NVENC品質（小さいほど高品質）
@@ -129,6 +222,12 @@ overlay-render \
 --manifest result.json   入力契約と処理結果を保存
 --overwrite              既存出力の置換を許可
 ```
+
+Face DINO v2の通常rendererで最も重い要素は、フレームごとの顔確率maskの
+拡大・alpha合成です。輪郭・位置確認を主目的とし、最大速度を優先する場合は
+`--no-face-probability-masks`を使うと、顔楕円とkeypointを残したまま
+確率mask塗りだけを省略できます。manifestの`face_components`に実際の設定が
+記録されます。
 
 `fast`は比較可能な容量と高速分割を保証するため
 `--target-bitrate-mbps`が必須です。`--copy-audio`と`--faststart`は現在

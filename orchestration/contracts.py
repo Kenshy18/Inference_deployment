@@ -590,14 +590,20 @@ def read_postprocess_artifacts(
         raise ArtifactError(f"{manifest_path}: artifacts object is absent")
     try:
         tracked = Path(str(artifacts["tracked_sqlite"])).expanduser().resolve()
-        final = Path(str(artifacts["predictions_sqlite"])).expanduser().resolve()
+        final_value = artifacts.get("combined_predictions_sqlite")
+        if final_value in (None, ""):
+            final_value = artifacts["predictions_sqlite"]
+        final = Path(str(final_value)).expanduser().resolve()
     except KeyError as exc:
         raise ArtifactError(
             f"{manifest_path}: required postprocess artifact is absent: {exc}"
         ) from exc
     validate_mask_sqlite(tracked)
     validate_mask_sqlite(final)
-    legacy_value = artifacts.get("legacy_predictions_sqlite")
+    legacy_value = artifacts.get(
+        "combined_legacy_predictions_sqlite",
+        artifacts.get("legacy_predictions_sqlite"),
+    )
     legacy = (
         None
         if legacy_value in (None, "")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -132,9 +133,21 @@ class PostprocessConfig:
     keyframe_interval: int | None = None
     model_root: Path | None = None
     k2_run_dir: Path | None = None
-    device: str = "cpu"
+    device: str = "auto"
     extra_args: tuple[str, ...] = ()
     export_legacy_sqlite: bool = False
+    face_mask_target: str = "none"
+    eye_mask_shape: str = "ellipse"
+    minimum_eye_confidence: float = 0.35
+
+    @property
+    def uses_gpu(self) -> bool:
+        """Whether this configuration may execute the ellipse K2 CUDA path."""
+        return (
+            self.enabled
+            and self.shape_mode == "ellipse"
+            and self.device.lower() != "cpu"
+        )
 
 
 @dataclass(frozen=True)
@@ -314,6 +327,9 @@ class OrchestrationConfig:
             "k2_run_dir",
             "device",
             "extra_args",
+            "face_mask_target",
+            "eye_mask_shape",
+            "minimum_eye_confidence",
         }
         _reject_unknown(postprocess_raw, postprocess_allowed, "postprocess")
         postprocess = PostprocessConfig(
@@ -370,10 +386,19 @@ class OrchestrationConfig:
                 base=base,
                 field="postprocess.k2_run_dir",
             ),
-            device=str(postprocess_raw.get("device", "cpu")),
+            device=str(postprocess_raw.get("device", "auto")),
             extra_args=_string_tuple(
                 postprocess_raw.get("extra_args"),
                 "postprocess.extra_args",
+            ),
+            face_mask_target=str(
+                postprocess_raw.get("face_mask_target", "none")
+            ),
+            eye_mask_shape=str(
+                postprocess_raw.get("eye_mask_shape", "ellipse")
+            ),
+            minimum_eye_confidence=float(
+                postprocess_raw.get("minimum_eye_confidence", 0.35)
             ),
         )
 
@@ -567,10 +592,38 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "postprocess.shape_mode must be polygon or ellipse"
             )
-        if self.postprocess.device.lower() != "cpu":
+        if self.postprocess.face_mask_target not in {"none", "face", "eyes"}:
             raise OrchestrationConfigError(
-                "postprocess.device must be exactly 'cpu' in repository-level "
-                "orchestration"
+                "postprocess.face_mask_target must be none, face, or eyes"
+            )
+        if self.postprocess.eye_mask_shape not in {"ellipse", "rectangle"}:
+            raise OrchestrationConfigError(
+                "postprocess.eye_mask_shape must be ellipse or rectangle"
+            )
+        if not 0.0 <= self.postprocess.minimum_eye_confidence <= 1.0:
+            raise OrchestrationConfigError(
+                "postprocess.minimum_eye_confidence must be between 0 and 1"
+            )
+        if self.postprocess.face_mask_target != "none":
+            if not self.postprocess.enabled:
+                raise OrchestrationConfigError(
+                    "face mask postprocess requires postprocess.enabled=true"
+                )
+            if not self.inference.uses_faces:
+                raise OrchestrationConfigError(
+                    "face mask postprocess requires face inference"
+                )
+            if self.inference.face_model != "face_dino_v2":
+                raise OrchestrationConfigError(
+                    "face mask postprocess currently requires face_dino_v2"
+                )
+        postprocess_device = self.postprocess.device.lower()
+        if (
+            postprocess_device not in {"cpu", "auto", "cuda"}
+            and re.fullmatch(r"cuda:\d+", postprocess_device) is None
+        ):
+            raise OrchestrationConfigError(
+                "postprocess.device must be cpu, auto, cuda, or cuda:<index>"
             )
         _reject_reserved_args(
             self.postprocess.extra_args,
@@ -595,6 +648,9 @@ class OrchestrationConfig:
                 "--no-export-legacy-sqlite",
                 "--export-dinov3-legacy-sqlite",
                 "--no-export-dinov3-legacy-sqlite",
+                "--face-mask-target",
+                "--eye-mask-shape",
+                "--minimum-eye-confidence",
             },
             "postprocess.extra_args",
         )

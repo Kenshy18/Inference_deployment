@@ -67,6 +67,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-root", type=Path)
     parser.add_argument("--k2-run-dir", type=Path)
     parser.add_argument("--device")
+    parser.add_argument("--k2-batch-size", type=int)
+    parser.add_argument("--k2-prep-workers", type=int)
+    parser.add_argument("--k2-precision", choices=("fp32", "fp16"))
+    parser.add_argument(
+        "--k2-forward-mode",
+        choices=("states_only", "full"),
+    )
+    parser.add_argument(
+        "--k2-profile-stages",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--k2-cudnn-benchmark",
+        choices=("on", "off"),
+    )
+    parser.add_argument("--k2-tf32", choices=("default", "on", "off"))
     parser.add_argument(
         "--export-legacy-sqlite",
         "--export-dinov3-legacy-sqlite",
@@ -77,6 +94,26 @@ def build_parser() -> argparse.ArgumentParser:
             "also export a tentative Dinov3_postprocess-compatible "
             "masks/tracks/cuts SQLite"
         ),
+    )
+    parser.add_argument(
+        "--face-mask-target",
+        choices=("none", "face", "eyes"),
+        default="none",
+        help=(
+            "append schema-v3 face postprocessing and merge the derived masks "
+            "into a combined final SQLite"
+        ),
+    )
+    parser.add_argument(
+        "--eye-mask-shape",
+        choices=("ellipse", "rectangle"),
+        default="ellipse",
+        help="shape used when --face-mask-target=eyes",
+    )
+    parser.add_argument(
+        "--minimum-eye-confidence",
+        type=float,
+        default=0.35,
     )
     return parser
 
@@ -165,6 +202,21 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                 options["device"] = choose_device(args.device)
             else:
                 options.setdefault("device", choose_device("auto"))
+            ellipse_extra = list(options.get("extra_args", []))
+            for flag, value in (
+                ("--k2-batch-size", args.k2_batch_size),
+                ("--k2-prep-workers", args.k2_prep_workers),
+                ("--k2-precision", args.k2_precision),
+                ("--k2-forward-mode", args.k2_forward_mode),
+                ("--k2-cudnn-benchmark", args.k2_cudnn_benchmark),
+                ("--k2-tf32", args.k2_tf32),
+            ):
+                if value is not None:
+                    ellipse_extra.extend((flag, str(value)))
+            if args.k2_profile_stages:
+                ellipse_extra.append("--k2-profile-stages")
+            if ellipse_extra:
+                options["extra_args"] = ellipse_extra
         elif (
             stage.implementation == "keyframes.ellipse.dense"
             and args.keyframe_interval is not None
@@ -178,16 +230,60 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                 stage.enabled,
             )
         )
-    if args.export_legacy_sqlite and not any(
-        stage.enabled and stage.implementation == "artifacts.legacy_sqlite"
-        for stage in stages
-    ):
-        stages.append(
-            StageSpec(
-                "legacy_sqlite_export",
-                "artifacts.legacy_sqlite",
+    if not 0.0 <= args.minimum_eye_confidence <= 1.0:
+        raise ValueError("--minimum-eye-confidence must be between 0 and 1")
+    if args.face_mask_target != "none":
+        stages.extend(
+            (
+                StageSpec(
+                    "face_privacy_masks",
+                    "face_privacy.masks",
+                    {
+                        "target": args.face_mask_target,
+                        "eye_shape": args.eye_mask_shape,
+                        "minimum_eye_confidence": args.minimum_eye_confidence,
+                    },
+                ),
+                StageSpec(
+                    "face_privacy_merge",
+                    "face_privacy.merge",
+                ),
+                StageSpec(
+                    "combined_output_validation",
+                    "artifacts.validate",
+                    {
+                        "source_artifact": "combined_predictions_sqlite",
+                        "output_artifact": "combined_validation_report",
+                        "filename": "combined_validation.json",
+                    },
+                ),
             )
         )
+    if args.export_legacy_sqlite:
+        if args.face_mask_target != "none":
+            stages.append(
+                StageSpec(
+                    "combined_legacy_sqlite_export",
+                    "artifacts.legacy_sqlite",
+                    {
+                        "source_artifact": "combined_predictions_sqlite",
+                        "output_artifact": (
+                            "combined_legacy_predictions_sqlite"
+                        ),
+                        "filename": "predictions.with_faces.legacy.sqlite",
+                    },
+                )
+            )
+        elif not any(
+            stage.enabled and stage.implementation == "artifacts.legacy_sqlite"
+            for stage in stages
+        ):
+            stages.append(
+                StageSpec(
+                    "legacy_sqlite_export",
+                    "artifacts.legacy_sqlite",
+                )
+            )
     return PipelineConfig(source.name, tuple(stages))
 
 
@@ -195,11 +291,22 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, object]:
     config = _configured_pipeline(args)
     initial: dict[str, Path] = {}
     if args.input_jsonl is not None:
+        if args.face_mask_target != "none":
+            raise ValueError(
+                "--face-mask-target requires a unified inference SQLite"
+            )
         initial["input_jsonl"] = args.input_jsonl
         if args.input_video is not None:
             initial["input_video"] = args.input_video
     else:
         input_sqlite_kind = detect_mask_sqlite_kind(args.input_sqlite)
+        if (
+            args.face_mask_target != "none"
+            and input_sqlite_kind != "unified_inference"
+        ):
+            raise ValueError(
+                "--face-mask-target requires a unified inference SQLite"
+            )
         if input_sqlite_kind in {"raw_detection", "unified_inference"}:
             initial["input_raw_sqlite"] = args.input_sqlite
         else:

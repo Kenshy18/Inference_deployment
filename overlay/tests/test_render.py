@@ -20,7 +20,8 @@ from overlay_renderer.cli import (
     NATIVE_FFMPEG,
     NATIVE_RENDERER,
 )
-from overlay_renderer.render import RenderOptions
+from overlay_renderer.models import OverlayItem
+from overlay_renderer.render import RenderOptions, _color, _draw_items
 
 from helpers import (
     create_mask_sqlite,
@@ -41,6 +42,96 @@ def _read_frame(path: Path, frame_index: int) -> np.ndarray:
 
 
 class RenderTests(unittest.TestCase):
+    def test_overlapping_mask_components_are_filled_as_a_union(self) -> None:
+        frame = np.full((64, 64, 3), 40, dtype=np.uint8)
+        item = OverlayItem(
+            identity="overlap",
+            color_key="overlap",
+            kind="mask",
+            polygons=(
+                ((8.0, 8.0), (40.0, 8.0), (40.0, 40.0), (8.0, 40.0)),
+                ((24.0, 24.0), (56.0, 24.0), (56.0, 56.0), (24.0, 56.0)),
+            ),
+        )
+
+        _draw_items(
+            frame,
+            (item,),
+            RenderOptions(
+                mode="final",
+                mask_alpha=1.0,
+                display_style="simple",
+            ),
+        )
+
+        np.testing.assert_array_equal(frame[16, 16], frame[32, 32])
+        self.assertFalse(np.array_equal(frame[32, 32], np.array([40, 40, 40])))
+
+    def test_combined_presets_resolve_subject_style_and_source(self) -> None:
+        parser = build_parser()
+        detailed = parser.parse_args(
+            [
+                "--preset",
+                "combined-detailed",
+                "--genital-source",
+                "final",
+                "--video",
+                "input.mp4",
+                "--sqlite",
+                "final.sqlite",
+                "--face-sqlite",
+                "inference.sqlite",
+                "--output",
+                "output.mp4",
+            ]
+        )
+        _validate_mode_args(detailed)
+        self.assertEqual("final", detailed.mode)
+        self.assertTrue(detailed.include_faces)
+        self.assertEqual(0.32, detailed.mask_alpha)
+
+        simple = parser.parse_args(
+            [
+                "--preset",
+                "combined-simple",
+                "--genital-source",
+                "raw",
+                "--video",
+                "input.mp4",
+                "--sqlite",
+                "inference.sqlite",
+                "--face-sqlite",
+                "inference.sqlite",
+                "--output",
+                "output.mp4",
+            ]
+        )
+        _validate_mode_args(simple)
+        self.assertEqual("raw", simple.mode)
+        self.assertTrue(simple.include_faces)
+        self.assertEqual(0.45, simple.mask_alpha)
+        self.assertEqual((180, 105, 255), _color("genital:simple"))
+
+    def test_presets_are_rejected_by_fast_renderer_until_ported(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--execution-mode",
+                "fast",
+                "--preset",
+                "face-simple",
+                "--video",
+                "input.mp4",
+                "--sqlite",
+                "inference.sqlite",
+                "--output",
+                "output.mp4",
+                "--target-bitrate-mbps",
+                "8",
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "not yet implemented"):
+            _validate_mode_args(args)
+
     def test_execution_modes_and_overlay_type_alias_are_resolved(self) -> None:
         parser = build_parser()
         common = [
@@ -301,6 +392,53 @@ class RenderTests(unittest.TestCase):
                 float(np.mean(cv2.absdiff(original, rendered))),
                 0.5,
             )
+
+    def test_eye_privacy_mask_renders_when_diagnostic_geometry_is_hidden(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = create_rich_face_sqlite(root / "rich.sqlite")
+            output = root / "eyes.mp4"
+            manifest = root / "eyes.json"
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(
+                    [
+                        "--preset",
+                        "face-simple",
+                        "--face-mask-target",
+                        "eyes",
+                        "--eye-mask-shape",
+                        "rectangle",
+                        "--no-face-ellipses",
+                        "--no-face-keypoints",
+                        "--video",
+                        str(video),
+                        "--sqlite",
+                        str(sqlite),
+                        "--output",
+                        str(output),
+                        "--manifest",
+                        str(manifest),
+                        "--progress-every",
+                        "0",
+                    ]
+                )
+
+            original = _read_frame(video, 1)
+            rendered = _read_frame(output, 1)
+            self.assertGreater(
+                float(np.mean(cv2.absdiff(original, rendered))),
+                0.25,
+            )
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            privacy = payload["face_components"]["privacy_mask"]
+            self.assertEqual("eyes", privacy["target"])
+            self.assertEqual("rectangle", privacy["shape"])
+            self.assertFalse(payload["face_components"]["ellipses"])
+            self.assertFalse(payload["face_components"]["keypoints"])
 
     def test_h264_mode_creates_readable_video(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

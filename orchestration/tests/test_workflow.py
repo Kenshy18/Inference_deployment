@@ -16,6 +16,81 @@ from helpers import create_rich_face_unified_sqlite, create_unified_sqlite, crea
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_face_privacy_is_merged_into_software_final_sqlite(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi", frames=1)
+            inference = create_rich_face_unified_sqlite(
+                root / "inference.sqlite"
+            )
+            output = root / "run"
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(output),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(inference),
+                            "mode": "segmentation-face",
+                            "face_model": "face_dino_v2",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "export_legacy_sqlite": True,
+                            "shape_mode": "polygon",
+                            "cut_detect": False,
+                            "remove_short_tracks_max_frames": 0,
+                            "device": "cpu",
+                            "face_mask_target": "eyes",
+                            "eye_mask_shape": "rectangle",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manifest = OrchestrationRunner(
+                OrchestrationConfig.load(config_path)
+            ).run()
+
+            final = Path(manifest["artifacts"]["final_sqlite"])
+            legacy = Path(manifest["artifacts"]["legacy_final_sqlite"])
+            with sqlite3.connect(final) as connection:
+                labels = connection.execute(
+                    "SELECT label, COUNT(*) FROM masks GROUP BY label"
+                ).fetchall()
+                self.assertIn(("target", 1), labels)
+                self.assertIn(("Eyes", 1), labels)
+                self.assertEqual(
+                    [
+                        (
+                            "eyes",
+                            "ellipse-fallback",
+                            "face-privacy-geometry-v1",
+                        )
+                    ],
+                    connection.execute(
+                        """
+                        SELECT mask_kind, derivation, algorithm_version
+                        FROM mask_provenance
+                        """
+                    ).fetchall(),
+                )
+            with sqlite3.connect(legacy) as connection:
+                self.assertEqual(
+                    [("Eyes", 1), ("target", 1)],
+                    connection.execute(
+                        """
+                        SELECT label, COUNT(*) FROM masks
+                        GROUP BY label ORDER BY label
+                        """
+                    ).fetchall(),
+                )
+
     def test_reused_face_dino_v2_sqlite_renders_rich_face_overlay(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

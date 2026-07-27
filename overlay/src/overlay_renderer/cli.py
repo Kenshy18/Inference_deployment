@@ -23,6 +23,14 @@ from .sources import (
 
 MODES = ("raw", "tracked", "final", "faces")
 EXECUTION_MODES = ("cpu", "nvenc", "fast")
+PRESETS = (
+    "genital-detailed",
+    "genital-simple",
+    "face-detailed",
+    "face-simple",
+    "combined-detailed",
+    "combined-simple",
+)
 OVERLAY_ROOT = Path(__file__).resolve().parents[2]
 NATIVE_ROOT = OVERLAY_ROOT / "native"
 NATIVE_RUNNER = NATIVE_ROOT / "segmented.py"
@@ -57,11 +65,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--overlay-type",
         dest="mode",
         choices=MODES,
-        required=True,
+        required=False,
         help=(
             "raw: inference masks, tracked: minimal postprocess, "
             "final: final postprocess, faces: face boxes only"
         ),
+    )
+    parser.add_argument(
+        "--preset",
+        choices=PRESETS,
+        help="reader-facing subject/detail preset; currently supported by cpu/nvenc",
+    )
+    parser.add_argument(
+        "--genital-source",
+        choices=("raw", "final"),
+        default="final",
+        help="mask stage used by genital/combined presets",
     )
     parser.add_argument("--video", type=Path, required=True)
     parser.add_argument(
@@ -84,10 +103,54 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="unified inference SQLite containing role=face_detection",
     )
-    parser.add_argument("--mask-alpha", type=float, default=0.32)
+    parser.add_argument(
+        "--mask-alpha",
+        type=float,
+        default=None,
+        help=(
+            "mask opacity; defaults to 0.45 for simple genital presets and "
+            "0.32 otherwise"
+        ),
+    )
     parser.add_argument("--outline-thickness", type=int, default=2)
     parser.add_argument("--box-thickness", type=int, default=2)
     parser.add_argument("--no-labels", action="store_true")
+    parser.add_argument(
+        "--no-face-probability-masks",
+        action="store_true",
+        help="omit rich-face probability-mask tinting and decompression",
+    )
+    parser.add_argument(
+        "--no-face-keypoints",
+        action="store_true",
+        help="omit rich-face keypoint markers",
+    )
+    parser.add_argument(
+        "--no-face-ellipses",
+        action="store_true",
+        help="draw the detector face box instead of the rich-face ellipse",
+    )
+    parser.add_argument(
+        "--face-mask-target",
+        choices=("none", "face", "eyes"),
+        default="none",
+        help=(
+            "derive a filled privacy mask from rich face data; face uses the "
+            "exact detector ellipse, eyes uses eye keypoints with safe fallback"
+        ),
+    )
+    parser.add_argument(
+        "--eye-mask-shape",
+        choices=("ellipse", "rectangle"),
+        default="ellipse",
+        help="shape of the combined eye privacy mask",
+    )
+    parser.add_argument(
+        "--minimum-eye-confidence",
+        type=float,
+        default=0.35,
+        help="minimum confidence for each eye keypoint before ellipse fallback",
+    )
     parser.add_argument(
         "--codec",
         default=None,
@@ -170,6 +233,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _validate_mode_args(args: argparse.Namespace) -> None:
+    if args.preset is not None:
+        subject, _style = args.preset.split("-", 1)
+        if subject == "face":
+            args.mode = "faces"
+            args.include_faces = False
+        else:
+            args.mode = args.genital_source
+            args.include_faces = subject == "combined"
+        if args.execution_mode == "fast":
+            raise ValueError("presets are not yet implemented by fast mode")
+    elif args.mode is None:
+        raise ValueError("either --mode or --preset is required")
+    if args.mask_alpha is None:
+        args.mask_alpha = (
+            0.45
+            if args.preset is not None
+            and args.preset.endswith("-simple")
+            and not args.preset.startswith("face-")
+            else 0.32
+        )
     if args.nvenc_preset is None:
         args.nvenc_preset = (
             "p1" if args.execution_mode == "fast" else "p5"
@@ -202,14 +285,28 @@ def _validate_mode_args(args: argparse.Namespace) -> None:
         and args.target_bitrate_mbps <= 0
     ):
         raise ValueError("--target-bitrate-mbps must be positive")
-    if args.include_faces and args.mode != "final":
-        raise ValueError("--include-faces is only valid with --mode final")
-    if args.mode == "final" and args.include_faces and args.face_sqlite is None:
-        raise ValueError("--include-faces requires --face-sqlite")
-    if args.face_sqlite is not None and not (
-        args.mode == "final" and args.include_faces
+    if (
+        args.include_faces
+        and args.mode != "final"
+        and args.preset is None
     ):
+        raise ValueError("--include-faces is only valid with --mode final")
+    if args.include_faces and args.face_sqlite is None:
+        raise ValueError("--include-faces requires --face-sqlite")
+    if args.face_sqlite is not None and not args.include_faces:
         raise ValueError("--face-sqlite requires --mode final --include-faces")
+    if not 0.0 <= args.minimum_eye_confidence <= 1.0:
+        raise ValueError("--minimum-eye-confidence must be between 0 and 1")
+    if (
+        args.face_mask_target != "none"
+        and args.mode != "faces"
+        and not args.include_faces
+    ):
+        raise ValueError(
+            "--face-mask-target requires a face or combined overlay"
+        )
+    if args.face_mask_target != "none" and args.execution_mode == "fast":
+        raise ValueError("--face-mask-target is not yet implemented by fast mode")
     if args.execution_mode == "fast":
         if args.target_bitrate_mbps is None:
             raise ValueError(
@@ -424,20 +521,64 @@ def main(argv: list[str] | None = None) -> None:
     if args.mode == "raw":
         source = inspect_inference_source(args.sqlite, "instance_segmentation")
         sources.append(source)
-        mask_frames = iter_raw_segmentation_frames(args.sqlite)
+        mask_frames = iter_raw_segmentation_frames(
+            args.sqlite,
+            display_style=(
+                "legacy"
+                if args.preset is None
+                else args.preset.rsplit("-", 1)[1]
+            ),
+        )
     elif args.mode in {"tracked", "final"}:
         source = inspect_mask_source(args.sqlite)
         sources.append(source)
-        mask_frames = iter_mask_frames(args.sqlite)
+        mask_frames = iter_mask_frames(
+            args.sqlite,
+            display_style=(
+                "legacy"
+                if args.preset is None
+                else args.preset.rsplit("-", 1)[1]
+            ),
+        )
     elif args.mode == "faces":
         source = inspect_inference_source(args.sqlite, "face_detection")
         sources.append(source)
-        face_frames = iter_face_frames(args.sqlite)
+        face_frames = iter_face_frames(
+            args.sqlite,
+            include_ellipses=(
+                not args.no_face_ellipses or args.face_mask_target != "none"
+            ),
+            include_keypoints=(
+                not args.no_face_keypoints or args.face_mask_target == "eyes"
+            ),
+            include_probability_masks=not args.no_face_probability_masks,
+            require_privacy_geometry=args.face_mask_target != "none",
+            display_style=(
+                "legacy"
+                if args.preset is None
+                else args.preset.rsplit("-", 1)[1]
+            ),
+        )
 
-    if args.mode == "final" and args.include_faces:
+    if args.include_faces:
         face_source = inspect_inference_source(args.face_sqlite, "face_detection")
         sources.append(face_source)
-        face_frames = iter_face_frames(args.face_sqlite)
+        face_frames = iter_face_frames(
+            args.face_sqlite,
+            include_ellipses=(
+                not args.no_face_ellipses or args.face_mask_target != "none"
+            ),
+            include_keypoints=(
+                not args.no_face_keypoints or args.face_mask_target == "eyes"
+            ),
+            include_probability_masks=not args.no_face_probability_masks,
+            require_privacy_geometry=args.face_mask_target != "none",
+            display_style=(
+                "legacy"
+                if args.preset is None
+                else args.preset.rsplit("-", 1)[1]
+            ),
+        )
 
     if args.execution_mode == "fast":
         _run_fast(
@@ -465,6 +606,16 @@ def main(argv: list[str] | None = None) -> None:
         start_frame=args.start_frame,
         end_frame=args.end_frame,
         progress_every=args.progress_every,
+        display_style=(
+            "legacy"
+            if args.preset is None
+            else args.preset.rsplit("-", 1)[1]
+        ),
+        face_privacy_target=args.face_mask_target,
+        eye_mask_shape=args.eye_mask_shape,
+        minimum_eye_confidence=args.minimum_eye_confidence,
+        draw_face_ellipses=not args.no_face_ellipses,
+        draw_face_keypoints=not args.no_face_keypoints,
     )
     summary = render_video(
         video_path=args.video,
@@ -481,8 +632,44 @@ def main(argv: list[str] | None = None) -> None:
         "video": str(Path(args.video).expanduser().resolve()),
         "execution_mode": args.execution_mode,
         "overlay_type": args.mode,
+        "preset": args.preset,
+        "genital_source": (
+            args.genital_source if args.preset and "face-" not in args.preset else None
+        ),
         "include_faces": bool(args.include_faces),
         "audio_copied": False,
+        "display_style": options.display_style,
+        "drawing": {
+            "mask_alpha": options.mask_alpha,
+            "outline_thickness": options.outline_thickness,
+            "box_thickness": options.box_thickness,
+        },
+        "face_components": {
+            "probability_masks": (
+                options.display_style != "simple"
+                and not args.no_face_probability_masks
+            ),
+            "keypoints": not args.no_face_keypoints,
+            "ellipses": not args.no_face_ellipses,
+            "head_boxes": options.display_style != "simple",
+            "labels": options.display_style == "detailed",
+            "privacy_mask": {
+                "target": options.face_privacy_target,
+                "shape": (
+                    options.eye_mask_shape
+                    if options.face_privacy_target == "eyes"
+                    else "ellipse"
+                    if options.face_privacy_target == "face"
+                    else None
+                ),
+                "minimum_eye_confidence": options.minimum_eye_confidence,
+                "fallback": (
+                    "face-ellipse-upper-band"
+                    if options.face_privacy_target == "eyes"
+                    else None
+                ),
+            },
+        },
         "encoding": {
             "codec": options.normalized_codec,
             "h264_crf": options.h264_crf if options.uses_libx264 else None,

@@ -21,13 +21,22 @@
   "postprocess": {
     "enabled": true,
     "export_legacy_sqlite": false,
-    "shape_mode": "polygon",
+    "shape_mode": "ellipse",
     "score_min": 0.35,
     "cut_detect": true,
     "cut_method": "high_precision",
     "remove_short_tracks_max_frames": 10,
     "keyframe_interval": 3,
-    "device": "cpu"
+    "face_mask_target": "eyes",
+    "eye_mask_shape": "ellipse",
+    "minimum_eye_confidence": 0.35,
+    "device": "auto",
+    "extra_args": [
+      "--k2-batch-size", "128",
+      "--k2-prep-workers", "4",
+      "--k2-cudnn-benchmark", "on",
+      "--k2-tf32", "off"
+    ]
   },
   "overlay": {
     "enabled": true,

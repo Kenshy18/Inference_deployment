@@ -89,9 +89,12 @@ def infer_build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--k2-forward-mode",
         type=str,
-        default="full",
+        default="states_only",
         choices=("states_only", "full"),
-        help="states_only skips unused soft mask rendering during K2 inference.",
+        help=(
+            "states_only skips the K2 network's unused soft-mask rendering "
+            "(default); full is retained for diagnostics."
+        ),
     )
     parser.add_argument(
         "--k2-profile-stages",
@@ -108,9 +111,12 @@ def infer_build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--k2-tf32",
         type=str,
-        default="default",
+        default="off",
         choices=("default", "on", "off"),
-        help="Control TF32 for K2 CUDA matmul/cuDNN paths.",
+        help=(
+            "Control TF32 for K2 CUDA matmul/cuDNN paths "
+            "(default: off for CPU/GPU numerical agreement)."
+        ),
     )
     parser.add_argument(
         "--routing-mode",
@@ -2012,10 +2018,10 @@ def infer_infer_k2_v5(
     batch_size: int,
     prep_workers: int = 0,
     precision: str = "fp32",
-    forward_mode: str = "full",
+    forward_mode: str = "states_only",
     profile_stages: bool = False,
     cudnn_benchmark: str = "off",
-    tf32: str = "default",
+    tf32: str = "off",
 ) -> tuple[
     list[tuple[int, tuple[int, str, str]]],
     list[tuple[int, dict[str, object]]],

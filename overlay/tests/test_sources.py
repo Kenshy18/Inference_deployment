@@ -72,6 +72,25 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(16, len(face.face_mask.probabilities))
             self.assertEqual((12.0, 5.0, 48.0, 42.0), head.box)
 
+    def test_rich_face_components_can_be_disabled_without_decoding(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
+
+            frames = list(
+                iter_face_frames(
+                    path,
+                    include_ellipses=False,
+                    include_keypoints=False,
+                    include_probability_masks=False,
+                )
+            )
+
+            face = next(item for item in frames[0].items if item.label == "Face")
+            self.assertEqual((18.0, 10.0, 42.0, 34.0), face.box)
+            self.assertIsNone(face.ellipse)
+            self.assertEqual((), face.keypoints)
+            self.assertIsNone(face.face_mask)
+
     def test_rich_face_masks_are_decompressed_lazily(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")

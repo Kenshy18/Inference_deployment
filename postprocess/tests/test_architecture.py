@@ -25,6 +25,7 @@ FEATURES = {
     "gap_fill",
     "evaluation",
     "artifacts",
+    "face_privacy",
     "visualization",
 }
 

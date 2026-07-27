@@ -167,6 +167,17 @@ class OrchestrationRunner:
                 command.extend([flag, str(value)])
         if settings.export_legacy_sqlite:
             command.append("--export-legacy-sqlite")
+        if settings.face_mask_target != "none":
+            command.extend(
+                [
+                    "--face-mask-target",
+                    settings.face_mask_target,
+                    "--eye-mask-shape",
+                    settings.eye_mask_shape,
+                    "--minimum-eye-confidence",
+                    str(settings.minimum_eye_confidence),
+                ]
+            )
         command.extend(settings.extra_args)
         return command
 
@@ -286,7 +297,7 @@ class OrchestrationRunner:
             plan.append(
                 {
                     "stage": "postprocess",
-                    "uses_gpu": False,
+                    "uses_gpu": self.config.postprocess.uses_gpu,
                     "command": self.postprocess_command(inference_source),
                 }
             )
@@ -320,6 +331,7 @@ class OrchestrationRunner:
             return self.plan()
         self._prepare_output()
         self.manifest["status"] = "running"
+        self.manifest.pop("error", None)
         self.manifest["started_at_utc"] = _utc_now()
         self._save_manifest()
         try:
@@ -423,7 +435,11 @@ class OrchestrationRunner:
                 tracked, final, legacy = read_postprocess_artifacts(manifest_path)
             else:
                 command = self.postprocess_command(artifacts.inference_sqlite)
-                self._execute("postprocess", command, cpu_only=True)
+                self._execute(
+                    "postprocess",
+                    command,
+                    cpu_only=not settings.uses_gpu,
+                )
                 tracked, final, legacy = read_postprocess_artifacts(manifest_path)
             if settings.export_legacy_sqlite and legacy is None:
                 raise OrchestrationError(

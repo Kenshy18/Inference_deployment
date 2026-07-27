@@ -112,6 +112,18 @@ def legacy_sqlite(options: dict[str, Any]) -> PostprocessStage:
     return LegacySqliteExportStage(options)
 
 
+def face_privacy_masks(options: dict[str, Any]) -> PostprocessStage:
+    from face_privacy.stages import FacePrivacyMaskStage
+
+    return FacePrivacyMaskStage(options)
+
+
+def face_privacy_merge(options: dict[str, Any]) -> PostprocessStage:
+    from face_privacy.stages import FacePrivacyMergeStage
+
+    return FacePrivacyMergeStage(options)
+
+
 register_stage("preprocessing.normalize", normalization)
 register_stage("preprocessing.raw_sqlite", raw_sqlite_normalization)
 register_stage("preprocessing.score_policy", score_policy)
@@ -129,3 +141,5 @@ register_stage("evaluation.mask_iou", mask_evaluation)
 register_stage("artifacts.union_sqlite", union_sqlite)
 register_stage("artifacts.validate", validate_output)
 register_stage("artifacts.legacy_sqlite", legacy_sqlite)
+register_stage("face_privacy.masks", face_privacy_masks)
+register_stage("face_privacy.merge", face_privacy_merge)

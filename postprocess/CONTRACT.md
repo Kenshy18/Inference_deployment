@@ -61,6 +61,17 @@ validatorは`contracts.artifacts`へ集約されています。新しい成果�
 `input_video`と`class_policy_json`は任意の補助成果物です。標準cut detectionを
 有効にした場合のみ`input_video`が必要です。
 
+Face DINO v2の顔後処理を有効にすると、通常の最終出力検証後に次を追加します。
+
+| 機能 | 組み込み実装 | requires | provides |
+| --- | --- | --- | --- |
+| 顔/目mask生成 | `face_privacy.masks` | `input_raw_sqlite` | `face_masks_sqlite` |
+| 性器maskとの統合 | `face_privacy.merge` | `predictions_sqlite`, `face_masks_sqlite` | `combined_predictions_sqlite` |
+| 統合出力検証 | `artifacts.validate` | `combined_predictions_sqlite` | `combined_validation_report` |
+
+入力推論SQLiteと性器のみの`predictions_sqlite`は読み取り専用であり、
+上書きしません。
+
 ## 3. 入力JSONL
 
 1行が1フレームのJSON objectです。入力時は次の別名を受理します。
@@ -143,6 +154,24 @@ segmentation_points(polygon_id, point_index, x, y)
 `tracks`テーブルは保持可能ですが、最終検証の必須条件ではありません。
 共通の読み書きには`contracts.read_mask_rows`と
 `contracts.write_mask_sqlite`を使用します。
+
+`face_masks_sqlite`は同じ`masks`契約に加えて次を持ちます。
+
+```text
+mask_provenance(
+  frame INTEGER,
+  track_id TEXT,
+  mask_kind TEXT,             -- face / eyes
+  source_observation_id INTEGER,
+  derivation TEXT,            -- face-ellipse / eye-keypoints / ellipse-fallback
+  confidence REAL,
+  algorithm_version TEXT,
+  PRIMARY KEY(frame, track_id)
+)
+```
+
+`combined_predictions_sqlite`は性器側SQLiteをbackupしてから、名前空間付き
+`track_id`の顔マスクと`mask_provenance`を追加した成果物です。
 
 標準のraw入力パイプラインが生成する`tracked_sqlite`と
 `predictions_sqlite`には、カット検出結果も次の監査テーブルとして保持します。

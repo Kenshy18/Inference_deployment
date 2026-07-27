@@ -17,6 +17,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .face_privacy import FacePrivacyMask, derive_privacy_mask
 from .models import FrameOverlay, OverlayItem, RenderSummary, SourceInfo
 
 
@@ -61,6 +62,13 @@ class RenderOptions:
     start_frame: int = 0
     end_frame: int | None = None
     progress_every: int = 300
+    display_style: str = "legacy"
+    face_mask_threshold: float = 0.25
+    face_privacy_target: str = "none"
+    eye_mask_shape: str = "ellipse"
+    minimum_eye_confidence: float = 0.35
+    draw_face_ellipses: bool = True
+    draw_face_keypoints: bool = True
 
     def validate(self) -> None:
         if not 0.0 <= self.mask_alpha <= 1.0:
@@ -87,6 +95,16 @@ class RenderOptions:
             raise ValueError("end_frame must be greater than or equal to start_frame")
         if self.progress_every < 0:
             raise ValueError("progress_every must be non-negative")
+        if self.display_style not in {"legacy", "detailed", "simple"}:
+            raise ValueError("display_style must be legacy, detailed, or simple")
+        if not 0.0 <= self.face_mask_threshold <= 1.0:
+            raise ValueError("face_mask_threshold must be between 0 and 1")
+        if self.face_privacy_target not in {"none", "face", "eyes"}:
+            raise ValueError("face_privacy_target must be none, face, or eyes")
+        if self.eye_mask_shape not in {"ellipse", "rectangle"}:
+            raise ValueError("eye_mask_shape must be ellipse or rectangle")
+        if not 0.0 <= self.minimum_eye_confidence <= 1.0:
+            raise ValueError("minimum_eye_confidence must be between 0 and 1")
 
     @property
     def uses_libx264(self) -> bool:
@@ -383,6 +401,9 @@ def _seek_capture(capture: cv2.VideoCapture, start_frame: int) -> int:
 
 
 def _color(key: str) -> tuple[int, int, int]:
+    if key == "genital:simple":
+        # OpenCV uses BGR; this is RGB(255, 105, 180), a fixed hot pink.
+        return 180, 105, 255
     digest = hashlib.sha256(key.encode("utf-8")).digest()
     # Keep colors bright enough to remain visible over dark and mid-tone video.
     values = [96 + int(value) * 159 // 255 for value in digest[:3]]
@@ -410,6 +431,21 @@ def _ascii_label(item: OverlayItem) -> str:
     if item.score is not None:
         components.append(f"{item.score:.2f}")
     return " ".join(components)
+
+
+def _detailed_mask_label(item: OverlayItem) -> str:
+    components: list[str] = []
+    if item.label and item.label.isascii():
+        components.append(item.label)
+    if item.score is not None:
+        components.append(f"score={item.score:.2f}")
+    else:
+        components.append("score=--")
+    if item.track_id is not None:
+        components.append(f"T#{item.track_id}")
+    if item.provenance:
+        components.append(item.provenance)
+    return "  ".join(components)
 
 
 def _draw_label(
@@ -445,6 +481,86 @@ def _draw_label(
     )
 
 
+def _draw_dotted_face_mask(
+    frame: np.ndarray,
+    mask,
+    *,
+    threshold: float,
+) -> None:
+    height, width = frame.shape[:2]
+    x1, y1, x2, y2 = mask.box
+    left = max(0, min(width, int(math.floor(x1))))
+    top = max(0, min(height, int(math.floor(y1))))
+    right = max(0, min(width, int(math.ceil(x2))))
+    bottom = max(0, min(height, int(math.ceil(y2))))
+    if right <= left or bottom <= top:
+        return
+    probability = np.frombuffer(mask.probabilities, dtype=np.uint8).reshape(
+        mask.height,
+        mask.width,
+    )
+    resized = cv2.resize(
+        probability,
+        (right - left, bottom - top),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    binary = np.asarray(
+        resized >= round(threshold * 255.0),
+        dtype=np.uint8,
+    ) * 255
+    contours, _ = cv2.findContours(
+        binary,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_NONE,
+    )
+    spacing = max(5.0, width / 300.0)
+    radius = max(1, round(width / 1200))
+    minimum_area = max(4.0, binary.size * 0.0002)
+    offset = np.asarray((left, top), dtype=np.float32)
+    for contour in contours:
+        if cv2.contourArea(contour) < minimum_area:
+            continue
+        points = contour.reshape(-1, 2).astype(np.float32) + offset
+        if len(points) < 2:
+            continue
+        closed = np.concatenate((points, points[:1]), axis=0)
+        segments = closed[1:] - closed[:-1]
+        lengths = np.linalg.norm(segments, axis=1)
+        cumulative = np.concatenate(
+            (np.zeros(1, dtype=np.float32), np.cumsum(lengths))
+        )
+        total = float(cumulative[-1])
+        if total <= 0.0:
+            continue
+        for distance in np.arange(0.0, total, spacing):
+            segment = min(
+                int(np.searchsorted(cumulative, distance, side="right") - 1),
+                len(segments) - 1,
+            )
+            fraction = (distance - cumulative[segment]) / max(
+                float(lengths[segment]),
+                1e-6,
+            )
+            point = closed[segment] + fraction * segments[segment]
+            center = (round(float(point[0])), round(float(point[1])))
+            cv2.circle(
+                frame,
+                center,
+                radius + 1,
+                (225, 225, 225),
+                -1,
+                cv2.LINE_AA,
+            )
+            cv2.circle(
+                frame,
+                center,
+                radius,
+                (0, 0, 0),
+                -1,
+                cv2.LINE_AA,
+            )
+
+
 def _draw_items(
     frame: np.ndarray,
     items: tuple[OverlayItem, ...],
@@ -453,13 +569,41 @@ def _draw_items(
     height, width = frame.shape[:2]
     mask_items = [item for item in items if item.kind == "mask"]
     face_items = [item for item in items if item.kind == "face"]
+    privacy_masks: list[tuple[OverlayItem, FacePrivacyMask, np.ndarray]] = []
+    if options.face_privacy_target != "none":
+        for item in face_items:
+            privacy = derive_privacy_mask(
+                options.face_privacy_target,
+                item.ellipse,
+                item.keypoints,
+                eye_shape=options.eye_mask_shape,
+                minimum_eye_confidence=options.minimum_eye_confidence,
+            )
+            if privacy is None:
+                continue
+            contour = np.asarray(
+                [
+                    (
+                        max(0, min(width - 1, round(x))),
+                        max(0, min(height - 1, round(y))),
+                    )
+                    for x, y in privacy.polygon
+                ],
+                dtype=np.int32,
+            ).reshape(-1, 1, 2)
+            privacy_masks.append((item, privacy, contour))
 
     if mask_items and options.mask_alpha > 0.0:
         tint = frame.copy()
         for item in mask_items:
             contours = _contours(item, width, height)
-            if contours:
-                cv2.fillPoly(tint, contours, _color(item.color_key), cv2.LINE_AA)
+            color = _color(item.color_key)
+            # A single detection may be represented by multiple overlapping
+            # ellipses/polygons. Passing all contours to one fillPoly call uses
+            # an even-odd fill rule and cancels their overlap. Fill each
+            # component into the same tint canvas so the result is their union.
+            for contour in contours:
+                cv2.fillPoly(tint, [contour], color, cv2.LINE_AA)
         cv2.addWeighted(
             tint,
             options.mask_alpha,
@@ -469,7 +613,48 @@ def _draw_items(
             dst=frame,
         )
 
-    if face_items and options.mask_alpha > 0.0:
+    if privacy_masks and options.mask_alpha > 0.0:
+        tint = frame.copy()
+        privacy_color = (255, 70, 255)
+        for _item, _privacy, contour in privacy_masks:
+            cv2.fillPoly(tint, [contour], privacy_color, cv2.LINE_AA)
+        cv2.addWeighted(
+            tint,
+            options.mask_alpha,
+            frame,
+            1.0 - options.mask_alpha,
+            0.0,
+            dst=frame,
+        )
+        for _item, privacy, contour in privacy_masks:
+            cv2.polylines(
+                frame,
+                [contour],
+                True,
+                privacy_color,
+                options.outline_thickness,
+                cv2.LINE_AA,
+            )
+            if options.display_style == "detailed":
+                minimum = contour.reshape(-1, 2).min(axis=0)
+                label = (
+                    f"{privacy.target.upper()} MASK {privacy.shape} "
+                    f"{privacy.derivation}"
+                )
+                if privacy.derivation == "eye-keypoints":
+                    label += f" score={privacy.confidence:.2f}"
+                _draw_label(
+                    frame,
+                    label,
+                    (int(minimum[0]), int(minimum[1]) - 3),
+                    privacy_color,
+                )
+
+    if (
+        face_items
+        and options.mask_alpha > 0.0
+        and options.display_style == "legacy"
+    ):
         for item in face_items:
             mask = item.face_mask
             if mask is None:
@@ -502,33 +687,71 @@ def _draw_items(
                 255,
             ).astype(np.uint8)
 
-    for item in mask_items:
-        contours = _contours(item, width, height)
-        if not contours:
-            continue
-        color = _color(item.color_key)
-        cv2.polylines(
-            frame,
-            contours,
-            True,
-            color,
-            options.outline_thickness,
-            cv2.LINE_AA,
-        )
-        if options.show_labels:
-            all_points = np.concatenate(contours, axis=0).reshape(-1, 2)
-            minimum = all_points.min(axis=0)
-            _draw_label(
+    if options.display_style != "simple":
+        for item in mask_items:
+            contours = _contours(item, width, height)
+            if not contours:
+                continue
+            color = _color(item.color_key)
+            cv2.polylines(
                 frame,
-                _ascii_label(item),
-                (int(minimum[0]), int(minimum[1]) - 3),
+                contours,
+                True,
                 color,
+                options.outline_thickness,
+                cv2.LINE_AA,
             )
+            if options.display_style == "detailed":
+                all_points = np.concatenate(contours, axis=0).reshape(-1, 2)
+                minimum = all_points.min(axis=0)
+                maximum = all_points.max(axis=0)
+                cv2.rectangle(
+                    frame,
+                    (int(minimum[0]), int(minimum[1])),
+                    (int(maximum[0]), int(maximum[1])),
+                    color,
+                    options.box_thickness,
+                    cv2.LINE_AA,
+                )
+                _draw_label(
+                    frame,
+                    _detailed_mask_label(item),
+                    (int(minimum[0]), int(minimum[1]) - 3),
+                    color,
+                )
+            elif options.show_labels:
+                all_points = np.concatenate(contours, axis=0).reshape(-1, 2)
+                minimum = all_points.min(axis=0)
+                _draw_label(
+                    frame,
+                    _ascii_label(item),
+                    (int(minimum[0]), int(minimum[1]) - 3),
+                    color,
+                )
+
+    if options.display_style == "legacy":
+        face_box_color = None
+        ellipse_color = None
+    else:
+        face_box_color = (255, 170, 30)
+        ellipse_color = (255, 70, 255)
 
     for item in face_items:
-        color = _color(item.color_key)
+        if options.display_style == "detailed" and item.face_mask is not None:
+            _draw_dotted_face_mask(
+                frame,
+                item.face_mask,
+                threshold=options.face_mask_threshold,
+            )
+        color = (
+            _color(item.color_key)
+            if face_box_color is None
+            else face_box_color
+            if item.face_present is not False
+            else (80, 80, 255)
+        )
         label_origin: tuple[int, int] | None = None
-        if item.box is not None:
+        if item.box is not None and options.display_style != "simple":
             x1, y1, x2, y2 = item.box
             left = max(0, min(width - 1, round(x1)))
             top = max(0, min(height - 1, round(y1)))
@@ -542,8 +765,8 @@ def _draw_items(
                 options.box_thickness,
                 cv2.LINE_AA,
             )
-            label_origin = (left, top - 3)
-        if item.ellipse is not None:
+            label_origin = (left, max(top, 22))
+        if item.ellipse is not None and options.draw_face_ellipses:
             cx, cy, major, minor, theta = item.ellipse
             center = (
                 max(0, min(width - 1, round(cx))),
@@ -557,16 +780,21 @@ def _draw_items(
                 math.degrees(theta),
                 0,
                 360,
-                color,
+                color if ellipse_color is None else ellipse_color,
                 options.box_thickness,
                 cv2.LINE_AA,
             )
-            label_origin = (
-                max(0, round(cx - major)),
-                max(0, round(cy - minor)) - 3,
-            )
-        for point in item.keypoints:
-            if not point.valid:
+            if options.display_style == "legacy":
+                label_origin = (
+                    max(0, round(cx - major)),
+                    max(0, round(cy - minor)) - 3,
+                )
+        point_radius = max(4, round(width / 480))
+        font_scale = max(0.48, width / 2400)
+        for point in (
+            item.keypoints if options.draw_face_keypoints else ()
+        ):
+            if not point.valid or point.state == 0:
                 continue
             px = max(0, min(width - 1, round(point.x)))
             py = max(0, min(height - 1, round(point.y)))
@@ -575,29 +803,58 @@ def _draw_items(
                 cv2.circle(
                     frame,
                     (px, py),
-                    max(3, options.box_thickness + 2),
+                    point_radius + 2,
                     point_color,
                     options.box_thickness,
                     cv2.LINE_AA,
                 )
+                marker = "O"
             else:
                 cv2.circle(
                     frame,
                     (px, py),
-                    max(2, options.box_thickness + 1),
+                    point_radius,
                     point_color,
                     -1,
                     cv2.LINE_AA,
                 )
-        if options.show_labels and label_origin is not None:
-            _draw_label(
-                frame,
-                _ascii_label(item),
-                label_origin,
-                color,
+                marker = "V"
+            if options.display_style == "detailed":
+                state_confidence = (
+                    point.confidence
+                    if point.state_confidence is None
+                    else point.state_confidence
+                )
+                text = (
+                    f"{point.class_name.upper()}:{marker} "
+                    f"p{point.confidence:.2f}/s{state_confidence:.2f}"
+                )
+                cv2.putText(
+                    frame,
+                    text,
+                    (px + point_radius + 3, py - point_radius - 2),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale * 0.72,
+                    point_color,
+                    max(1, options.box_thickness - 1),
+                    cv2.LINE_AA,
+                )
+        if options.display_style == "detailed" and label_origin is not None:
+            head_score = "--" if item.score is None else f"{item.score:.2f}"
+            face_score = "--" if item.face_score is None else f"{item.face_score:.2f}"
+            label = (
+                f"HEAD {head_score} | FACE {face_score}"
+                if item.face_present is not False
+                else f"HEAD {head_score} | NO FACE {face_score}"
             )
+            _draw_label(frame, label, label_origin, color)
+        elif (
+            options.display_style == "legacy"
+            and options.show_labels
+            and label_origin is not None
+        ):
+            _draw_label(frame, _ascii_label(item), label_origin, color)
     return len(mask_items), len(face_items)
-
 
 def _validate_source_video(
     source: SourceInfo,
@@ -715,17 +972,29 @@ def render_video(
     first_written: int | None = None
     last_written: int | None = None
     frame_index = 0
+    decode_seconds = 0.0
+    source_seconds = 0.0
+    draw_seconds = 0.0
+    write_seconds = 0.0
     try:
         frame_index = _seek_capture(capture, options.start_frame)
         while True:
+            phase_started = time.perf_counter()
             ok, frame = capture.read()
+            decode_seconds += time.perf_counter() - phase_started
             if not ok or frame is None:
                 break
             if options.end_frame is not None and frame_index > options.end_frame:
                 break
+            phase_started = time.perf_counter()
             frame_items = masks.take(frame_index) + faces.take(frame_index)
+            source_seconds += time.perf_counter() - phase_started
+            phase_started = time.perf_counter()
             mask_count, face_count = _draw_items(frame, frame_items, options)
+            draw_seconds += time.perf_counter() - phase_started
+            phase_started = time.perf_counter()
             writer.write(frame)
+            write_seconds += time.perf_counter() - phase_started
             frames_written += 1
             masks_drawn += mask_count
             faces_drawn += face_count
@@ -767,6 +1036,10 @@ def render_video(
             raise RuntimeError("no video frames were written")
         os.replace(temporary, output_path)
 
+    elapsed_seconds = time.perf_counter() - started
+    accounted_seconds = (
+        decode_seconds + source_seconds + draw_seconds + write_seconds
+    )
     return RenderSummary(
         mode=options.mode,
         output=output_path,
@@ -779,7 +1052,12 @@ def render_video(
         height=height,
         fps=fps,
         codec=options.normalized_codec,
-        elapsed_seconds=time.perf_counter() - started,
+        elapsed_seconds=elapsed_seconds,
+        decode_seconds=decode_seconds,
+        source_seconds=source_seconds,
+        draw_seconds=draw_seconds,
+        write_seconds=write_seconds,
+        other_seconds=max(0.0, elapsed_seconds - accounted_seconds),
     )
 
 

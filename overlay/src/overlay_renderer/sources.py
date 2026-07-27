@@ -306,7 +306,11 @@ def _polygon_from_rows(rows: list[sqlite3.Row]) -> Polygon:
     return tuple((float(row["x"]), float(row["y"])) for row in rows)
 
 
-def iter_raw_segmentation_frames(path: Path) -> Iterator[FrameOverlay]:
+def iter_raw_segmentation_frames(
+    path: Path,
+    *,
+    display_style: str = "legacy",
+) -> Iterator[FrameOverlay]:
     """Stream raw inference masks grouped by frame."""
 
     resolved = Path(path).expanduser().resolve()
@@ -331,6 +335,7 @@ def iter_raw_segmentation_frames(path: Path) -> Iterator[FrameOverlay]:
                    d.id AS detection_id,
                    d.class_name AS detector_name,
                    d.score AS detector_score,
+                   d.x1, d.y1, d.x2, d.y2,
                    {classification_name},
                    sp.id AS polygon_id,
                    sp.polygon_index,
@@ -376,11 +381,23 @@ def iter_raw_segmentation_frames(path: Path) -> Iterator[FrameOverlay]:
                 detection_id = int(first["detection_id"])
                 yield int(first["frame_index"]), OverlayItem(
                     identity=f"detection:{detection_id}",
-                    color_key=f"raw:{label}",
+                    color_key=(
+                        "genital:simple"
+                        if display_style == "simple"
+                        else f"raw:{label}"
+                    ),
                     kind="mask",
                     label=label,
                     score=score,
                     polygons=polygons,
+                    box=(
+                        float(first["x1"]),
+                        float(first["y1"]),
+                        float(first["x2"]),
+                        float(first["y2"]),
+                    )
+                    if display_style == "detailed"
+                    else None,
                 )
 
         for frame_index, grouped in itertools.groupby(
@@ -426,7 +443,11 @@ def _decode_polygons(
     return tuple(polygons)
 
 
-def iter_mask_frames(path: Path) -> Iterator[FrameOverlay]:
+def iter_mask_frames(
+    path: Path,
+    *,
+    display_style: str = "legacy",
+) -> Iterator[FrameOverlay]:
     """Stream tracked or final postprocess masks grouped by frame."""
 
     resolved = Path(path).expanduser().resolve()
@@ -437,11 +458,36 @@ def iter_mask_frames(path: Path) -> Iterator[FrameOverlay]:
         label_expression = (
             "COALESCE(label, '') AS label" if "label" in columns else "'' AS label"
         )
+        tables = _tables(connection)
+        has_raw_audit = "raw_tracked_masks" in tables
+        audit_join = (
+            """
+            LEFT JOIN (
+                SELECT frame, final_track_id,
+                       MAX(score) AS source_score
+                FROM raw_tracked_masks
+                WHERE removed_by_short_track=0
+                  AND final_track_id IS NOT NULL
+                GROUP BY frame, final_track_id
+            ) audit
+              ON audit.frame=m.frame
+             AND CAST(audit.final_track_id AS TEXT)=CAST(m.track_id AS TEXT)
+            """
+            if has_raw_audit and display_style == "detailed"
+            else ""
+        )
+        score_expression = (
+            "audit.source_score AS source_score"
+            if audit_join
+            else "NULL AS source_score"
+        )
         rows = connection.execute(
             f"""
-            SELECT frame, track_id, polygons, {label_expression}
-            FROM masks
-            ORDER BY frame, track_id
+            SELECT m.frame, m.track_id, m.polygons, {label_expression},
+                   {score_expression}
+            FROM masks m
+            {audit_join}
+            ORDER BY m.frame, m.track_id
             """
         )
 
@@ -459,11 +505,28 @@ def iter_mask_frames(path: Path) -> Iterator[FrameOverlay]:
                     continue
                 yield frame, OverlayItem(
                     identity=f"track:{track_id}",
-                    color_key=f"track:{track_id}",
+                    color_key=(
+                        "genital:simple"
+                        if display_style == "simple"
+                        else f"track:{track_id}"
+                    ),
                     kind="mask",
                     label=str(row["label"]),
+                    score=(
+                        None
+                        if row["source_score"] is None
+                        else float(row["source_score"])
+                    ),
                     track_id=track_id,
                     polygons=polygons,
+                    provenance=(
+                        "GAP-FILL"
+                        if display_style == "detailed"
+                        and row["source_score"] is None
+                        else "OBSERVED"
+                        if display_style == "detailed"
+                        else None
+                    ),
                 )
 
         for frame_index, grouped in itertools.groupby(
@@ -480,17 +543,33 @@ def iter_mask_frames(path: Path) -> Iterator[FrameOverlay]:
 class _RichFaceDetailReader:
     """Read and decompress only the currently rendered face observation."""
 
-    def __init__(self, connection: sqlite3.Connection, path: Path) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        path: Path,
+        *,
+        include_keypoints: bool,
+        include_probability_masks: bool,
+    ) -> None:
         self._path = path
         self._points = iter(
             connection.execute(
                 """
-                SELECT observation_id, class_name, x, y,
-                       state, state_name, confidence, valid
-                FROM face_keypoints
+                SELECT kp.observation_id, kp.class_name, kp.x, kp.y,
+                       kp.state, kp.state_name, kp.confidence, kp.valid,
+                       (
+                           SELECT sp.probability
+                           FROM face_keypoint_state_probabilities sp
+                           WHERE sp.observation_id=kp.observation_id
+                             AND sp.point_index=kp.point_index
+                             AND sp.state_index=kp.state
+                       ) AS state_confidence
+                FROM face_keypoints kp
                 ORDER BY observation_id, point_index
                 """
             )
+            if include_keypoints
+            else ()
         )
         self._masks = iter(
             connection.execute(
@@ -501,6 +580,8 @@ class _RichFaceDetailReader:
                 ORDER BY observation_id
                 """
             )
+            if include_probability_masks
+            else ()
         )
         self._point = next(self._points, None)
         self._mask = next(self._masks, None)
@@ -544,6 +625,11 @@ class _RichFaceDetailReader:
                     state_name=str(point["state_name"]),
                     confidence=float(point["confidence"]),
                     valid=bool(point["valid"]),
+                    state_confidence=(
+                        None
+                        if point["state_confidence"] is None
+                        else float(point["state_confidence"])
+                    ),
                 )
             )
             self._point = next(self._points, None)
@@ -590,7 +676,15 @@ class _RichFaceDetailReader:
         )
 
 
-def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
+def iter_face_frames(
+    path: Path,
+    *,
+    include_ellipses: bool = True,
+    include_keypoints: bool = True,
+    include_probability_masks: bool = True,
+    display_style: str = "legacy",
+    require_privacy_geometry: bool = False,
+) -> Iterator[FrameOverlay]:
     """Stream boxes plus optional rich face ellipses/keypoints by frame."""
 
     resolved = Path(path).expanduser().resolve()
@@ -599,9 +693,112 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
         _validate_inference(connection, resolved)
         _require_role(connection, resolved, "face_detection")
         has_rich_faces = "face_observations" in _tables(connection)
+        if require_privacy_geometry and not has_rich_faces:
+            raise OverlayContractError(
+                f"{resolved}: face privacy masks require schema-v3 rich face "
+                "ellipses and keypoints"
+            )
         detail_reader = (
-            _RichFaceDetailReader(connection, resolved) if has_rich_faces else None
+            _RichFaceDetailReader(
+                connection,
+                resolved,
+                include_keypoints=include_keypoints,
+                include_probability_masks=include_probability_masks,
+            )
+            if has_rich_faces
+            else None
         )
+        if has_rich_faces and display_style in {"detailed", "simple"}:
+            assert detail_reader is not None
+            rows = connection.execute(
+                """
+                SELECT f.frame_index,
+                       fo.id AS observation_id,
+                       fo.face_score,
+                       fo.face_present,
+                       fo.geometry_type,
+                       fo.ellipse_cx,
+                       fo.ellipse_cy,
+                       fo.ellipse_major_radius,
+                       fo.ellipse_minor_radius,
+                       fo.ellipse_theta_radians,
+                       COALESCE(h.score, a.score) AS head_score,
+                       COALESCE(h.x1, a.x1) AS head_x1,
+                       COALESCE(h.y1, a.y1) AS head_y1,
+                       COALESCE(h.x2, a.x2) AS head_x2,
+                       COALESCE(h.y2, a.y2) AS head_y2
+                FROM face_observations fo
+                JOIN detections a ON a.id=fo.anchor_detection_id
+                JOIN frames f ON f.id=a.frame_id
+                LEFT JOIN detections h ON h.id=fo.head_detection_id
+                ORDER BY f.frame_index, fo.id
+                """
+            )
+
+            def iter_observations() -> Iterator[tuple[int, OverlayItem]]:
+                for row in rows:
+                    observation_id = int(row["observation_id"])
+                    has_face = bool(row["face_present"])
+                    details = (
+                        detail_reader.get(observation_id)
+                        if has_face
+                        else ((), None)
+                    )
+                    ellipse = (
+                        (
+                            float(row["ellipse_cx"]),
+                            float(row["ellipse_cy"]),
+                            float(row["ellipse_major_radius"]),
+                            float(row["ellipse_minor_radius"]),
+                            float(row["ellipse_theta_radians"]),
+                        )
+                        if has_face
+                        and row["geometry_type"] == "ellipse"
+                        and include_ellipses
+                        else None
+                    )
+                    yield int(row["frame_index"]), OverlayItem(
+                        identity=f"face-observation:{observation_id}",
+                        color_key="face:observation",
+                        kind="face",
+                        label="Head",
+                        score=float(row["head_score"]),
+                        box=(
+                            (
+                                float(row["head_x1"]),
+                                float(row["head_y1"]),
+                                float(row["head_x2"]),
+                                float(row["head_y2"]),
+                            )
+                            if display_style == "detailed"
+                            else None
+                        ),
+                        ellipse=ellipse,
+                        keypoints=(
+                            details[0]
+                            if has_face and include_keypoints
+                            else ()
+                        ),
+                        face_mask=(
+                            details[1]
+                            if has_face
+                            and include_probability_masks
+                            and display_style == "detailed"
+                            else None
+                        ),
+                        face_score=float(row["face_score"]),
+                        face_present=has_face,
+                    )
+
+            for frame_index, grouped in itertools.groupby(
+                iter_observations(),
+                key=lambda pair: pair[0],
+            ):
+                yield FrameOverlay(
+                    frame_index=frame_index,
+                    items=tuple(item for _frame, item in grouped),
+                )
+            return
         rich_columns = (
             """
             , fo.id AS observation_id,
@@ -676,7 +873,7 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                         float(row["ellipse_minor_radius"]),
                         float(row["ellipse_theta_radians"]),
                     )
-                    if is_rich_face
+                    if is_rich_face and include_ellipses
                     else None
                 )
                 rich_details = (
@@ -694,7 +891,7 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                     score=float(row["score"]),
                     box=(
                         None
-                        if is_rich_face
+                        if is_rich_face and include_ellipses
                         else (
                             float(row["x1"]),
                             float(row["y1"]),
@@ -703,8 +900,10 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                         )
                     ),
                     ellipse=ellipse,
-                    keypoints=rich_details[0],
-                    face_mask=rich_details[1],
+                    keypoints=rich_details[0] if include_keypoints else (),
+                    face_mask=(
+                        rich_details[1] if include_probability_masks else None
+                    ),
                 )
                 if (
                     label.lower() == "head"
@@ -712,6 +911,7 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                     and row["face_detection_id"] is None
                     and bool(row["face_present"])
                     and row["geometry_type"] == "ellipse"
+                    and include_ellipses
                 ):
                     assert detail_reader is not None
                     synthetic_details = detail_reader.get(observation_id)
@@ -727,8 +927,14 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                             float(row["ellipse_minor_radius"]),
                             float(row["ellipse_theta_radians"]),
                         ),
-                        keypoints=synthetic_details[0],
-                        face_mask=synthetic_details[1],
+                        keypoints=(
+                            synthetic_details[0] if include_keypoints else ()
+                        ),
+                        face_mask=(
+                            synthetic_details[1]
+                            if include_probability_masks
+                            else None
+                        ),
                     )
 
         for frame_index, grouped in itertools.groupby(
