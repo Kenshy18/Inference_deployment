@@ -21,6 +21,10 @@ InstanceSegmentation/
 postprocess/
   models/               後処理モデルの設定と実装
 
+overlay/                 SQLiteと元動画から確認用overlayを生成
+
+orchestration/           推論、後処理、overlayの一気通貫runner
+
 data/                    動画、推論SQLite、後処理SQLite
 ```
 
@@ -40,4 +44,6 @@ Gitではソースコード、設定、manifest、テスト、ドキュメント
 
 詳細な実行方法は
 [`InstanceSegmentation/inference/README.md`](InstanceSegmentation/inference/README.md)
-および[`postprocess/README.md`](postprocess/README.md)を参照してください。
+、[`postprocess/README.md`](postprocess/README.md)、
+[`overlay/README.md`](overlay/README.md)、
+[`orchestration/README.md`](orchestration/README.md)を参照してください。

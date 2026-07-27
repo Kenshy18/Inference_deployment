@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "input_video": "../../data/codino_trt_3min_simple150_input.mp4",
+  "output_root": "../output/gpu_benchmark_codino_ellipse_300",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": false,
+    "input_sqlite": "../output/gpu_benchmark_codino_polygon_300/01_inference/inference.sqlite",
+    "mode": "segmentation-face"
+  },
+  "postprocess": {
+    "enabled": true,
+    "shape_mode": "ellipse",
+    "score_min": 0.35,
+    "cut_detect": true,
+    "cut_method": "high_precision",
+    "remove_short_tracks_max_frames": 10,
+    "keyframe_interval": 3,
+    "device": "cpu"
+  },
+  "overlay": {
+    "enabled": true,
+    "raw": false,
+    "tracked": true,
+    "final": true,
+    "faces": false,
+    "final_include_faces": true,
+    "mask_alpha": 0.32,
+    "show_labels": true,
+    "codec": "mp4v",
+    "start_frame": 0,
+    "end_frame": 299,
+    "progress_every": 100
+  }
+}

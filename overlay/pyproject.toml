@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mask-overlay"
+version = "0.1.0"
+description = "Standalone video overlay renderer for inference and postprocess SQLite artifacts"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "imageio-ffmpeg>=0.5,<0.7",
+  "numpy>=1.24",
+  "opencv-python-headless>=4.8",
+]
+
+[project.scripts]
+overlay-render = "overlay_renderer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "input_video": "/path/to/input.mp4",
+  "output_root": "/path/to/runs/example",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": true,
+    "mode": "segmentation-face",
+    "segmentation_model": "dinov3_codino",
+    "segmentation_backend": "tensorrt-fast",
+    "face_model": "rtdetr_head_face",
+    "face_classes": ["Face", "Head"],
+    "device": "cuda:0",
+    "warmup_frames": 0,
+    "face_warmup_iterations": 3,
+    "fast_sqlite": false
+  },
+  "postprocess": {
+    "enabled": true,
+    "shape_mode": "polygon",
+    "score_min": 0.35,
+    "cut_detect": true,
+    "cut_method": "high_precision",
+    "remove_short_tracks_max_frames": 10,
+    "keyframe_interval": 3,
+    "device": "cpu"
+  },
+  "overlay": {
+    "enabled": true,
+    "backend": "python_opencv",
+    "raw": true,
+    "tracked": true,
+    "final": true,
+    "faces": true,
+    "final_include_faces": true,
+    "mask_alpha": 0.32,
+    "show_labels": true,
+    "codec": "mp4v",
+    "workers": 6,
+    "cpu_workers": 0,
+    "copy_audio": false,
+    "target_bitrate_mbps": null,
+    "nvenc_preset": "p5",
+    "nvenc_gpu": 0,
+    "faststart": false,
+    "start_frame": 0,
+    "end_frame": null,
+    "progress_every": 300
+  }
+}

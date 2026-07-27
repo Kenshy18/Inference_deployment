@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "input_video": "../../data/codino_trt_3min_simple150_input.mp4",
+  "output_root": "../output/existing_sample_cpu_20260725",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": false,
+    "input_sqlite": "../../data/after_inference/codino_trt_3min_simple150.sqlite",
+    "mode": "segmentation"
+  },
+  "postprocess": {
+    "enabled": true,
+    "shape_mode": "polygon",
+    "score_min": 0.35,
+    "cut_detect": true,
+    "cut_method": "high_precision",
+    "remove_short_tracks_max_frames": 10,
+    "keyframe_interval": 3,
+    "device": "cpu"
+  },
+  "overlay": {
+    "enabled": true,
+    "raw": true,
+    "tracked": true,
+    "final": true,
+    "faces": false,
+    "final_include_faces": false,
+    "mask_alpha": 0.32,
+    "show_labels": true,
+    "codec": "mp4v",
+    "start_frame": 0,
+    "end_frame": 119,
+    "progress_every": 0
+  }
+}

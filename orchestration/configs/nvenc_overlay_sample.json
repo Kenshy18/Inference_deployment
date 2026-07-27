@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "input_video": "../../data/codino_trt_3min_simple150_input.mp4",
+  "output_root": "../output/nvenc_overlay_sample_20260725",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": false,
+    "input_sqlite": "../../data/after_inference/codino_trt_3min_simple150.sqlite",
+    "mode": "segmentation"
+  },
+  "postprocess": {
+    "enabled": false,
+    "final_sqlite": "../output/existing_sample_cpu_20260725/02_postprocess/07_mask_gap_fill/predictions.sqlite",
+    "device": "cpu"
+  },
+  "overlay": {
+    "enabled": true,
+    "raw": false,
+    "tracked": false,
+    "final": true,
+    "faces": false,
+    "final_include_faces": false,
+    "codec": "h264_nvenc",
+    "start_frame": 0,
+    "end_frame": 119,
+    "progress_every": 0
+  }
+}

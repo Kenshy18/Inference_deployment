@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "input_video": "../../data/3月以降解析白カン動画-0210.mp4",
+  "output_root": "../output/valid_0210_postprocess_20260725",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": false,
+    "input_sqlite": "../output/full_0210_inference_20260725/01_inference/inference.sqlite",
+    "mode": "segmentation-face"
+  },
+  "postprocess": {
+    "enabled": true,
+    "shape_mode": "polygon",
+    "score_min": 0.35,
+    "cut_detect": true,
+    "cut_method": "high_precision",
+    "remove_short_tracks_max_frames": 10,
+    "keyframe_interval": 3,
+    "device": "cpu"
+  },
+  "overlay": {
+    "enabled": false
+  }
+}
