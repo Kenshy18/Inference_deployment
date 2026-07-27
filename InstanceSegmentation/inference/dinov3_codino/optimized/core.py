@@ -128,7 +128,7 @@ def _capture_safe_spatial_shapes(
 class FixedB2DetectorGraph:
     """Capture feature extraction and query decoding on one stable B2 input."""
 
-    def __init__(self, model, *, amp: str, warmup_replays: int = 3) -> None:
+    def __init__(self, model, *, amp: str, warmup_replays: int = 1) -> None:
         self.model = model
         self.amp = amp
         self.warmup_replays = max(1, int(warmup_replays))
@@ -202,6 +202,33 @@ class FixedB2DetectorGraph:
                 )
             self._static_input.copy_(image)
             self._graph.replay()
+        assert self._outputs is not None
+        return self._outputs, self._features
+
+    def run_host(self, image: torch.Tensor, image_metadata):
+        """Copy a pinned host batch directly into the captured input buffer."""
+
+        if image.is_cuda:
+            return self.run(image, image_metadata)
+        if not image.is_pinned():
+            raise RuntimeError(
+                "optimized Co-DINO host input must use pinned memory"
+            )
+        if self._graph is None:
+            device = next(self.model.parameters()).device
+            staged = image.to(device, non_blocking=True)
+            return self.run(staged, image_metadata)
+        assert self._static_input is not None
+        if (
+            image.shape != self._static_input.shape
+            or image.dtype != self._static_input.dtype
+        ):
+            raise RuntimeError(
+                "optimized Co-DINO received host input outside its "
+                "captured contract"
+            )
+        self._static_input.copy_(image, non_blocking=True)
+        self._graph.replay()
         assert self._outputs is not None
         return self._outputs, self._features
 

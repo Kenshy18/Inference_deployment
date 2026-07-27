@@ -15,7 +15,6 @@ try:
         refine_stage_instance_predictions,
         scale_factor_tensor,
     )
-    from ..preprocessing import move_prepared_batch
 except ImportError:
     from classifier import (
         classifier_metadata,
@@ -24,7 +23,6 @@ except ImportError:
         refine_stage_instance_predictions,
         scale_factor_tensor,
     )
-    from preprocessing import move_prepared_batch
 
 
 @dataclass(slots=True)
@@ -68,9 +66,8 @@ def capture_fast_core(
 ) -> FastCorePayload:
     """Replay the stable core and copy outputs into one pipeline slot."""
 
-    data = move_prepared_batch(model, prepared_data)
-    image = data["img"][0]
-    image_metadata = data["img_metas"][0]
+    image = prepared_data["img"][0]
+    image_metadata = prepared_data["img_metas"][0]
     batch_input_shape = tuple(image[0].size()[-2:])
     for metadata in image_metadata:
         metadata["batch_input_shape"] = batch_input_shape
@@ -78,7 +75,7 @@ def capture_fast_core(
         for metadata in image_metadata:
             height, width = metadata["batch_input_shape"]
             metadata["img_shape"] = [height, width, 3]
-    query_outputs, _ = detector_graph.run(image, image_metadata)
+    query_outputs, _ = detector_graph.run_host(image, image_metadata)
     return FastCorePayload(
         query_outputs=_copy_tree(query_outputs, destination),
         image_metadata=image_metadata,
