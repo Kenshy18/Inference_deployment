@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -76,20 +77,45 @@ def set_model_score_threshold(model_config: Any, score_threshold: float) -> None
 
 
 def build_segmenter(settings: InstanceSegmentationSettings, *, device: str):
-    from mmcv import Config
-    from mmdet.apis import init_detector
-
     if not settings.config_path.is_file():
         raise FileNotFoundError(f"Config not found: {settings.config_path}")
     if not settings.checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {settings.checkpoint}")
-    config = Config.fromfile(str(settings.config_path))
     if settings.trt_deployment_shell:
         try:
-            from .optimized.deployment import prepare_trt_deployment_config
+            from .optimized.deployment import (
+                deployment_import_stubs,
+                prepare_trt_deployment_config,
+            )
         except ImportError:
-            from optimized.deployment import prepare_trt_deployment_config
+            from optimized.deployment import (
+                deployment_import_stubs,
+                prepare_trt_deployment_config,
+            )
 
+        import_scope = deployment_import_stubs()
+    else:
+        prepare_trt_deployment_config = None
+        import_scope = nullcontext()
+    with import_scope:
+        return _build_segmenter(
+            settings,
+            device=device,
+            prepare_trt_deployment_config=prepare_trt_deployment_config,
+        )
+
+
+def _build_segmenter(
+    settings: InstanceSegmentationSettings,
+    *,
+    device: str,
+    prepare_trt_deployment_config,
+):
+    from mmcv import Config
+    from mmdet.apis import init_detector
+
+    config = Config.fromfile(str(settings.config_path))
+    if prepare_trt_deployment_config is not None:
         prepare_trt_deployment_config(config)
     if settings.skip_backbone_initialization and "backbone" in config.model:
         if "pretrained" in config.model.backbone:
