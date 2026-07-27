@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mask-overlay"
-version = "0.1.0"
+version = "0.2.0"
 description = "Standalone video overlay renderer for inference and postprocess SQLite artifacts"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 overlay-render = "overlay_renderer.cli:main"
+overlay-validate = "overlay_renderer.validate:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

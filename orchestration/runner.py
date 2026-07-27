@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -27,18 +26,6 @@ INFERENCE_CLI = (
 )
 POSTPROCESS_CLI = REPOSITORY_ROOT / "postprocess" / "run_pipeline.py"
 OVERLAY_ROOT = REPOSITORY_ROOT / "overlay"
-EXPERIMENTAL_OVERLAY = OVERLAY_ROOT / "experimental"
-EXPERIMENTAL_RENDERER = EXPERIMENTAL_OVERLAY / "build" / "overlay_lowlevel"
-EXPERIMENTAL_SEGMENTED_RUNNER = (
-    EXPERIMENTAL_OVERLAY / "benchmark_segmented.py"
-)
-EXPERIMENTAL_FFMPEG = (
-    OVERLAY_ROOT
-    / ".runtime"
-    / "ffmpeg-nvenc-btbn-8.1"
-    / "bin"
-    / "ffmpeg"
-)
 
 
 class OrchestrationError(RuntimeError):
@@ -188,62 +175,12 @@ class OrchestrationRunner:
         face_sqlite: Path | None = None,
     ) -> list[str]:
         settings = self.config.overlay
-        if settings.execution_mode == "fast_parallel":
-            temporary_output = self._experimental_overlay_dir(output)
-            command = [
-                str(self.config.execution.runtime_python),
-                str(EXPERIMENTAL_SEGMENTED_RUNNER),
-                "--mode",
-                mode,
-                "--video",
-                str(self.config.input_video),
-                "--sqlite",
-                str(source_sqlite),
-                "--output-dir",
-                str(temporary_output),
-                "--renderer",
-                str(EXPERIMENTAL_RENDERER),
-                "--ffmpeg-bin",
-                str(EXPERIMENTAL_FFMPEG),
-                "--workers",
-                str(settings.workers),
-                "--cpu-workers",
-                str(settings.cpu_workers),
-                "--bitrate-mbps",
-                str(settings.target_bitrate_mbps),
-                "--nvenc-preset",
-                settings.nvenc_preset,
-                "--nvenc-gpu",
-                str(settings.nvenc_gpu),
-                "--mask-alpha",
-                str(settings.mask_alpha),
-                "--outline-thickness",
-                str(settings.outline_thickness),
-                "--box-thickness",
-                str(settings.box_thickness),
-                "--start-frame",
-                str(settings.start_frame),
-                "--gpu-pipeline",
-                "--compact-output",
-            ]
-            if settings.end_frame is not None:
-                command.extend(["--end-frame", str(settings.end_frame)])
-            if not settings.show_labels:
-                command.append("--no-labels")
-            if settings.copy_audio:
-                command.append("--copy-audio")
-            if settings.faststart:
-                command.append("--faststart")
-            if face_sqlite is not None:
-                command.extend(
-                    ["--include-faces", "--face-sqlite", str(face_sqlite)]
-                )
-            command.extend(settings.extra_args)
-            return command
         command = [
             str(self.config.execution.runtime_python),
             "-m",
             "overlay_renderer",
+            "--execution-mode",
+            settings.execution_mode,
             "--mode",
             mode,
             "--video",
@@ -260,8 +197,6 @@ class OrchestrationRunner:
             str(settings.outline_thickness),
             "--box-thickness",
             str(settings.box_thickness),
-            "--codec",
-            settings.codec,
             "--start-frame",
             str(settings.start_frame),
             "--progress-every",
@@ -271,6 +206,8 @@ class OrchestrationRunner:
             command.extend(["--end-frame", str(settings.end_frame)])
         if not settings.show_labels:
             command.append("--no-labels")
+        if settings.execution_mode == "cpu" and settings.codec != "h264":
+            command.extend(["--codec", settings.codec])
         if settings.target_bitrate_mbps is not None:
             command.extend(
                 [
@@ -287,16 +224,25 @@ class OrchestrationRunner:
                     str(settings.nvenc_gpu),
                 ]
             )
+        if settings.execution_mode == "fast":
+            command.extend(
+                [
+                    "--workers",
+                    str(settings.workers),
+                    "--cpu-workers",
+                    str(settings.cpu_workers),
+                ]
+            )
+            if settings.copy_audio:
+                command.append("--copy-audio")
+            if settings.faststart:
+                command.append("--faststart")
         if face_sqlite is not None:
             command.extend(
                 ["--include-faces", "--face-sqlite", str(face_sqlite)]
             )
         command.extend(settings.extra_args)
         return command
-
-    @staticmethod
-    def _experimental_overlay_dir(output: Path) -> Path:
-        return output.parent / f".{output.stem}.experimental"
 
     def plan(self) -> dict[str, object]:
         inference_output = self.output_root / "01_inference" / "inference.sqlite"
@@ -549,51 +495,12 @@ class OrchestrationRunner:
                 output=output,
                 face_sqlite=face_source,
             )
-            experimental_output = self._experimental_overlay_dir(output)
-            if settings.execution_mode == "fast_parallel":
-                for required in (
-                    EXPERIMENTAL_RENDERER,
-                    EXPERIMENTAL_SEGMENTED_RUNNER,
-                    EXPERIMENTAL_FFMPEG,
-                ):
-                    if not required.is_file():
-                        raise OrchestrationError(
-                            f"experimental overlay dependency is missing: {required}"
-                        )
-                if experimental_output.exists():
-                    shutil.rmtree(experimental_output)
             self._execute(
                 f"overlay_{mode}",
                 command,
                 cpu_only=not settings.uses_nvenc,
-                extra_pythonpath=(
-                    OVERLAY_ROOT / "src"
-                    if settings.execution_mode != "fast_parallel"
-                    else None
-                ),
+                extra_pythonpath=OVERLAY_ROOT / "src",
             )
-            if settings.execution_mode == "fast_parallel":
-                generated_output = experimental_output / "final.mp4"
-                generated_manifest = (
-                    experimental_output / "benchmark_summary.json"
-                )
-                if (
-                    not generated_output.is_file()
-                    or not generated_manifest.is_file()
-                ):
-                    raise OrchestrationError(
-                        "experimental overlay did not create final.mp4 and "
-                        "benchmark_summary.json"
-                    )
-                published_summary = json.loads(
-                    generated_manifest.read_text(encoding="utf-8")
-                )
-                published_summary["final_output"] = str(output)
-                published_summary["temporary_worker_artifacts_retained"] = False
-                _atomic_json(generated_manifest, published_summary)
-                os.replace(generated_output, output)
-                os.replace(generated_manifest, output_manifest)
-                shutil.rmtree(experimental_output)
             if not output.is_file() or output.stat().st_size == 0:
                 raise OrchestrationError(f"overlay did not create output: {output}")
             self._publish_artifacts(

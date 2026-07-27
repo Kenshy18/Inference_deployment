@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "input_video": "/path/to/input.mp4",
+  "output_root": "/path/to/runs/overlay-fast",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python",
+    "resume": false
+  },
+  "inference": {
+    "enabled": false,
+    "input_sqlite": "/path/to/inference.sqlite",
+    "mode": "segmentation-face"
+  },
+  "postprocess": {
+    "enabled": false,
+    "tracked_sqlite": "/path/to/tracked.sqlite",
+    "final_sqlite": "/path/to/predictions.sqlite",
+    "device": "cpu"
+  },
+  "overlay": {
+    "enabled": true,
+    "execution_mode": "fast",
+    "raw": true,
+    "tracked": true,
+    "final": true,
+    "faces": true,
+    "final_include_faces": true,
+    "mask_alpha": 0.32,
+    "outline_thickness": 2,
+    "box_thickness": 2,
+    "show_labels": true,
+    "workers": 6,
+    "cpu_workers": 0,
+    "copy_audio": true,
+    "target_bitrate_mbps": 8.0,
+    "nvenc_preset": "p1",
+    "nvenc_gpu": 0,
+    "faststart": true,
+    "start_frame": 0,
+    "end_frame": null,
+    "progress_every": 300
+  }
+}

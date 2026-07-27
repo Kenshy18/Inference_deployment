@@ -2163,7 +2163,7 @@ Options parse_options(int argc, char** argv) {
             options.overwrite = true;
         } else if (argument == "--help" || argument == "-h") {
             std::cout
-                << "overlay_lowlevel --video FILE --sqlite FILE --output FILE "
+                << "overlay_native --video FILE --sqlite FILE --output FILE "
                 << "[--mode raw|tracked|final|faces] "
                 << "[--include-faces --face-sqlite FILE] "
                 << "[--no-labels] [--copy-audio] [--manifest FILE] "
@@ -2853,7 +2853,7 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
                 processing_frame->format != AV_PIX_FMT_CUDA
             ) {
                 throw std::runtime_error(
-                    "experimental renderer requires yuv420p, NV12 or CUDA input"
+                    "native renderer requires yuv420p, NV12 or CUDA input"
                 );
             }
             int source_frame = fallback_source_frame;

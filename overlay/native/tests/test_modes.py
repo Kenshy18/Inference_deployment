@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RENDERER = ROOT / "build" / "overlay_lowlevel"
+RENDERER = ROOT / "build" / "overlay_native"
 FFMPEG = (
     ROOT.parent / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
 )
@@ -186,7 +186,7 @@ def probe(path: Path) -> dict[str, object]:
 
 @unittest.skipUnless(
     RENDERER.is_file() and FFMPEG.is_file(),
-    "build the experimental renderer and FFmpeg runtime first",
+    "build the native renderer and FFmpeg runtime first",
 )
 class LowLevelModeTests(unittest.TestCase):
     def test_all_modes_manifest_atomic_output_and_audio(self) -> None:

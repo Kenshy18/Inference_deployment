@@ -22,9 +22,9 @@
 |---|---|---|---|
 | `cpu` | OpenCV描画 + libx264 | GPUを使わない基準・fallback | 採用 |
 | `nvenc` | OpenCV描画 + NVENC | 通常表示を保った高速encode | 採用 |
-| `fast_parallel` | NVDEC + CUDA描画 + NVENC 6分割 | 1080p大量処理 | 条件付き採用 |
+| `fast` | NVDEC + CUDA描画 + NVENC 6分割 | 1080p大量処理 | 条件付き採用 |
 
-`fast_parallel`のフレーム完全性、時刻、音声、分割境界、encode品質には問題を
+`fast`のフレーム完全性、時刻、音声、分割境界、encode品質には問題を
 検出しなかった。ただしOpenCV通常版と描画pixelは同一ではない。フォント、
 アンチエイリアス、色変換の見た目を通常版と完全一致させる用途では
 `cpu`または`nvenc`を使う。
@@ -108,7 +108,7 @@ BT.709 limited-range YUV直接合成の差である。
 
 ## 自動検証
 
-`validate_fast_output.py`は次をfail-fastで確認する。
+`overlay-validate`は次をfail-fastで確認する。
 
 - 映像frame/packet数
 - 映像PTS/DTSの0始まり、単調性、一定間隔
@@ -122,7 +122,7 @@ BT.709 limited-range YUV直接合成の差である。
 例:
 
 ```bash
-python overlay/experimental/validate_fast_output.py \
+PYTHONPATH=overlay/src python3 -m overlay_renderer.validate \
   --output output/final.mp4 \
   --summary output/benchmark_summary.json \
   --reference output/lossless_reference.mp4 \

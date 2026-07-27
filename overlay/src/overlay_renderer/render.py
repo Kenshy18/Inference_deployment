@@ -36,7 +36,7 @@ NVENC_PRESETS = tuple(f"p{value}" for value in range(1, 8))
 LOCAL_NVENC_FFMPEG = (
     Path(__file__).resolve().parents[2]
     / ".runtime"
-    / "ffmpeg-nvenc"
+    / "ffmpeg-nvenc-btbn-8.1"
     / "bin"
     / "ffmpeg"
 )

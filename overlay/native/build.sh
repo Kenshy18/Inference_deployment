@@ -60,6 +60,6 @@ fi
   -Wl,--disable-new-dtags \
   -Wl,-rpath,'$ORIGIN/../.runtime/ffmpeg/lib' \
   -Wl,-rpath,"$cuda_lib" \
-  -o "$output_dir/overlay_lowlevel"
+  -o "$output_dir/overlay_native"
 
-echo "$output_dir/overlay_lowlevel"
+echo "$output_dir/overlay_native"

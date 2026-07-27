@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +11,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from overlay_renderer.cli import main
+from overlay_renderer.cli import (
+    _fast_command,
+    _selected_codec,
+    _validate_mode_args,
+    build_parser,
+    main,
+    NATIVE_FFMPEG,
+    NATIVE_RENDERER,
+)
 from overlay_renderer.render import RenderOptions
 
 from helpers import create_mask_sqlite, create_unified_sqlite, create_video
@@ -27,6 +36,129 @@ def _read_frame(path: Path, frame_index: int) -> np.ndarray:
 
 
 class RenderTests(unittest.TestCase):
+    def test_execution_modes_and_overlay_type_alias_are_resolved(self) -> None:
+        parser = build_parser()
+        common = [
+            "--overlay-type",
+            "faces",
+            "--video",
+            "input.mp4",
+            "--sqlite",
+            "input.sqlite",
+            "--output",
+            "output.mp4",
+        ]
+        cpu = parser.parse_args(["--execution-mode", "cpu", *common])
+        _validate_mode_args(cpu)
+        self.assertEqual("faces", cpu.mode)
+        self.assertEqual("h264", _selected_codec(cpu))
+
+        nvenc = parser.parse_args(["--execution-mode", "nvenc", *common])
+        _validate_mode_args(nvenc)
+        self.assertEqual("h264_nvenc", _selected_codec(nvenc))
+
+        fast = parser.parse_args(
+            [
+                "--execution-mode",
+                "fast",
+                "--target-bitrate-mbps",
+                "8",
+                *common,
+            ]
+        )
+        _validate_mode_args(fast)
+        command = _fast_command(fast, output_dir=Path("/tmp/overlay-fast"))
+        self.assertIn("/native/segmented.py", " ".join(command))
+        self.assertIn("/native/build/overlay_native", " ".join(command))
+        self.assertEqual("6", command[command.index("--workers") + 1])
+        self.assertEqual("0", command[command.index("--cpu-workers") + 1])
+
+    def test_fast_mode_rejects_missing_bitrate(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--execution-mode",
+                "fast",
+                "--mode",
+                "final",
+                "--video",
+                "input.mp4",
+                "--sqlite",
+                "input.sqlite",
+                "--output",
+                "output.mp4",
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "target-bitrate"):
+            _validate_mode_args(args)
+
+    @unittest.skipUnless(
+        NATIVE_RENDERER.is_file() and NATIVE_FFMPEG.is_file(),
+        "native overlay dependencies are not built",
+    )
+    def test_fast_mode_runs_through_unified_cli_without_gpu(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_h264 = root / "input.mp4"
+            subprocess.run(
+                [
+                    str(NATIVE_FFMPEG),
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=0x303030:s=64x48:r=10:d=0.4",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-an",
+                    "-y",
+                    str(source_h264),
+                ],
+                check=True,
+            )
+            masks = create_mask_sqlite(root / "masks.sqlite")
+            output = root / "fast.mp4"
+            manifest = root / "fast.json"
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(
+                    [
+                        "--execution-mode",
+                        "fast",
+                        "--overlay-type",
+                        "final",
+                        "--video",
+                        str(source_h264),
+                        "--sqlite",
+                        str(masks),
+                        "--output",
+                        str(output),
+                        "--manifest",
+                        str(manifest),
+                        "--target-bitrate-mbps",
+                        "1",
+                        "--workers",
+                        "1",
+                        "--cpu-workers",
+                        "1",
+                        "--ffmpeg-bin",
+                        str(NATIVE_FFMPEG),
+                    ]
+                )
+            capture = cv2.VideoCapture(str(output))
+            self.assertTrue(capture.isOpened())
+            self.assertEqual(4, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+            capture.release()
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual("fast", payload["execution_mode"])
+            self.assertEqual("final", payload["overlay_type"])
+            self.assertEqual(
+                ["libx264"],
+                payload["encoding"]["segment_encoders"],
+            )
+
     def test_all_four_modes_create_readable_videos(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -228,8 +228,8 @@ PSNR-Y 46.734で、追加primitiveを含めても画質劣化は観測されな�
 - 出力bitstream: H.264 High、yuv420p、BT.709 limited-range、B-frame 0
 - C++/CUDA build成功
 - Python benchmark runner compile成功
-- experimental integration test成功
-- repository orchestrationの任意`experimental_cpp` backendとして4モード実行成功
+- native integration test成功
+- repository orchestrationの`fast` execution modeとして4モード実行成功
 - 実データ3600-3899の各出力は映像300 frames、AAC 0秒開始、decode error 0
 - 同区間の描画数はraw 68 masks、tracked/final 55 masks、
   final/faces 974 faces
@@ -245,6 +245,6 @@ PSNR-Y 46.734で、追加primitiveを含めても画質劣化は観測されな�
 - GPU経路はNVIDIA CUDA/NVDEC/NVENC専用
 - build scriptのCUDA runtime pathは現在この環境のproduction runtime固定
 
-標準Python/OpenCV経路の完全置換ではなく、明示選択する高速backendとして
-分離している。任意pixel format/container、OpenCV fontとの表示方針、
+標準Python/OpenCV経路の完全置換ではなく、統合CLIから明示選択する高速modeとして
+本番化している。任意pixel format/container、OpenCV fontとの表示方針、
 GPU非搭載時fallbackは今後の対応範囲である。

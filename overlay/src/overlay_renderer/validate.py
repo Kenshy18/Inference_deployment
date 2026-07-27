@@ -15,7 +15,7 @@ from typing import Any
 
 
 def parser() -> argparse.ArgumentParser:
-    root = Path(__file__).resolve().parent
+    overlay_root = Path(__file__).resolve().parents[2]
     result = argparse.ArgumentParser()
     result.add_argument("--output", required=True, type=Path)
     result.add_argument("--summary", type=Path)
@@ -25,7 +25,7 @@ def parser() -> argparse.ArgumentParser:
         "--ffmpeg-bin",
         type=Path,
         default=(
-            root.parent
+            overlay_root
             / ".runtime"
             / "ffmpeg-nvenc-btbn-8.1"
             / "bin"
@@ -395,13 +395,20 @@ def main() -> None:
     report = args.report.expanduser().resolve()
     ffmpeg = args.ffmpeg_bin.expanduser().resolve()
     ffprobe = ffmpeg.with_name("ffprobe")
-    summary = (
+    loaded_summary = (
         None
         if args.summary is None
         else json.loads(
             args.summary.expanduser().resolve().read_text(encoding="utf-8")
         )
     )
+    summary = loaded_summary
+    if (
+        isinstance(loaded_summary, dict)
+        and isinstance(loaded_summary.get("summary"), dict)
+        and "workers_detail" in loaded_summary["summary"]
+    ):
+        summary = loaded_summary["summary"]
     if not output.is_file():
         raise FileNotFoundError(output)
     streams = probe_streams(ffprobe, output)

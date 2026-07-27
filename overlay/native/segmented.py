@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark concurrent segments rendered by the low-level C++ prototype."""
+"""Run concurrent segments with the production native overlay renderer."""
 
 from __future__ import annotations
 
@@ -28,12 +28,18 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--renderer",
         type=Path,
-        default=root / "build" / "overlay_lowlevel",
+        default=root / "build" / "overlay_native",
     )
     result.add_argument(
         "--ffmpeg-bin",
         type=Path,
-        default=root.parent / ".runtime" / "ffmpeg-nvenc" / "bin" / "ffmpeg",
+        default=(
+            root.parent
+            / ".runtime"
+            / "ffmpeg-nvenc-btbn-8.1"
+            / "bin"
+            / "ffmpeg"
+        ),
     )
     result.add_argument("--workers", required=True, type=int)
     result.add_argument("--cpu-workers", required=True, type=int)
@@ -330,10 +336,14 @@ def main() -> None:
     summary = {
         "implementation": (
             "cpp-libav-hybrid-cpu-cuda-segmented"
-            if args.gpu_pipeline and args.cpu_workers
+            if (
+                args.gpu_pipeline
+                and args.cpu_workers
+                and args.cpu_workers < args.workers
+            )
             else (
                 "cpp-libav-nvdec-cuda-nvenc-segmented"
-                if args.gpu_pipeline
+                if args.gpu_pipeline and args.cpu_workers < args.workers
                 else "cpp-libav-yuv420p-segmented"
             )
         ),

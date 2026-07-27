@@ -15,13 +15,12 @@ from helpers import create_video
 class ConfigTests(unittest.TestCase):
     def test_three_overlay_execution_modes_select_expected_engines(self) -> None:
         cases = (
-            ("cpu", "python_opencv", "h264", False, False),
-            ("nvenc", "python_opencv", "h264_nvenc", True, False),
+            ("cpu", "python_opencv", "h264", False),
+            ("nvenc", "python_opencv", "h264_nvenc", True),
             (
-                "fast_parallel",
-                "experimental_cpp",
+                "fast",
+                "native",
                 "h264_nvenc",
-                True,
                 True,
             ),
         )
@@ -30,7 +29,6 @@ class ConfigTests(unittest.TestCase):
             backend,
             codec,
             uses_nvenc,
-            segmented,
         ) in cases:
             with self.subTest(execution_mode=execution_mode):
                 with tempfile.TemporaryDirectory() as temporary:
@@ -45,7 +43,7 @@ class ConfigTests(unittest.TestCase):
                         "tracked": False,
                         "final": False,
                     }
-                    if execution_mode == "fast_parallel":
+                    if execution_mode == "fast":
                         overlay["target_bitrate_mbps"] = 8.0
                     config_path = root / "config.json"
                     config_path.write_text(
@@ -86,10 +84,17 @@ class ConfigTests(unittest.TestCase):
                         source_sqlite=sqlite,
                         output=root / "output" / "raw.mp4",
                     )
+                    self.assertNotIn("segmented.py", " ".join(command))
                     self.assertEqual(
-                        "benchmark_segmented.py" in " ".join(command),
-                        segmented,
+                        command[command.index("--execution-mode") + 1],
+                        execution_mode,
                     )
+                    if execution_mode == "fast":
+                        self.assertNotIn("--codec", command)
+                        self.assertEqual(
+                            command[command.index("--cpu-workers") + 1],
+                            "0",
+                        )
 
     def test_dry_run_builds_inference_command_without_executing_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -213,7 +218,7 @@ class ConfigTests(unittest.TestCase):
                 "0",
             )
 
-    def test_experimental_overlay_builds_segmented_gpu_command(self) -> None:
+    def test_legacy_experimental_backend_maps_to_fast_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             video = create_video(root / "input.avi")
@@ -255,13 +260,18 @@ class ConfigTests(unittest.TestCase):
                 source_sqlite=sqlite,
                 output=root / "output" / "03_overlay" / "raw.mp4",
             )
-            self.assertIn("benchmark_segmented.py", " ".join(command))
-            self.assertIn("--gpu-pipeline", command)
+            self.assertEqual(config.overlay.execution_mode, "fast")
+            self.assertEqual(config.overlay.backend, "native")
+            self.assertIn("overlay_renderer", " ".join(command))
+            self.assertEqual(
+                command[command.index("--execution-mode") + 1],
+                "fast",
+            )
             self.assertEqual(command[command.index("--workers") + 1], "6")
             self.assertEqual(command[command.index("--cpu-workers") + 1], "3")
             self.assertIn("--copy-audio", command)
 
-    def test_experimental_overlay_rejects_invalid_worker_split(self) -> None:
+    def test_fast_overlay_rejects_invalid_worker_split(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             video = create_video(root / "input.avi")
