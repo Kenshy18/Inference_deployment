@@ -1,4 +1,4 @@
-"""Build and execute the fixed-B8 full-TensorRT Face DINO runtime."""
+"""Build and execute a fixed-batch full-TensorRT Face DINO runtime."""
 
 from __future__ import annotations
 
@@ -20,6 +20,9 @@ DEFAULT_SOURCE_ROOT = FAMILY_ROOT / ".runtime" / "src" / "face_detection"
 DEFAULT_CHECKPOINT = FAMILY_ROOT / "artifacts" / "detector" / "model_residual_v2.pth"
 DEFAULT_TRT_BUNDLE = (
     FAMILY_ROOT / "artifacts" / "trt" / "fast-sm120-fixed-b8-v1" / "manifest.json"
+)
+DEFAULT_TRT_BUNDLE_B16 = (
+    FAMILY_ROOT / "artifacts" / "trt" / "fast-sm120-fixed-b16-v1" / "manifest.json"
 )
 
 
@@ -233,6 +236,7 @@ __all__ = [
     "DEFAULT_CHECKPOINT",
     "DEFAULT_SOURCE_ROOT",
     "DEFAULT_TRT_BUNDLE",
+    "DEFAULT_TRT_BUNDLE_B16",
     "FaceDinoRuntime",
     "build_runtime",
     "configure_source_root",

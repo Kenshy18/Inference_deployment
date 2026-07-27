@@ -42,10 +42,19 @@ RT-DETRで`--face-classes`へ値を渡さなければ、`VisibleBody`を含む�
 保存します。`face_dino_v2`が持つクラスは`Head`と`Face`です。
 
 各`<model>/infer.py`はモデルフォルダ単体の保守・検証用入口として残します。
-統一pipelineはモデルを隔離プロセスで順番に実行し、成功した全結果だけを最後に
+統一pipelineはモデルを隔離プロセスで実行し、成功した全結果だけを最後に
 1つのSQLiteへatomicに公開します。これによりDetectron2、Co-DINO、RT-DETRの
 依存関係とGPU初期化を上位層で混在させません。`segmentation-face`では現在、
-安全なモデル分離を優先して動画をモデルごとに読み込みます。
+安全なモデル分離を優先して動画をモデルごとに読み込みます。既定は逐次実行です。
+十分なVRAMがある場合は`--parallel-models`で両モデルを同時実行できます。
+GPUの電力上限で完全同時実行が遅くなる環境では、
+`--parallel-model-stagger-seconds N`により顔モデルを先に起動してピーク競合を
+調整できます。
+
+Face DINO v2は既定の固定B8 bundleに加え、build済みmanifestを
+`--face-trt-bundle /path/to/manifest.json`で選択できます。B16 profileは
+`trt/build_engines.py --batch-size 16`で構築できますが、B8と数値が完全一致する
+保証はないため、精度評価後に明示選択してください。
 
 ## 処理の境界
 
@@ -155,6 +164,8 @@ schema v3でも従来の`detections`とFace外接boxは残るため、schema v2�
 
 JSON/JSONLの推論結果は生成しません。既定では異常終了時の耐久性を優先します。
 `--fast-sqlite`を指定した場合だけ、耐久性と引き換えに保存速度を優先します。
+モデル個別SQLiteから最終SQLiteへの公開は引き続き一時ファイルからのatomic
+renameで行われます。
 
 ## Test
 

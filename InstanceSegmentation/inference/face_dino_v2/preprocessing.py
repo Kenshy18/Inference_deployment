@@ -1,4 +1,4 @@
-"""Fixed-B8 fused CUDA preprocessing and source-coordinate restoration."""
+"""Fixed-batch fused CUDA preprocessing and source-coordinate restoration."""
 
 from __future__ import annotations
 

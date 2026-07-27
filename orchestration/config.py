@@ -102,10 +102,13 @@ class InferenceConfig:
     segmentation_backend: str = "auto"
     face_model: str = "rtdetr_head_face"
     face_classes: tuple[str, ...] = ("Face", "Head")
+    face_trt_bundle: Path | None = None
     device: str = "cuda:0"
     max_frames: int | None = None
     warmup_frames: int = 0
     face_warmup_iterations: int = 3
+    parallel_models: bool = False
+    parallel_model_stagger_seconds: float = 0.0
     fast_sqlite: bool = False
     extra_args: tuple[str, ...] = ()
 
@@ -129,6 +132,7 @@ class PostprocessConfig:
     score_min: float | None = None
     cut_detect: bool = True
     cut_method: str | None = None
+    precompute_cuts_during_inference: bool = False
     remove_short_tracks_max_frames: int | None = None
     keyframe_interval: int | None = None
     model_root: Path | None = None
@@ -266,10 +270,13 @@ class OrchestrationConfig:
             "segmentation_backend",
             "face_model",
             "face_classes",
+            "face_trt_bundle",
             "device",
             "max_frames",
             "warmup_frames",
             "face_warmup_iterations",
+            "parallel_models",
+            "parallel_model_stagger_seconds",
             "fast_sqlite",
             "extra_args",
         }
@@ -295,6 +302,11 @@ class OrchestrationConfig:
                 face_classes_value,
                 "inference.face_classes",
             ),
+            face_trt_bundle=_resolve_path(
+                inference_raw.get("face_trt_bundle"),
+                base=base,
+                field="inference.face_trt_bundle",
+            ),
             device=str(inference_raw.get("device", "cuda:0")),
             max_frames=_optional_int(
                 inference_raw.get("max_frames"),
@@ -302,6 +314,10 @@ class OrchestrationConfig:
             ),
             warmup_frames=int(inference_raw.get("warmup_frames", 0)),
             face_warmup_iterations=int(inference_raw.get("face_warmup_iterations", 3)),
+            parallel_models=bool(inference_raw.get("parallel_models", False)),
+            parallel_model_stagger_seconds=float(
+                inference_raw.get("parallel_model_stagger_seconds", 0.0)
+            ),
             fast_sqlite=bool(inference_raw.get("fast_sqlite", False)),
             extra_args=_string_tuple(
                 inference_raw.get("extra_args"),
@@ -321,6 +337,7 @@ class OrchestrationConfig:
             "score_min",
             "cut_detect",
             "cut_method",
+            "precompute_cuts_during_inference",
             "remove_short_tracks_max_frames",
             "keyframe_interval",
             "model_root",
@@ -367,6 +384,12 @@ class OrchestrationConfig:
                 None
                 if postprocess_raw.get("cut_method") in (None, "")
                 else str(postprocess_raw["cut_method"])
+            ),
+            precompute_cuts_during_inference=bool(
+                postprocess_raw.get(
+                    "precompute_cuts_during_inference",
+                    False,
+                )
             ),
             remove_short_tracks_max_frames=_optional_int(
                 postprocess_raw.get("remove_short_tracks_max_frames"),
@@ -552,11 +575,15 @@ class OrchestrationConfig:
                 "--segmentation-backend",
                 "--face-model",
                 "--face-classes",
+                "--face-trt-bundle",
                 "--runtime-python",
                 "--device",
                 "--max-frames",
                 "--warmup-frames",
                 "--face-warmup-iterations",
+                "--parallel-models",
+                "--no-parallel-models",
+                "--parallel-model-stagger-seconds",
                 "--overwrite",
                 "--fast-sqlite",
             },
@@ -580,14 +607,58 @@ class OrchestrationConfig:
                 raise OrchestrationConfigError(
                     "face-only inference must not set segmentation_model"
                 )
+            if (
+                self.inference.face_trt_bundle is not None
+                and not self.inference.face_trt_bundle.is_file()
+            ):
+                raise FileNotFoundError(
+                    "face TensorRT bundle not found: "
+                    f"{self.inference.face_trt_bundle}"
+                )
+            if self.inference.parallel_model_stagger_seconds < 0:
+                raise OrchestrationConfigError(
+                    "inference.parallel_model_stagger_seconds must be >= 0"
+                )
+            if (
+                self.inference.parallel_model_stagger_seconds > 0
+                and not self.inference.parallel_models
+            ):
+                raise OrchestrationConfigError(
+                    "inference.parallel_model_stagger_seconds requires "
+                    "inference.parallel_models=true"
+                )
         elif self.inference.input_sqlite is None:
             raise OrchestrationConfigError(
                 "inference.input_sqlite is required when inference.enabled=false"
+            )
+        if (
+            self.inference.face_trt_bundle is not None
+            and self.inference.face_model != "face_dino_v2"
+        ):
+            raise OrchestrationConfigError(
+                "inference.face_trt_bundle is currently supported only by "
+                "face_dino_v2"
             )
         if self.postprocess.enabled and not self.inference.uses_segmentation:
             raise OrchestrationConfigError(
                 "postprocess requires segmentation or segmentation-face inference"
             )
+        if self.postprocess.precompute_cuts_during_inference:
+            if not self.inference.enabled or not self.postprocess.enabled:
+                raise OrchestrationConfigError(
+                    "postprocess.precompute_cuts_during_inference requires "
+                    "inference.enabled=true and postprocess.enabled=true"
+                )
+            if not self.postprocess.cut_detect:
+                raise OrchestrationConfigError(
+                    "postprocess.precompute_cuts_during_inference requires "
+                    "postprocess.cut_detect=true"
+                )
+            if self.postprocess.cut_method not in {None, "high_precision"}:
+                raise OrchestrationConfigError(
+                    "precomputed cut overlap currently supports only "
+                    "cut_method=high_precision"
+                )
         if self.postprocess.shape_mode not in {"polygon", "ellipse"}:
             raise OrchestrationConfigError(
                 "postprocess.shape_mode must be polygon or ellipse"
@@ -639,6 +710,7 @@ class OrchestrationConfig:
                 "--cut-detect",
                 "--no-cut-detect",
                 "--cut-method",
+                "--precomputed-cuts-json",
                 "--remove-short-tracks-max-frames",
                 "--keyframe-interval",
                 "--model-root",

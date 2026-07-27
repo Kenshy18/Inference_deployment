@@ -1,4 +1,4 @@
-"""Validate the fixed-B8 Face DINO TensorRT artifact bundle."""
+"""Validate supported fixed-batch Face DINO TensorRT artifact bundles."""
 
 from __future__ import annotations
 
@@ -12,6 +12,10 @@ SCHEMA = "face-dino-v2-trt-bundle-v1"
 PROFILE = "fast-sm120-fixed-b8-v1"
 BATCH_SIZE = 8
 INPUT_SHAPE = (8, 3, 736, 1280)
+SUPPORTED_PROFILES = {
+    8: PROFILE,
+    16: "fast-sm120-fixed-b16-v1",
+}
 ENGINE_FILES = {
     "backbone_neck": "engines/backbone_neck.engine",
     "query_encoder": "engines/query_encoder.engine",
@@ -64,13 +68,15 @@ def load_engine_bundle(
     if not manifest.is_file():
         raise FileNotFoundError(f"bundle manifest not found: {manifest}")
     payload = json.loads(manifest.read_text(encoding="utf-8"))
-    if payload.get("schema") != SCHEMA or payload.get("profile") != PROFILE:
+    if payload.get("schema") != SCHEMA:
         raise ValueError("unsupported Face DINO TensorRT bundle")
     if payload.get("status") != "complete":
         raise ValueError("incomplete Face DINO TensorRT bundle")
-    if payload.get("batch_size") != BATCH_SIZE:
-        raise ValueError("Face DINO TensorRT bundle must use fixed B8")
-    if tuple(payload.get("input_shape", ())) != INPUT_SHAPE:
+    batch_size = int(payload.get("batch_size", 0))
+    if payload.get("profile") != SUPPORTED_PROFILES.get(batch_size):
+        raise ValueError("unsupported Face DINO TensorRT batch profile")
+    input_shape = (batch_size, 3, 736, 1280)
+    if tuple(payload.get("input_shape", ())) != input_shape:
         raise ValueError("Face DINO TensorRT input-shape mismatch")
     checkpoint = payload.get("checkpoint")
     if not isinstance(checkpoint, dict) or not checkpoint.get("sha256"):
@@ -92,8 +98,8 @@ def load_engine_bundle(
         manifest_path=manifest,
         engines=engines,
         plugins=plugins,
-        batch_size=BATCH_SIZE,
-        input_shape=INPUT_SHAPE,
+        batch_size=batch_size,
+        input_shape=input_shape,
         checkpoint_sha256=str(checkpoint["sha256"]),
     )
 
@@ -105,6 +111,7 @@ __all__ = [
     "PLUGIN_FILES",
     "PROFILE",
     "SCHEMA",
+    "SUPPORTED_PROFILES",
     "FaceDinoEngineBundle",
     "load_engine_bundle",
     "sha256_file",

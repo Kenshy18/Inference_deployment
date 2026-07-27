@@ -17,12 +17,24 @@ class PipelineRunner:
     def __init__(self, config: PipelineConfig, output_dir: Path) -> None:
         self.config = config
         self.output_dir = Path(output_dir)
+        self._validated_artifacts: set[tuple[str, Path, int, int]] = set()
+
+    def _validate_once(self, name: str, path: Path) -> None:
+        """Validate an immutable stage artifact once for its current file state."""
+
+        resolved = Path(path).resolve()
+        stat = resolved.stat()
+        identity = (str(name), resolved, stat.st_size, stat.st_mtime_ns)
+        if identity in self._validated_artifacts:
+            return
+        validate_artifact(name, resolved)
+        self._validated_artifacts.add(identity)
 
     def run(self, initial_artifacts: Mapping[str, Path]) -> dict[str, Any]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         artifacts = {str(name): Path(path) for name, path in initial_artifacts.items()}
         for name, path in sorted(artifacts.items()):
-            validate_artifact(name, path)
+            self._validate_once(name, path)
         history: list[dict[str, Any]] = []
         for position, spec in enumerate(self.config.stages):
             if not spec.enabled:
@@ -35,7 +47,7 @@ class PipelineRunner:
                     f"{missing}; available: {sorted(artifacts)}"
                 )
             for name in sorted(stage.requires):
-                validate_artifact(name, artifacts[name])
+                self._validate_once(name, artifacts[name])
             stage_dir = self.output_dir / f"{position:02d}_{spec.id}"
             stage_dir.mkdir(parents=True, exist_ok=True)
             context = StageContext(
@@ -85,7 +97,7 @@ class PipelineRunner:
                     f"{outside_stage_dir}"
                 )
             for name, path in sorted(outputs.items()):
-                validate_artifact(name, path)
+                self._validate_once(name, path)
             artifacts.update(outputs)
             history.append(
                 {

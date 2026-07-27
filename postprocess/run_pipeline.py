@@ -63,6 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument("--cut-method")
+    parser.add_argument(
+        "--precomputed-cuts-json",
+        type=Path,
+        help=(
+            "validated cuts artifact produced independently; replaces the "
+            "configured video cut-detection stage"
+        ),
+    )
     parser.add_argument("--remove-short-tracks-max-frames", type=int)
     parser.add_argument("--model-root", type=Path)
     parser.add_argument("--k2-run-dir", type=Path)
@@ -160,6 +168,11 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
         raise ValueError("--keyframe-interval must be >= 1")
     stages: list[StageSpec] = []
     for stage in source.stages:
+        if (
+            args.precomputed_cuts_json is not None
+            and stage.implementation == "cut_detection.video"
+        ):
+            continue
         options = dict(stage.options)
         if (
             stage.implementation == "preprocessing.score_policy"
@@ -315,6 +328,11 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, object]:
             initial["input_video"] = args.input_video
     if args.class_policy_json is not None:
         initial["class_policy_json"] = args.class_policy_json
+    if args.precomputed_cuts_json is not None:
+        cuts = args.precomputed_cuts_json.expanduser().resolve()
+        if not cuts.is_file():
+            raise FileNotFoundError(cuts)
+        initial["cuts_json"] = cuts
     return PipelineRunner(config, args.output_dir).run(initial)
 
 

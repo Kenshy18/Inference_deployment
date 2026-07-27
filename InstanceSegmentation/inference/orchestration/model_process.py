@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -98,6 +99,13 @@ def build_invocation(
                 "0",
             ]
         )
+        if request.face_trt_bundle is not None:
+            command.extend(
+                [
+                    "--trt-bundle",
+                    str(request.face_trt_bundle.expanduser().resolve()),
+                ]
+            )
         if request.face_classes:
             command.append("--classes")
             command.extend(request.face_classes)
@@ -138,9 +146,103 @@ def execute_invocation(invocation: ModelInvocation) -> None:
         )
 
 
+def execute_invocations_parallel(
+    invocations: tuple[ModelInvocation, ...] | list[ModelInvocation],
+    *,
+    stagger_seconds: float = 0.0,
+) -> None:
+    """Execute isolated model CLIs concurrently and fail as one atomic group."""
+
+    if not invocations:
+        return
+    if stagger_seconds < 0:
+        raise ValueError("stagger_seconds must be non-negative")
+    ordered = list(invocations)
+    if stagger_seconds > 0:
+        ordered.sort(key=lambda item: item.role != "face_detection")
+    processes: dict[subprocess.Popen[bytes], ModelInvocation] = {}
+    try:
+        for index, invocation in enumerate(ordered):
+            environment = dict(os.environ)
+            environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            print(
+                f"[orchestrator] parallel role={invocation.role} "
+                f"model={invocation.registration.model_id} "
+                f"backend={invocation.backend}",
+                flush=True,
+            )
+            process = subprocess.Popen(
+                invocation.command,
+                cwd=invocation.working_directory,
+                env=environment,
+            )
+            processes[process] = invocation
+            if stagger_seconds > 0 and index + 1 < len(ordered):
+                deadline = time.monotonic() + stagger_seconds
+                while time.monotonic() < deadline:
+                    return_code = process.poll()
+                    if return_code is not None:
+                        if return_code != 0:
+                            raise RuntimeError(
+                                f"{invocation.registration.model_id} inference "
+                                f"failed with exit code {return_code} before "
+                                "the sibling model was started"
+                            )
+                        break
+                    time.sleep(min(0.05, deadline - time.monotonic()))
+
+        failure: tuple[ModelInvocation, int] | None = None
+        while processes:
+            for process, invocation in tuple(processes.items()):
+                return_code = process.poll()
+                if return_code is None:
+                    continue
+                del processes[process]
+                if return_code != 0:
+                    failure = (invocation, return_code)
+                    break
+            if failure is not None:
+                break
+            if processes:
+                time.sleep(0.05)
+
+        if failure is not None:
+            for process in processes:
+                process.terminate()
+            for process in processes:
+                try:
+                    process.wait(timeout=5.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            invocation, return_code = failure
+            raise RuntimeError(
+                f"{invocation.registration.model_id} inference failed "
+                f"with exit code {return_code}; sibling models were stopped"
+            )
+    except BaseException:
+        for process in processes:
+            if process.poll() is None:
+                process.terminate()
+        for process in processes:
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        raise
+
+    for invocation in invocations:
+        if not invocation.output_path.is_file():
+            raise RuntimeError(
+                f"model did not create SQLite output: {invocation.output_path}"
+            )
+
+
 __all__ = [
     "ModelInvocation",
     "build_invocation",
     "execute_invocation",
+    "execute_invocations_parallel",
     "resolve_backend",
 ]

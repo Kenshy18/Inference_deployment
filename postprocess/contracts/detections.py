@@ -16,19 +16,36 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+try:
+    import orjson
+except ModuleNotFoundError:
+    orjson = None
+
+
+def loads_json(value: str | bytes) -> Any:
+    return orjson.loads(value) if orjson is not None else json.loads(value)
+
+
+def dumps_json_line(value: object) -> bytes:
+    if orjson is not None:
+        return orjson.dumps(value) + b"\n"
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+
 
 def iter_detection_records(path: Path) -> Iterator[dict[str, Any]]:
     """Yield already-normalized frame records from a canonical JSONL file."""
 
     source = Path(path)
-    with source.open("r", encoding="utf-8") as handle:
+    with source.open("rb") as handle:
         for line_number, line in enumerate(handle, 1):
-            text = line.strip()
-            if not text:
+            payload = line.strip()
+            if not payload:
                 continue
             try:
-                value = json.loads(text)
-            except json.JSONDecodeError as exc:
+                value = loads_json(payload)
+            except (json.JSONDecodeError, ValueError) as exc:
                 raise ValueError(
                     f"{source}:{line_number}: invalid JSON: {exc}"
                 ) from exc
@@ -58,7 +75,7 @@ def transform_detection_jsonl(
         raise ValueError("a stage output must differ from its input")
     output.parent.mkdir(parents=True, exist_ok=True)
     frames = detections_in = detections_out = 0
-    with output.open("w", encoding="utf-8") as handle:
+    with output.open("wb") as handle:
         for record in iter_detection_records(source):
             detections_in += len(record["detections"])
             transformed = transform(record)
@@ -67,14 +84,7 @@ def transform_detection_jsonl(
             detections = transformed.get("detections")
             if not isinstance(detections, list):
                 raise ValueError("transformed detections must be a list")
-            handle.write(
-                json.dumps(
-                    transformed,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                + "\n"
-            )
+            handle.write(dumps_json_line(transformed))
             frames += 1
             detections_out += len(detections)
     return {

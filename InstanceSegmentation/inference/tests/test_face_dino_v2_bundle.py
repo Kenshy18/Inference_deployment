@@ -10,8 +10,8 @@ from face_dino_v2.trt.bundle import (
     ENGINE_FILES,
     INPUT_SHAPE,
     PLUGIN_FILES,
-    PROFILE,
     SCHEMA,
+    SUPPORTED_PROFILES,
     load_engine_bundle,
     sha256_file,
 )
@@ -23,7 +23,7 @@ def _record(path: Path) -> dict[str, object]:
 
 
 class FaceDinoV2BundleTest(unittest.TestCase):
-    def _bundle(self, root: Path) -> Path:
+    def _bundle(self, root: Path, *, batch_size: int = BATCH_SIZE) -> Path:
         records = {}
         for name, relative in {**ENGINE_FILES, **PLUGIN_FILES}.items():
             path = root / relative
@@ -35,10 +35,10 @@ class FaceDinoV2BundleTest(unittest.TestCase):
             json.dumps(
                 {
                     "schema": SCHEMA,
-                    "profile": PROFILE,
+                    "profile": SUPPORTED_PROFILES[batch_size],
                     "status": "complete",
-                    "batch_size": BATCH_SIZE,
-                    "input_shape": list(INPUT_SHAPE),
+                    "batch_size": batch_size,
+                    "input_shape": [batch_size, *INPUT_SHAPE[1:]],
                     "checkpoint": {"sha256": "checkpoint-hash"},
                     "artifacts": records,
                 }
@@ -60,6 +60,15 @@ class FaceDinoV2BundleTest(unittest.TestCase):
             )
             self.assertEqual(bundle.batch_size, 8)
             self.assertEqual(bundle.input_shape, INPUT_SHAPE)
+
+    def test_reviewed_b16_profile_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = load_engine_bundle(
+                self._bundle(Path(directory), batch_size=16),
+                verify="engines",
+            )
+            self.assertEqual(16, bundle.batch_size)
+            self.assertEqual((16, 3, 736, 1280), bundle.input_shape)
 
     def test_tampered_engine_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -74,7 +74,12 @@ def infer_build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--k1-recall-target", type=float, default=0.99)
     parser.add_argument("--k1-exact-refine-rounds", type=int, default=1)
-    parser.add_argument("--k1-workers", type=int, default=4)
+    parser.add_argument(
+        "--k1-workers",
+        type=int,
+        default=0,
+        help="K1 worker processes; 0 uses the available CPU count",
+    )
     parser.add_argument("--k2-run-dir", type=Path, default=MODULE_DIR / "assets/k2_v5")
     parser.add_argument("--k2-device", type=str, default="cuda")
     parser.add_argument("--k2-batch-size", type=int, default=64)

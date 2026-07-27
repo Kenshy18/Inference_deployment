@@ -12,7 +12,11 @@ from persistence import ImportedModelSummary, UnifiedSqliteWriter
 from registry import ModelRegistration, get_model
 
 from .config import OrchestrationRequest
-from .model_process import build_invocation, execute_invocation
+from .model_process import (
+    build_invocation,
+    execute_invocation,
+    execute_invocations_parallel,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,8 +74,14 @@ def run_orchestrated_inference(
             )
             for index, (role, registration) in enumerate(selected)
         ]
-        for invocation in invocations:
-            execute_invocation(invocation)
+        if request.parallel_models and len(invocations) > 1:
+            execute_invocations_parallel(
+                invocations,
+                stagger_seconds=request.parallel_model_stagger_seconds,
+            )
+        else:
+            for invocation in invocations:
+                execute_invocation(invocation)
 
         staging = workspace / "unified.sqlite"
         writer = UnifiedSqliteWriter(
@@ -90,8 +100,17 @@ def run_orchestrated_inference(
                         request.face_model if request.mode.uses_face_detection else None
                     ),
                     "face_classes": request.face_classes,
+                    "face_trt_bundle": (
+                        str(request.face_trt_bundle.expanduser().resolve())
+                        if request.face_trt_bundle is not None
+                        else None
+                    ),
                     "device": request.device,
                     "max_frames": request.max_frames,
+                    "parallel_models": request.parallel_models,
+                    "parallel_model_stagger_seconds": (
+                        request.parallel_model_stagger_seconds
+                    ),
                 }
             )
             for invocation in invocations:

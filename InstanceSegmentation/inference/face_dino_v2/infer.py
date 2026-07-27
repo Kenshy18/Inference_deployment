@@ -43,7 +43,12 @@ def parser() -> argparse.ArgumentParser:
         default="engines",
     )
     value.add_argument("--device", default="cuda:0")
-    value.add_argument("--batch-size", type=int, default=8)
+    value.add_argument(
+        "--batch-size",
+        type=int,
+        choices=(8, 16),
+        help="must match the selected TensorRT bundle; defaults to bundle batch",
+    )
     value.add_argument("--score-threshold", type=float, default=0.30)
     value.add_argument("--classes", nargs="*")
     value.add_argument("--max-frames", type=int)
@@ -62,8 +67,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise FileNotFoundError(f"input video not found: {input_path}")
     if output_path.exists() and not args.overwrite:
         raise FileExistsError(f"output already exists: {output_path}")
-    if args.batch_size != 8:
-        raise ValueError("face_dino_v2 TensorRT backend is fixed to batch size 8")
     if not 0.0 <= args.score_threshold <= 1.0:
         raise ValueError("score_threshold must be in [0, 1]")
     if args.max_frames is not None and args.max_frames < 0:
@@ -80,6 +83,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         verify=args.trt_verify,
     )
     adapter = FaceDinoV2Adapter(settings)
+    batch_size = adapter.runtime.fixed_batch_size
+    if args.batch_size is not None and args.batch_size != batch_size:
+        raise ValueError(
+            f"--batch-size={args.batch_size} does not match B{batch_size} bundle"
+        )
     writer = AsyncSqliteWriter(
         output_path,
         overwrite=args.overwrite,
@@ -102,7 +110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         input_path=input_path,
         adapter=adapter,
         writer=writer,
-        batch_size=args.batch_size,
+        batch_size=batch_size,
         max_frames=args.max_frames,
         warmup_frames=0,
         prefetch_batches=1,
@@ -115,7 +123,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "classes": (
                 sorted(classes) if classes is not None else sorted((1, 2))
             ),
-            "input_shape": [8, 3, 736, 1280],
+            "input_shape": [batch_size, 3, 736, 1280],
             "rich_runtime_outputs": [
                 "head_boxes",
                 "face_presence",

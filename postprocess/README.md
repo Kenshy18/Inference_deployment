@@ -104,6 +104,26 @@ python run_pipeline.py \
 未追跡SQLiteの場合だけ、動画をカット検出に使用した後、スコア方針、NMS、
 トラッキングから実行します。
 
+高精度カット検出は、連続したゼロ始まりのフレームではFFmpegで96×54へ直接
+縮小デコードします。検出ロジックと閾値は従来と同じです。別処理と重ねる場合は
+先に契約済みJSONを作り、後処理へ渡せます。
+
+```bash
+python precompute_cuts.py \
+  --input-video input/video.mp4 \
+  --output output/cuts.json
+
+python run_pipeline.py \
+  --input-sqlite input/inference.sqlite \
+  --input-video input/video.mp4 \
+  --precomputed-cuts-json output/cuts.json \
+  --output-dir output/postprocess \
+  --shape-mode ellipse
+```
+
+`--max-frames`はprecompute側の上限です。動画が先に終了した場合は実フレーム数で
+正常終了します。`cuts.json`は通常のカット検出stageと同じ契約で検証されます。
+
 ### 顔・目マスクを性器マスクと統合する
 
 Face DINO v2を含むunified inference schema-v3では、顔検出の後処理を追加

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,7 @@ from contracts.detector_sqlite import (
     detect_mask_sqlite_kind,
     validate_detector_input_sqlite,
 )
+from contracts.detections import dumps_json_line, loads_json
 
 from .normalization import normalize_frame_record
 
@@ -18,7 +18,7 @@ from .normalization import normalize_frame_record
 def _optional_json(value: object) -> object | None:
     if value is None or not str(value).strip():
         return None
-    return json.loads(str(value))
+    return loads_json(str(value))
 
 
 def _iter_masks(connection: sqlite3.Connection) -> sqlite3.Cursor:
@@ -184,9 +184,7 @@ def _normalize_unified_inference_sqlite(
             "height": record["height"],
             "detections": record["detections"],
         }
-        handle.write(
-            json.dumps(canonical, ensure_ascii=False, separators=(",", ":")) + "\n"
-        )
+        handle.write(dumps_json_line(canonical))
         frames += 1
         detections += len(raw_detections)
         empty_frames += int(not raw_detections)
@@ -221,9 +219,7 @@ def normalize_raw_detection_sqlite(
     output.parent.mkdir(parents=True, exist_ok=True)
 
     frames = detections = empty_frames = 0
-    with sqlite3.connect(str(source)) as connection, output.open(
-        "w", encoding="utf-8"
-    ) as handle:
+    with sqlite3.connect(str(source)) as connection, output.open("wb") as handle:
         connection.row_factory = sqlite3.Row
         if kind == "unified_inference":
             return _normalize_unified_inference_sqlite(connection, handle)
@@ -252,14 +248,7 @@ def normalize_raw_detection_sqlite(
             for name in ("time_sec", "width", "height"):
                 if name in normalized:
                     canonical[name] = normalized[name]
-            handle.write(
-                json.dumps(
-                    canonical,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                + "\n"
-            )
+            handle.write(dumps_json_line(canonical))
             frames += 1
             detections += len(raw_detections)
             empty_frames += int(not raw_detections)

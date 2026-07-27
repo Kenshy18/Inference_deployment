@@ -30,6 +30,34 @@ python3 -m orchestration --config config.json --dry-run
 高速4種類を作る例は
 [`configs/overlay_fast.example.json`](configs/overlay_fast.example.json)にあります。
 
+## 性能設定
+
+品質・SQLite schema・atomic公開を維持したまま使える主な設定です。
+
+```json
+{
+  "inference": {
+    "parallel_models": true,
+    "parallel_model_stagger_seconds": 7.0,
+    "fast_sqlite": true
+  },
+  "postprocess": {
+    "precompute_cuts_during_inference": true
+  }
+}
+```
+
+- `parallel_models`: segmentationと顔検出を隔離プロセスのまま同時実行
+- `parallel_model_stagger_seconds`: 顔モデルを先に起動し、GPU電力競合を調整
+- `fast_sqlite`: SQLiteの異常終了耐性を速度優先に変更。最終公開はatomicのまま
+- `precompute_cuts_during_inference`: CPUカット検出を推論と重ね、同じ
+  `cuts.json`を後処理へ渡す。現在は`high_precision`方式に対応
+
+開始ずらしの最適値はGPUとモデルの組合せに依存します。0で完全同時です。
+3分の再現用設定と計測結果は
+[`configs/profile_3min_optimized_20260728.json`](configs/profile_3min_optimized_20260728.json)と
+[`docs/OPTIMIZATION_3MIN_20260728.md`](docs/OPTIMIZATION_3MIN_20260728.md)にあります。
+
 ## 既存SQLiteから開始
 
 推論を行わず、既存のunified inference SQLiteから開始できます。
@@ -192,6 +220,8 @@ output_root/
 ├── run_manifest.json
 ├── resolved_config.json
 ├── logs/
+├── 00_preflight/
+│   └── cuts.json
 ├── 01_inference/
 │   └── inference.sqlite
 ├── 02_postprocess/

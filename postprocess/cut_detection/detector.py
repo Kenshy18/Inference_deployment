@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import importlib
+import os
+import shutil
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +56,158 @@ def _read_video_frames(
             yield frame_index, frame
     finally:
         capture.release()
+
+
+def _read_all_video_frames(
+    video_path: Path,
+    max_frames: int | None = None,
+) -> Iterator[tuple[int, np.ndarray]]:
+    capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        raise RuntimeError(f"failed to open video: {video_path}")
+    frame_index = 0
+    try:
+        while max_frames is None or frame_index < max_frames:
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                break
+            yield frame_index, frame
+            frame_index += 1
+    finally:
+        capture.release()
+
+
+def _resolve_ffmpeg() -> Path | None:
+    configured = os.environ.get("VIDEO_MASK_FFMPEG")
+    if configured:
+        path = Path(configured).expanduser().resolve()
+        return path if path.is_file() else None
+    executable = shutil.which("ffmpeg")
+    if executable:
+        return Path(executable).resolve()
+    runtime_root = Path(sys.executable).resolve()
+    if len(runtime_root.parents) >= 4:
+        bundled = runtime_root.parents[3] / "tools" / "ffmpeg" / "bin" / "ffmpeg"
+        if bundled.is_file():
+            return bundled
+    return None
+
+
+def _read_exact(stream, size: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = size
+    while remaining:
+        chunk = stream.read(remaining)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _read_small_video_frames_ffmpeg(
+    video_path: Path,
+    frame_indices: list[int],
+    *,
+    width: int,
+    height: int,
+) -> Iterator[tuple[int, np.ndarray]]:
+    """Decode a contiguous zero-based range directly at analysis resolution."""
+
+    if not all(
+        frame_index == expected
+        for expected, frame_index in enumerate(frame_indices)
+    ):
+        raise ValueError("FFmpeg cut reader requires contiguous zero-based frames")
+    yield from _read_all_small_video_frames_ffmpeg(
+        video_path,
+        width=width,
+        height=height,
+        max_frames=len(frame_indices),
+        require_max_frames=True,
+    )
+
+
+def _read_all_small_video_frames_ffmpeg(
+    video_path: Path,
+    *,
+    width: int,
+    height: int,
+    max_frames: int | None = None,
+    require_max_frames: bool = False,
+) -> Iterator[tuple[int, np.ndarray]]:
+    """Decode a whole video, or its prefix, directly at analysis resolution."""
+
+    if max_frames is not None and max_frames < 0:
+        raise ValueError("max_frames must be non-negative")
+    ffmpeg = _resolve_ffmpeg()
+    if ffmpeg is None:
+        raise FileNotFoundError("ffmpeg was not found")
+    frame_bytes = width * height * 3
+    command = [
+        str(ffmpeg),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(video_path),
+        "-vf",
+        f"scale={width}:{height}:flags=area,format=bgr24",
+        "-an",
+        "-sn",
+        "-dn",
+        "-fps_mode",
+        "passthrough",
+        "-pix_fmt",
+        "bgr24",
+        "-f",
+        "rawvideo",
+        "pipe:1",
+    ]
+    if max_frames is not None:
+        frames_position = command.index("-fps_mode")
+        command[frames_position:frames_position] = [
+            "-frames:v",
+            str(max_frames),
+        ]
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=frame_bytes * 16,
+    )
+    assert process.stdout is not None
+    assert process.stderr is not None
+    try:
+        frame_index = 0
+        while max_frames is None or frame_index < max_frames:
+            payload = _read_exact(process.stdout, frame_bytes)
+            if not payload and not require_max_frames:
+                break
+            if len(payload) != frame_bytes:
+                error = process.stderr.read().decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    f"FFmpeg stopped at cut-detection frame {frame_index}: {error}"
+                )
+            yield (
+                frame_index,
+                np.frombuffer(payload, dtype=np.uint8).reshape(height, width, 3),
+            )
+            frame_index += 1
+        return_code = process.wait()
+        if return_code != 0:
+            error = process.stderr.read().decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"FFmpeg cut reader failed with exit code {return_code}: {error}"
+            )
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
 
 
 def _small_gray(frame: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -147,6 +303,7 @@ class HighPrecisionCutDetector:
     min_gap_frames: int = 45
     width: int = 96
     height: int = 54
+    accelerated_decode: bool = True
 
     def _is_cut(self, difference: float, color_correlation: float, ssim: float) -> bool:
         if difference < self.min_difference:
@@ -164,16 +321,23 @@ class HighPrecisionCutDetector:
             and ssim <= self.ssim_max
         )
 
-    def detect(self, jsonl_path: Path, video_path: Path) -> CutDetectionResult:
-        started = time.perf_counter()
+    def _detect_reader(
+        self,
+        reader: Iterator[tuple[int, np.ndarray]],
+        *,
+        frames_are_small: bool,
+        started: float,
+    ) -> CutDetectionResult:
         cuts: list[int] = []
         previous_gray: np.ndarray | None = None
         previous_bgr: np.ndarray | None = None
         last_cut = -(10**9)
-        for frame_index, frame in _read_video_frames(
-            video_path, _load_frame_indices(jsonl_path)
-        ):
-            current_bgr = _small_bgr(frame, self.width, self.height)
+        for frame_index, frame in reader:
+            current_bgr = (
+                frame
+                if frames_are_small
+                else _small_bgr(frame, self.width, self.height)
+            )
             current_gray = cv2.cvtColor(current_bgr, cv2.COLOR_BGR2GRAY)
             if previous_gray is not None and previous_bgr is not None:
                 difference = float(np.mean(cv2.absdiff(current_gray, previous_gray)))
@@ -193,6 +357,61 @@ class HighPrecisionCutDetector:
             previous_gray = current_gray
             previous_bgr = current_bgr
         return CutDetectionResult(cuts, time.perf_counter() - started, self.name)
+
+    def detect(self, jsonl_path: Path, video_path: Path) -> CutDetectionResult:
+        started = time.perf_counter()
+        frame_indices = _load_frame_indices(jsonl_path)
+        reader: Iterator[tuple[int, np.ndarray]]
+        if (
+            self.accelerated_decode
+            and all(
+                frame_index == expected
+                for expected, frame_index in enumerate(frame_indices)
+            )
+            and _resolve_ffmpeg() is not None
+        ):
+            reader = _read_small_video_frames_ffmpeg(
+                video_path,
+                frame_indices,
+                width=self.width,
+                height=self.height,
+            )
+            frames_are_small = True
+        else:
+            reader = _read_video_frames(video_path, frame_indices)
+            frames_are_small = False
+        return self._detect_reader(
+            reader,
+            frames_are_small=frames_are_small,
+            started=started,
+        )
+
+    def detect_video(
+        self,
+        video_path: Path,
+        *,
+        max_frames: int | None = None,
+    ) -> CutDetectionResult:
+        """Detect cuts without first materializing a detector JSONL."""
+
+        started = time.perf_counter()
+        if self.accelerated_decode and _resolve_ffmpeg() is not None:
+            reader = _read_all_small_video_frames_ffmpeg(
+                video_path,
+                width=self.width,
+                height=self.height,
+                max_frames=max_frames,
+                require_max_frames=False,
+            )
+            frames_are_small = True
+        else:
+            reader = _read_all_video_frames(video_path, max_frames)
+            frames_are_small = False
+        return self._detect_reader(
+            reader,
+            frames_are_small=frames_are_small,
+            started=started,
+        )
 
 
 @dataclass(frozen=True)

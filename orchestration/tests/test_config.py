@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -13,6 +14,134 @@ from helpers import create_video
 
 
 class ConfigTests(unittest.TestCase):
+    def test_cut_precompute_records_its_own_elapsed_time(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": True,
+                            "mode": "segmentation",
+                            "segmentation_model": "dinov3_codino",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "device": "cpu",
+                            "cut_detect": True,
+                            "cut_method": "high_precision",
+                            "precompute_cuts_during_inference": True,
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runner = OrchestrationRunner(OrchestrationConfig.load(config_path))
+            stage = runner._start_cut_precompute()
+            self.assertIsNotNone(stage)
+            assert stage is not None
+            stage.waiter.join(timeout=10.0)
+            self.assertFalse(stage.waiter.is_alive())
+
+            # Delay collection just as a long inference stage would. The cut
+            # elapsed time must remain the subprocess duration, while the
+            # overlap window includes the delayed collection.
+            time.sleep(0.1)
+            cuts = runner._finish_background(stage)
+            self.assertTrue(cuts.is_file())
+            record = next(
+                item
+                for item in runner.manifest["stages"]
+                if item["name"] == "cut_precompute"
+            )
+            self.assertLess(
+                record["elapsed_seconds"] + 0.05,
+                record["overlap_window_seconds"],
+            )
+
+    def test_cut_precompute_overlap_is_typed_and_forwarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": True,
+                            "mode": "segmentation",
+                            "segmentation_model": "dinov3_codino",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "device": "cpu",
+                            "cut_detect": True,
+                            "cut_method": "high_precision",
+                            "precompute_cuts_during_inference": True,
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            runner = OrchestrationRunner(config, dry_run=True)
+            plan = runner.plan()
+            postprocess = next(
+                stage
+                for stage in plan["stages"]
+                if stage["stage"] == "postprocess"
+            )
+            command = postprocess["command"]
+            self.assertIn("--precomputed-cuts-json", command)
+            self.assertTrue(
+                config.postprocess.precompute_cuts_during_inference
+            )
+
+    def test_face_trt_bundle_is_typed_and_forwarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            bundle = root / "face-b16-manifest.json"
+            bundle.write_text("{}", encoding="utf-8")
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": True,
+                            "mode": "face",
+                            "face_model": "face_dino_v2",
+                            "face_trt_bundle": str(bundle),
+                        },
+                        "postprocess": {"enabled": False},
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            command = OrchestrationRunner(config).inference_command(
+                root / "output.sqlite"
+            )
+            self.assertEqual(bundle.resolve(), config.inference.face_trt_bundle)
+            self.assertEqual(
+                str(bundle.resolve()),
+                command[command.index("--face-trt-bundle") + 1],
+            )
+
     def test_face_privacy_postprocess_options_are_typed_and_forwarded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

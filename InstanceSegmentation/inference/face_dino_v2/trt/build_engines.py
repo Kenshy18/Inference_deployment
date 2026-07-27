@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and package all fixed-B8 Face DINO TensorRT engines."""
+"""Build and package a supported fixed-batch Face DINO TensorRT bundle."""
 
 from __future__ import annotations
 
@@ -17,12 +17,10 @@ from pathlib import Path
 
 try:
     from .bundle import (
-        BATCH_SIZE,
         ENGINE_FILES,
-        INPUT_SHAPE,
         PLUGIN_FILES,
-        PROFILE,
         SCHEMA,
+        SUPPORTED_PROFILES,
         sha256_file,
     )
 except ImportError:
@@ -30,12 +28,10 @@ except ImportError:
     if str(package_parent) not in sys.path:
         sys.path.insert(0, str(package_parent))
     from face_dino_v2.trt.bundle import (
-        BATCH_SIZE,
         ENGINE_FILES,
-        INPUT_SHAPE,
         PLUGIN_FILES,
-        PROFILE,
         SCHEMA,
+        SUPPORTED_PROFILES,
         sha256_file,
     )
 
@@ -49,7 +45,6 @@ DEFAULT_CHECKPOINT = (
     / "face_dino_overnight_best_20260727"
     / "model_residual_v2.pth"
 )
-DEFAULT_OUTPUT = FAMILY_ROOT / "artifacts" / "trt" / PROFILE
 DEFAULT_REFERENCE_ROOT = INFERENCE_ROOT / "dinov3_codino_mh0"
 
 
@@ -63,7 +58,8 @@ def arguments() -> argparse.Namespace:
         default=DEFAULT_REFERENCE_ROOT,
         help="Existing SM120 Co-DINO implementation used for the MSDA builder.",
     )
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--batch-size", type=int, choices=(8, 16), default=8)
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--workspace-gib", type=int, default=12)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--keep-build-files", action="store_true")
@@ -194,7 +190,11 @@ def main() -> None:
     source_root = args.source_root.expanduser().resolve()
     checkpoint = args.checkpoint.expanduser().resolve()
     reference_root = args.reference_root.expanduser().resolve()
-    output = args.output.expanduser().resolve()
+    output = (
+        args.output
+        if args.output is not None
+        else FAMILY_ROOT / "artifacts" / "trt" / SUPPORTED_PROFILES[args.batch_size]
+    ).expanduser().resolve()
     required = (
         source_root / "face_dino_v1" / "scripts" / "build_backbone_tensorrt.py",
         source_root / "face_dino_v1" / "scripts" / "build_transformer_tensorrt.py",
@@ -256,9 +256,9 @@ def main() -> None:
                 "--min-batch",
                 "1",
                 "--optimal-batch",
-                "8",
+                str(args.batch_size),
                 "--max-batch",
-                "8",
+                str(args.batch_size),
                 "--workspace-gib",
                 str(args.workspace_gib),
                 "--with-neck",
@@ -269,7 +269,11 @@ def main() -> None:
         _run(
             [
                 sys.executable,
+                str(Path(__file__).with_name("run_transformer_builder.py")),
+                "--script",
                 str(required[1]),
+                "--batch-size",
+                str(args.batch_size),
                 "--checkpoint",
                 str(checkpoint),
                 "--output-dir",
@@ -352,10 +356,10 @@ def main() -> None:
 
         manifest = {
             "schema": SCHEMA,
-            "profile": PROFILE,
+            "profile": SUPPORTED_PROFILES[args.batch_size],
             "status": "complete",
-            "batch_size": BATCH_SIZE,
-            "input_shape": list(INPUT_SHAPE),
+            "batch_size": args.batch_size,
+            "input_shape": [args.batch_size, 3, 736, 1280],
             "precision": {
                 "backbone_neck": "mixed_fp16_fp32",
                 "query_encoder": "mixed_fp16_fp32",

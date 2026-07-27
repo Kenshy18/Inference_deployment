@@ -112,6 +112,37 @@ def _schema(path: Path) -> tuple[tuple[str, str], ...]:
 
 
 class UnifiedOrchestrationTest(unittest.TestCase):
+    def test_parallel_mode_runs_the_isolated_invocations_as_one_group(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "input.mp4"
+            input_path.write_bytes(b"test")
+            output_path = root / "output.sqlite"
+
+            def execute_group(invocations, *, stagger_seconds):
+                self.assertEqual(7.0, stagger_seconds)
+                for invocation in invocations:
+                    _fake_execute(invocation)
+
+            with patch(
+                "orchestration.pipeline.execute_invocations_parallel",
+                side_effect=execute_group,
+            ) as execute:
+                result = run_orchestrated_inference(
+                    OrchestrationRequest(
+                        input_path=input_path,
+                        output_path=output_path,
+                        mode=InferenceMode.SEGMENTATION_FACE,
+                        segmentation_model="dinov3_codino",
+                        runtime_python=Path(sys.executable),
+                        parallel_models=True,
+                        parallel_model_stagger_seconds=7.0,
+                    )
+                )
+            execute.assert_called_once()
+            self.assertEqual(1, result.frames)
+            self.assertTrue(output_path.is_file())
+
     def test_all_modes_publish_the_identical_schema(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -204,6 +235,35 @@ class UnifiedOrchestrationTest(unittest.TestCase):
         self.assertIn("--backend", segmentation.command)
         self.assertIn("pytorch", segmentation.command)
         self.assertEqual(face.command[-3:], ("--classes", "Face", "Head"))
+
+    def test_face_dino_bundle_is_forwarded_only_to_face_invocation(self) -> None:
+        bundle = Path("face-b16-manifest.json")
+        request = OrchestrationRequest(
+            input_path=Path("input.mp4"),
+            output_path=Path("output.sqlite"),
+            mode=InferenceMode.SEGMENTATION_FACE,
+            segmentation_model="dinov3_codino",
+            face_model="face_dino_v2",
+            face_trt_bundle=bundle,
+            runtime_python=Path(sys.executable),
+        )
+        segmentation = build_invocation(
+            get_model("dinov3_codino"),
+            role="instance_segmentation",
+            output_path=Path("seg.sqlite"),
+            request=request,
+        )
+        face = build_invocation(
+            get_model("face_dino_v2"),
+            role="face_detection",
+            output_path=Path("face.sqlite"),
+            request=request,
+        )
+        self.assertNotIn("--trt-bundle", segmentation.command)
+        self.assertEqual(
+            str(bundle.resolve()),
+            face.command[face.command.index("--trt-bundle") + 1],
+        )
 
     def test_unsupported_backend_is_rejected_before_model_execution(self) -> None:
         request = OrchestrationRequest(

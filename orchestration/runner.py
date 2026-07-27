@@ -6,11 +6,12 @@ import hashlib
 import json
 import os
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from .config import OrchestrationConfig
 from .contracts import (
@@ -26,6 +27,7 @@ INFERENCE_CLI = (
     REPOSITORY_ROOT / "InstanceSegmentation" / "inference" / "run_inference.py"
 )
 POSTPROCESS_CLI = REPOSITORY_ROOT / "postprocess" / "run_pipeline.py"
+PRECOMPUTE_CUTS_CLI = REPOSITORY_ROOT / "postprocess" / "precompute_cuts.py"
 OVERLAY_ROOT = REPOSITORY_ROOT / "overlay"
 
 
@@ -39,6 +41,19 @@ class WorkflowArtifacts:
     tracked_sqlite: Path | None = None
     final_sqlite: Path | None = None
     legacy_final_sqlite: Path | None = None
+
+
+@dataclass
+class BackgroundStage:
+    name: str
+    command: list[str]
+    process: subprocess.Popen[str]
+    log_path: Path
+    log_handle: TextIO
+    started_at_utc: str
+    started: float
+    waiter: threading.Thread
+    completion: list[tuple[int, float, str]]
 
 
 def _utc_now() -> str:
@@ -124,14 +139,32 @@ class OrchestrationRunner:
             command.extend(["--face-model", settings.face_model])
             command.append("--face-classes")
             command.extend(settings.face_classes)
+            if settings.face_trt_bundle is not None:
+                command.extend(
+                    ["--face-trt-bundle", str(settings.face_trt_bundle)]
+                )
         if settings.max_frames is not None:
             command.extend(["--max-frames", str(settings.max_frames)])
+        if settings.parallel_models:
+            command.append("--parallel-models")
+            if settings.parallel_model_stagger_seconds > 0:
+                command.extend(
+                    [
+                        "--parallel-model-stagger-seconds",
+                        str(settings.parallel_model_stagger_seconds),
+                    ]
+                )
         if settings.fast_sqlite:
             command.append("--fast-sqlite")
         command.extend(settings.extra_args)
         return command
 
-    def postprocess_command(self, inference_sqlite: Path) -> list[str]:
+    def postprocess_command(
+        self,
+        inference_sqlite: Path,
+        *,
+        precomputed_cuts: Path | None = None,
+    ) -> list[str]:
         settings = self.config.postprocess
         output = self.output_root / "02_postprocess"
         command = [
@@ -167,6 +200,10 @@ class OrchestrationRunner:
                 command.extend([flag, str(value)])
         if settings.export_legacy_sqlite:
             command.append("--export-legacy-sqlite")
+        if precomputed_cuts is not None:
+            command.extend(
+                ["--precomputed-cuts-json", str(precomputed_cuts)]
+            )
         if settings.face_mask_target != "none":
             command.extend(
                 [
@@ -277,6 +314,31 @@ class OrchestrationRunner:
         )
         assert inference_source is not None
         plan: list[dict[str, object]] = []
+        if self.config.postprocess.precompute_cuts_during_inference:
+            cut_output = self.output_root / "00_preflight" / "cuts.json"
+            cut_command = [
+                str(self.config.execution.runtime_python),
+                str(PRECOMPUTE_CUTS_CLI),
+                "--input-video",
+                str(self.config.input_video),
+                "--output",
+                str(cut_output),
+            ]
+            if self.config.inference.max_frames is not None:
+                cut_command.extend(
+                    [
+                        "--max-frames",
+                        str(self.config.inference.max_frames),
+                    ]
+                )
+            plan.append(
+                {
+                    "stage": "cut_precompute",
+                    "uses_gpu": False,
+                    "overlaps_with": "inference",
+                    "command": cut_command,
+                }
+            )
         if self.config.inference.enabled:
             plan.append(
                 {
@@ -294,11 +356,19 @@ class OrchestrationRunner:
                 }
             )
         if self.config.postprocess.enabled:
+            precomputed_cuts = (
+                self.output_root / "00_preflight" / "cuts.json"
+                if self.config.postprocess.precompute_cuts_during_inference
+                else None
+            )
             plan.append(
                 {
                     "stage": "postprocess",
                     "uses_gpu": self.config.postprocess.uses_gpu,
-                    "command": self.postprocess_command(inference_source),
+                    "command": self.postprocess_command(
+                        inference_source,
+                        precomputed_cuts=precomputed_cuts,
+                    ),
                 }
             )
         if self.config.overlay.enabled:
@@ -334,11 +404,24 @@ class OrchestrationRunner:
         self.manifest.pop("error", None)
         self.manifest["started_at_utc"] = _utc_now()
         self._save_manifest()
+        cut_stage: BackgroundStage | None = None
         try:
+            cut_stage = self._start_cut_precompute()
             artifacts = self._run_inference()
-            artifacts = self._run_postprocess(artifacts)
+            precomputed_cuts = (
+                self._finish_background(cut_stage)
+                if cut_stage is not None
+                else None
+            )
+            cut_stage = None
+            artifacts = self._run_postprocess(
+                artifacts,
+                precomputed_cuts=precomputed_cuts,
+            )
             self._run_overlays(artifacts)
         except BaseException as exc:
+            if cut_stage is not None:
+                self._cancel_background(cut_stage)
             self.manifest["status"] = "failed"
             self.manifest["error"] = f"{type(exc).__name__}: {exc}"
             self.manifest["completed_at_utc"] = _utc_now()
@@ -423,6 +506,8 @@ class OrchestrationRunner:
     def _run_postprocess(
         self,
         artifacts: WorkflowArtifacts,
+        *,
+        precomputed_cuts: Path | None = None,
     ) -> WorkflowArtifacts:
         settings = self.config.postprocess
         if settings.enabled:
@@ -434,7 +519,10 @@ class OrchestrationRunner:
             ):
                 tracked, final, legacy = read_postprocess_artifacts(manifest_path)
             else:
-                command = self.postprocess_command(artifacts.inference_sqlite)
+                command = self.postprocess_command(
+                    artifacts.inference_sqlite,
+                    precomputed_cuts=precomputed_cuts,
+                )
                 self._execute(
                     "postprocess",
                     command,
@@ -480,6 +568,124 @@ class OrchestrationRunner:
             tracked_sqlite=tracked,
             final_sqlite=final,
         )
+
+    def _start_cut_precompute(self) -> BackgroundStage | None:
+        settings = self.config.postprocess
+        if not settings.precompute_cuts_during_inference:
+            return None
+        output = self.output_root / "00_preflight" / "cuts.json"
+        command = [
+            str(self.config.execution.runtime_python),
+            str(PRECOMPUTE_CUTS_CLI),
+            "--input-video",
+            str(self.config.input_video),
+            "--output",
+            str(output),
+        ]
+        if self.config.inference.max_frames is not None:
+            command.extend(
+                ["--max-frames", str(self.config.inference.max_frames)]
+            )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        log_path = self.logs_dir / "cut_precompute.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_handle = log_path.open("w", encoding="utf-8")
+        environment = dict(os.environ)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment["CUDA_VISIBLE_DEVICES"] = ""
+        environment["NVIDIA_VISIBLE_DEVICES"] = "none"
+        started_at_utc = _utc_now()
+        started = time.perf_counter()
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=REPOSITORY_ROOT,
+                env=environment,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except BaseException:
+            log_handle.close()
+            raise
+        completion: list[tuple[int, float, str]] = []
+
+        def wait_for_completion() -> None:
+            return_code = process.wait()
+            completion.append(
+                (return_code, time.perf_counter(), _utc_now())
+            )
+
+        waiter = threading.Thread(
+            target=wait_for_completion,
+            name="orchestration:cut_precompute",
+            daemon=True,
+        )
+        waiter.start()
+        self._replace_stage_record(
+            {
+                "name": "cut_precompute",
+                "status": "running",
+                "cpu_only": True,
+                "command": command,
+                "log": str(log_path),
+                "started_at_utc": started_at_utc,
+            }
+        )
+        return BackgroundStage(
+            name="cut_precompute",
+            command=command,
+            process=process,
+            log_path=log_path,
+            log_handle=log_handle,
+            started_at_utc=started_at_utc,
+            started=started,
+            waiter=waiter,
+            completion=completion,
+        )
+
+    def _finish_background(self, stage: BackgroundStage) -> Path:
+        stage.waiter.join()
+        return_code, completed, completed_at_utc = stage.completion[0]
+        stage.log_handle.close()
+        elapsed = completed - stage.started
+        record = {
+            "name": stage.name,
+            "status": "complete" if return_code == 0 else "failed",
+            "cpu_only": True,
+            "command": stage.command,
+            "log": str(stage.log_path),
+            "started_at_utc": stage.started_at_utc,
+            "elapsed_seconds": elapsed,
+            "completed_at_utc": completed_at_utc,
+            "return_code": return_code,
+            "overlapped_with": "inference",
+            "overlap_window_seconds": time.perf_counter() - stage.started,
+        }
+        self._replace_stage_record(record)
+        if return_code != 0:
+            raise OrchestrationError(
+                "precomputed cut detection failed with exit code "
+                f"{return_code}; see {stage.log_path}"
+            )
+        output = self.output_root / "00_preflight" / "cuts.json"
+        if not output.is_file() or output.stat().st_size == 0:
+            raise OrchestrationError(
+                f"precomputed cut detection did not create {output}"
+            )
+        self._publish_artifacts({"precomputed_cuts": output})
+        return output
+
+    def _cancel_background(self, stage: BackgroundStage) -> None:
+        if stage.process.poll() is None:
+            stage.process.terminate()
+            try:
+                stage.process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                stage.process.kill()
+                stage.process.wait()
+        stage.waiter.join()
+        stage.log_handle.close()
 
     def _run_overlays(self, artifacts: WorkflowArtifacts) -> None:
         settings = self.config.overlay

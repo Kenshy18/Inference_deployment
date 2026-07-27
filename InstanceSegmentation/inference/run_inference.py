@@ -60,6 +60,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="face-detector classes; pass the option with no values for all classes",
     )
     parser.add_argument(
+        "--face-trt-bundle",
+        type=Path,
+        help=(
+            "optional TensorRT bundle manifest forwarded to compatible face "
+            "models (for example the reviewed Face DINO v2 B16 profile)"
+        ),
+    )
+    parser.add_argument(
         "--runtime-python",
         type=Path,
         default=Path(sys.executable),
@@ -69,6 +77,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--warmup-frames", type=int, default=0)
     parser.add_argument("--face-warmup-iterations", type=int, default=3)
+    parser.add_argument(
+        "--parallel-models",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "run segmentation and face model subprocesses concurrently; "
+            "each model still writes an isolated SQLite before atomic merge"
+        ),
+    )
+    parser.add_argument(
+        "--parallel-model-stagger-seconds",
+        type=float,
+        default=0.0,
+        help=(
+            "when parallel models are enabled, start face inference first and "
+            "delay sibling launch to reduce peak GPU power contention"
+        ),
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--fast-sqlite",
@@ -90,11 +116,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             segmentation_backend=args.segmentation_backend,
             face_model=args.face_model,
             face_classes=tuple(args.face_classes),
+            face_trt_bundle=args.face_trt_bundle,
             runtime_python=args.runtime_python,
             device=args.device,
             max_frames=args.max_frames,
             warmup_frames=args.warmup_frames,
             face_warmup_iterations=args.face_warmup_iterations,
+            parallel_models=bool(args.parallel_models),
+            parallel_model_stagger_seconds=args.parallel_model_stagger_seconds,
             overwrite=args.overwrite,
             fast_sqlite=args.fast_sqlite,
         )

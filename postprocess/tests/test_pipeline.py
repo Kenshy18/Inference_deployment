@@ -8,6 +8,7 @@ import unittest
 from dataclasses import dataclass
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from common.config import PipelineConfig, StageSpec
 from common.runner import PipelineRunner
@@ -42,6 +43,45 @@ class MalformedCutStage:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_artifact_validation_is_cached_until_file_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "artifact.bin"
+            path.write_bytes(b"first")
+            runner = PipelineRunner(PipelineConfig("empty", ()), Path(temporary))
+            with patch("common.runner.validate_artifact") as validate:
+                runner._validate_once("marker", path)
+                runner._validate_once("marker", path)
+                self.assertEqual(1, validate.call_count)
+                path.write_bytes(b"changed-size")
+                runner._validate_once("marker", path)
+                self.assertEqual(2, validate.call_count)
+
+    def test_precomputed_cuts_replace_video_cut_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            args = build_parser().parse_args(
+                [
+                    "--input-jsonl",
+                    str(root / "input.jsonl"),
+                    "--input-video",
+                    str(root / "input.mp4"),
+                    "--output-dir",
+                    str(root / "output"),
+                    "--precomputed-cuts-json",
+                    str(root / "cuts.json"),
+                ]
+            )
+            config = _configured_pipeline(args)
+            self.assertNotIn(
+                "cut_detection.video",
+                [stage.implementation for stage in config.stages],
+            )
+            tracking = next(
+                stage for stage in config.stages
+                if stage.implementation == "tracking.greedy"
+            )
+            self.assertTrue(tracking.enabled)
+
     def test_pipeline_options_are_preserved_until_cli_explicitly_overrides(
         self,
     ) -> None:
