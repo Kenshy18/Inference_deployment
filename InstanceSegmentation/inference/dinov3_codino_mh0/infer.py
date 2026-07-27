@@ -86,6 +86,15 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--batch-size", type=int)
     value.add_argument("--max-frames", type=int)
     value.add_argument("--warmup-frames", type=int, default=0)
+    value.add_argument(
+        "--cuda-graph",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "capture the fixed detector core; defaults on for at least 512 "
+            "frames and unbounded/full-video runs"
+        ),
+    )
     value.add_argument("--progress-interval-sec", type=float, default=5.0)
     value.add_argument("--overwrite", action="store_true")
     value.add_argument("--fast-sqlite", action="store_true")
@@ -107,6 +116,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.model_score_thr is None
         else args.model_score_thr
     )
+    cuda_graph = (
+        args.cuda_graph
+        if args.cuda_graph is not None
+        else args.max_frames is None or args.max_frames >= 512
+    )
     runtime = build_runtime(
         config=args.config.expanduser().resolve(),
         checkpoint=args.checkpoint.expanduser().resolve(),
@@ -115,6 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         model_score_threshold=model_threshold,
         trt_bundle=args.trt_bundle.expanduser().resolve(),
         trt_verify=args.trt_verify,
+        cuda_graph=cuda_graph,
     )
     batch_size = (
         runtime.fixed_batch_size
@@ -156,6 +171,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             "score_threshold": args.score_thresh,
             "model_score_threshold": model_threshold,
+            "cuda_graph": cuda_graph,
             "max_mask_points": DEFAULT_MAX_MASK_POINTS,
         },
         progress=Progress(args.progress_interval_sec),

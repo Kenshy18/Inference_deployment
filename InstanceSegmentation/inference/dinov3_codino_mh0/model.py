@@ -55,6 +55,7 @@ def build_runtime(
     model_score_threshold: float,
     trt_bundle: Path = DEFAULT_TRT_BUNDLE,
     trt_verify: str = "engines",
+    cuda_graph: bool = False,
 ) -> Mh0Runtime:
     if not config.is_file():
         raise FileNotFoundError(f"MH0 config not found: {config}")
@@ -77,6 +78,7 @@ def build_runtime(
         device=device,
         model_score_threshold=model_score_threshold,
         artifacts=artifact_paths,
+        cuda_graph=cuda_graph,
     )
     return Mh0Runtime(
         model=model,

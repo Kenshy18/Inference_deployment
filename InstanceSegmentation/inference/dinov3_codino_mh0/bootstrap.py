@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
+import gc
+from contextlib import nullcontext
 from pathlib import Path
 
 
@@ -43,23 +45,70 @@ def prepare_imports() -> None:
         parallel_functions._get_stream = compatible_get_stream
 
 
-def build_model(*, config: Path, checkpoint: Path, device: str):
-    prepare_imports()
-    import torch
-    from mmcv import Config
-    from mmdet.apis import init_detector
+def build_model(
+    *,
+    config: Path,
+    checkpoint: Path,
+    device: str,
+    trt_deployment_shell: bool = False,
+):
+    if trt_deployment_shell:
+        from deployment.import_stubs import mh0_deployment_import_stubs
 
-    cfg = Config.fromfile(str(config))
-    cfg.model.backbone.pretrained = False
-    cfg.model.backbone.weights = None
-    cfg.model.train_cfg = None
-    cfg.load_from = None
-    cfg.resume_from = None
-    cfg.work_dir = str(ROOT / ".runtime" / "work")
-    cfg.gpu_ids = range(1)
-    cfg.pop("fp16", None)
-    torch.backends.cuda.matmul.allow_tf32 = True
-    model = init_detector(cfg, str(checkpoint), device=device)
+        import_scope = mh0_deployment_import_stubs()
+    else:
+        import_scope = nullcontext()
+    with import_scope:
+        prepare_imports()
+        import torch
+        from mmcv import Config
+        from mmdet.apis import init_detector
+
+        cfg = Config.fromfile(str(config))
+        cfg.model.backbone.pretrained = False
+        cfg.model.backbone.weights = None
+        cfg.model.train_cfg = None
+        cfg.load_from = None
+        cfg.resume_from = None
+        cfg.work_dir = str(ROOT / ".runtime" / "work")
+        cfg.gpu_ids = range(1)
+        cfg.pop("fp16", None)
+        torch.backends.cuda.matmul.allow_tf32 = True
+        model = init_detector(
+            cfg,
+            None if trt_deployment_shell else str(checkpoint),
+            device=device,
+        )
+        if trt_deployment_shell:
+            payload = torch.load(
+                checkpoint, map_location="cpu", weights_only=False
+            )
+            if not isinstance(payload, dict) or not isinstance(
+                payload.get("state_dict"), dict
+            ):
+                raise ValueError("MH0 checkpoint has no state_dict")
+            state_dict = {
+                key: value
+                for key, value in payload["state_dict"].items()
+                if not key.startswith("backbone.backbone.")
+            }
+            incompatible = model.load_state_dict(state_dict, strict=False)
+            invalid_missing = [
+                key
+                for key in incompatible.missing_keys
+                if "num_batches_tracked" not in key
+            ]
+            if invalid_missing or incompatible.unexpected_keys:
+                raise RuntimeError(
+                    "MH0 TensorRT deployment checkpoint key drift: "
+                    f"missing={invalid_missing}, "
+                    f"unexpected={incompatible.unexpected_keys}"
+                )
+            classes = (payload.get("meta") or {}).get("CLASSES")
+            if classes is not None:
+                model.CLASSES = classes
+            del state_dict, payload
+            gc.collect()
     model.CLASSES = ("foreground",)
     return model.eval()
 

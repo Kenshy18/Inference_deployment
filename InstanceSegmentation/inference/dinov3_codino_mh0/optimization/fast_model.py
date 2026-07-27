@@ -10,6 +10,7 @@ import torch
 
 from .batched_bbox import install_batched_bbox_test
 from .batched_mask import install_batched_mask_test
+from .cudagraph import install_mh0_cuda_graph
 from .gpu_preprocessing import GPUPreprocessor
 from .preprocessing import prepare_fixed_b2
 from .trt_backbone import TensorRTBackboneNeck
@@ -53,6 +54,7 @@ def build_backend_model(
     device: str,
     model_score_threshold: float,
     artifacts: dict[str, Path] | None = None,
+    cuda_graph: bool = False,
 ):
     """Build the public fixed-B16 TensorRT or fixed-B2 PyTorch backend."""
 
@@ -84,6 +86,7 @@ def build_backend_model(
         config=config,
         checkpoint=checkpoint,
         device=device,
+        trt_deployment_shell=trt_artifacts is not None,
     )
     query_test_config = model.query_head.test_cfg
     query_test_config["score_thr"] = float(model_score_threshold)
@@ -129,6 +132,10 @@ def build_backend_model(
             model._mh0_batch_size,
             fused_extension=trt_artifacts["preprocess_plugin"],
         )
+        if cuda_graph:
+            install_mh0_cuda_graph(model, warmup_iterations=1)
+    if cuda_graph and trt_artifacts is None:
+        raise ValueError("MH0 CUDA Graph requires the TensorRT backend")
     return model
 
 

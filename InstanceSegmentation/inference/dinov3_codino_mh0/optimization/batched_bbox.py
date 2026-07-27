@@ -51,14 +51,26 @@ def simple_test_query_head_batched(
     batch_input_shape = tuple(img[0].size()[-2:])
     for img_meta in img_metas:
         img_meta["batch_input_shape"] = batch_input_shape
-    pyramid = self.extract_feat(img, img_metas)
-    query_features = self._query_features(pyramid)
-    results_list, encoded = self.query_head.simple_test(
-        query_features,
-        img_metas,
-        rescale=rescale,
-        return_encoder_output=True,
-    )
+    graph_core = getattr(self, "_mh0_cuda_graph_core", None)
+    if graph_core is None:
+        pyramid = self.extract_feat(img, img_metas)
+        query_features = self._query_features(pyramid)
+        results_list, encoded = self.query_head.simple_test(
+            query_features,
+            img_metas,
+            rescale=rescale,
+            return_encoder_output=True,
+        )
+    else:
+        pyramid, outputs = graph_core(img, img_metas)
+        with_nms = self.query_head.test_cfg.get("nms", None) is not None
+        results_list = self.query_head.get_bboxes(
+            *outputs,
+            img_metas,
+            rescale=rescale,
+            with_nms=with_nms,
+        )
+        encoded = outputs[-1]
     if not hasattr(self, "mask_head"):
         return _bbox_results_batched(
             results_list, self.query_head.num_classes
