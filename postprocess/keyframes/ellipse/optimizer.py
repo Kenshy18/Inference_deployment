@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 import numpy as np
+from scipy.linalg import solveh_banded
 
 
 def kfbase_parse_args() -> argparse.Namespace:
@@ -353,6 +354,49 @@ def kfbase_build_second_difference_matrix(length: int) -> np.ndarray:
     return mat
 
 
+def kfbase_solve_second_difference_system(
+    weights: np.ndarray,
+    values: np.ndarray,
+    smooth_alpha: float,
+) -> np.ndarray:
+    """Solve ``(diag(w) + alpha * D2.T @ D2) x = diag(w) y`` in O(n).
+
+    ``D2.T @ D2`` is symmetric positive semidefinite with half-bandwidth two.
+    Materializing the dense matrix made both memory and factorization grow
+    quadratically/cubically with a continuous track's length.  The banded
+    representation contains the exact same five diagonals and accepts all
+    value dimensions as simultaneous right-hand sides.
+    """
+
+    length = len(weights)
+    if length < 3:
+        return np.asarray(values, dtype=np.float64).copy()
+    alpha = float(smooth_alpha)
+    main = np.asarray(weights, dtype=np.float64).copy()
+    main[:-2] += alpha
+    main[1:-1] += 4.0 * alpha
+    main[2:] += alpha
+    first_upper = np.zeros(length - 1, dtype=np.float64)
+    first_upper[:-1] -= 2.0 * alpha
+    first_upper[1:] -= 2.0 * alpha
+    second_upper = np.full(length - 2, alpha, dtype=np.float64)
+    banded = np.zeros((3, length), dtype=np.float64)
+    banded[2] = main
+    banded[1, 1:] = first_upper
+    banded[0, 2:] = second_upper
+    rhs = np.asarray(weights, dtype=np.float64)[:, None] * np.asarray(
+        values, dtype=np.float64
+    )
+    return solveh_banded(
+        banded,
+        rhs,
+        lower=False,
+        overwrite_ab=True,
+        overwrite_b=True,
+        check_finite=False,
+    )
+
+
 def kfbase_state_to_q(
     states: np.ndarray, theta_weight_floor: float
 ) -> tuple[np.ndarray, float, float]:
@@ -404,14 +448,12 @@ def kfbase_smooth_stream_segment(
         stream.transform_scale = scale
         stream.theta_scale = theta_scale
         return
-    d2 = kfbase_build_second_difference_matrix(length)
-    penalty = d2.T @ d2
     weights = np.maximum(stream.confidence, float(args.confidence_floor))
-    smoothed = np.zeros_like(q)
-    for dim in range(q.shape[1]):
-        system = np.diag(weights) + float(args.smooth_alpha) * penalty
-        rhs = weights * q[:, dim]
-        smoothed[:, dim] = np.linalg.solve(system, rhs)
+    smoothed = kfbase_solve_second_difference_system(
+        weights,
+        q,
+        float(args.smooth_alpha),
+    )
     stream.smoothed_q = smoothed
     stream.transform_scale = scale
     stream.theta_scale = theta_scale
@@ -594,11 +636,37 @@ def kfbase_get_stream_interval_costs(
     cache = kfbase_get_stream_prefix_cache(stream)
     length = len(q)
     costs = np.full((length, int(max_gap)), np.inf, dtype=np.float64)
-    for end in range(1, length):
-        start_low = max(0, end - int(max_gap))
-        for start in range(start_low, end):
-            gap = end - start
-            costs[end, gap - 1] = kfbase_interval_surrogate_cost(cache, q, start, end)
+    # Evaluate a full diagonal (one fixed gap) at a time.  Each expression is
+    # identical to ``interval_surrogate_cost`` but operates on all admissible
+    # intervals in NumPy instead of entering Python O(n * max_gap) times.
+    for gap in range(1, min(int(max_gap), length - 1) + 1):
+        end = np.arange(gap, length, dtype=np.int64)
+        start = end - gap
+        span = float(gap)
+        s0 = cache.s0[end + 1] - cache.s0[start]
+        s1 = cache.s1[end + 1] - cache.s1[start]
+        s2 = cache.s2[end + 1] - cache.s2[start]
+        v0 = cache.v0[end + 1] - cache.v0[start]
+        v1 = cache.v1[end + 1] - cache.v1[start]
+        g = cache.g[end + 1] - cache.g[start]
+        start_f = start.astype(np.float64)
+        end_f = end.astype(np.float64)
+        a_vec = (end_f[:, None] * v0 - v1) / span
+        b_vec = (v1 - start_f[:, None] * v0) / span
+        alpha = (end_f * end_f * s0 - 2.0 * end_f * s1 + s2) / (span * span)
+        beta = (s2 - 2.0 * start_f * s1 + start_f * start_f * s0) / (span * span)
+        gamma = (-s2 + (start_f + end_f) * s1 - start_f * end_f * s0) / (span * span)
+        qi = q[start]
+        qj = q[end]
+        values = (
+            g
+            - 2.0 * np.einsum("ij,ij->i", qi, a_vec)
+            - 2.0 * np.einsum("ij,ij->i", qj, b_vec)
+            + alpha * np.einsum("ij,ij->i", qi, qi)
+            + beta * np.einsum("ij,ij->i", qj, qj)
+            + 2.0 * gamma * np.einsum("ij,ij->i", qi, qj)
+        )
+        costs[end, gap - 1] = np.maximum(values, 0.0)
     stream.interval_costs = costs
     stream.interval_costs_max_gap = int(max_gap)
     return costs
@@ -657,23 +725,34 @@ def kfbase_decode_keyframes_dp(
     dp[0] = -float(keyframe_penalty)
     for end in range(1, length):
         start_low = max(0, end - max_gap)
-        for start in range(start_low, end):
-            segment_len = end - start
-            if start != 0 and segment_len < min_gap:
-                continue
-            if end != length - 1 and segment_len < min_gap:
-                continue
-            if interval_costs is not None and segment_len <= interval_costs.shape[1]:
-                interval_cost = float(interval_costs[end, segment_len - 1])
-            else:
-                interval_cost = kfbase_interval_surrogate_cost(cache, q, start, end)
-            reward_term = 0.0 if rewards is None else float(rewards[end])
-            candidate_cost = (
-                dp[start] + interval_cost + float(keyframe_penalty) - reward_term
+        starts = np.arange(start_low, end, dtype=np.int32)
+        gaps = end - starts
+        valid = np.ones(len(starts), dtype=bool)
+        if end != length - 1:
+            valid &= gaps >= int(min_gap)
+        else:
+            valid &= (starts == 0) | (gaps >= int(min_gap))
+        starts = starts[valid]
+        gaps = gaps[valid]
+        if starts.size == 0:
+            continue
+        if interval_costs is not None and int(np.max(gaps)) <= interval_costs.shape[1]:
+            candidate_intervals = interval_costs[end, gaps - 1]
+        else:
+            candidate_intervals = np.asarray(
+                [
+                    kfbase_interval_surrogate_cost(cache, q, int(start), end)
+                    for start in starts
+                ],
+                dtype=np.float64,
             )
-            if candidate_cost < dp[end]:
-                dp[end] = candidate_cost
-                back[end] = start
+        reward_term = 0.0 if rewards is None else float(rewards[end])
+        candidate_costs = (
+            dp[starts] + candidate_intervals + float(keyframe_penalty) - reward_term
+        )
+        best_offset = int(np.argmin(candidate_costs))
+        dp[end] = float(candidate_costs[best_offset])
+        back[end] = int(starts[best_offset])
     if not np.isfinite(dp[-1]):
         return (list(range(length)), float("inf"))
     chosen: list[int] = []
@@ -776,27 +855,47 @@ def kfbase_refine_keyframe_values_global_ls(
     if key_count <= 1:
         return base_key_q
     length, dims = target_q.shape
-    a = np.zeros((length, key_count), dtype=np.float64)
+    diagonal = np.full(key_count, float(ridge), dtype=np.float64)
+    first_upper = np.zeros(key_count - 1, dtype=np.float64)
+    rhs = float(ridge) * np.asarray(base_key_q, dtype=np.float64)
     for idx in range(key_count - 1):
         left = keyframes[idx]
         right = keyframes[idx + 1]
         if right == left:
-            a[left, idx] = 1.0
             continue
         span = float(right - left)
-        for pos in range(left, right + 1):
-            alpha = (pos - left) / span
-            a[pos, idx] = 1.0 - alpha
-            a[pos, idx + 1] = alpha
-    sqrt_w = np.sqrt(np.maximum(weights, 1e-08))
-    aw = a * sqrt_w[:, None]
-    gram = aw.T @ aw + float(ridge) * np.eye(key_count, dtype=np.float64)
-    rhs_base = float(ridge) * base_key_q
-    solved = np.zeros_like(base_key_q)
-    for dim in range(dims):
-        bw = target_q[:, dim] * sqrt_w
-        rhs = aw.T @ bw + rhs_base[:, dim]
-        solved[:, dim] = np.linalg.solve(gram, rhs)
+        # The right endpoint belongs to the following segment.  This matches
+        # assignment into the original dense interpolation matrix without
+        # counting a shared keyframe twice.
+        rows = np.arange(left, right, dtype=np.int64)
+        alpha = (rows - left) / span
+        left_basis = 1.0 - alpha
+        right_basis = alpha
+        row_weights = np.maximum(weights[rows], 1e-08)
+        weighted_left = row_weights * left_basis
+        weighted_right = row_weights * right_basis
+        diagonal[idx] += float(np.dot(weighted_left, left_basis))
+        diagonal[idx + 1] += float(np.dot(weighted_right, right_basis))
+        first_upper[idx] += float(np.dot(weighted_left, right_basis))
+        rhs[idx] += weighted_left @ target_q[rows]
+        rhs[idx + 1] += weighted_right @ target_q[rows]
+    final_row = int(keyframes[-1])
+    final_weight = float(max(weights[final_row], 1e-08))
+    diagonal[-1] += final_weight
+    rhs[-1] += final_weight * target_q[final_row]
+    banded = np.zeros((2, key_count), dtype=np.float64)
+    banded[1] = diagonal
+    banded[0, 1:] = first_upper
+    solved = solveh_banded(
+        banded,
+        rhs,
+        lower=False,
+        overwrite_ab=True,
+        overwrite_b=True,
+        check_finite=False,
+    )
+    if solved.shape != (key_count, dims):
+        raise RuntimeError(f"unexpected global LS solution shape: {solved.shape!r}")
     return solved
 
 
@@ -2171,6 +2270,7 @@ kfbase_module = _register_inline_module(
         "stabilize_k2_slots": "kfbase_stabilize_k2_slots",
         "build_stream_segments": "kfbase_build_stream_segments",
         "build_second_difference_matrix": "kfbase_build_second_difference_matrix",
+        "solve_second_difference_system": "kfbase_solve_second_difference_system",
         "state_to_q": "kfbase_state_to_q",
         "q_to_state": "kfbase_q_to_state",
         "smooth_stream_segment": "kfbase_smooth_stream_segment",
