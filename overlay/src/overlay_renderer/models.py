@@ -10,7 +10,27 @@ from typing import Literal
 Point = tuple[float, float]
 Polygon = tuple[Point, ...]
 Box = tuple[float, float, float, float]
+Ellipse = tuple[float, float, float, float, float]
 OverlayKind = Literal["mask", "face"]
+
+
+@dataclass(frozen=True)
+class FaceKeypointOverlay:
+    x: float
+    y: float
+    class_name: str
+    state: int
+    state_name: str
+    confidence: float
+    valid: bool
+
+
+@dataclass(frozen=True)
+class FaceMaskOverlay:
+    width: int
+    height: int
+    box: Box
+    probabilities: bytes
 
 
 @dataclass(frozen=True)
@@ -25,6 +45,9 @@ class OverlayItem:
     track_id: str | None = None
     polygons: tuple[Polygon, ...] = ()
     box: Box | None = None
+    ellipse: Ellipse | None = None
+    keypoints: tuple[FaceKeypointOverlay, ...] = ()
+    face_mask: FaceMaskOverlay | None = None
 
 
 @dataclass(frozen=True)

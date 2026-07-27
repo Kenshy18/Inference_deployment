@@ -24,7 +24,7 @@ ROI-local semantic convolution、union-cropped mask pasteを含みます。
 
 ## Repository-wide inference
 
-共通CLIは動画を読み、共通schema v2のSQLiteを生成します。
+共通CLIは動画を読み、後方互換性のある共通schema v3のSQLiteを生成します。
 
 ```bash
 cd inference

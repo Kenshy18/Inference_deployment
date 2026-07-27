@@ -22,7 +22,12 @@ from overlay_renderer.cli import (
 )
 from overlay_renderer.render import RenderOptions
 
-from helpers import create_mask_sqlite, create_unified_sqlite, create_video
+from helpers import (
+    create_mask_sqlite,
+    create_rich_face_sqlite,
+    create_unified_sqlite,
+    create_video,
+)
 
 
 def _read_frame(path: Path, frame_index: int) -> np.ndarray:
@@ -265,6 +270,36 @@ class RenderTests(unittest.TestCase):
                     "--output",
                     "output.mp4",
                 ]
+            )
+
+    def test_rich_face_ellipse_mask_and_keypoints_render(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = create_rich_face_sqlite(root / "rich.sqlite")
+            output = root / "faces.mp4"
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(
+                    [
+                        "--mode",
+                        "faces",
+                        "--video",
+                        str(video),
+                        "--sqlite",
+                        str(sqlite),
+                        "--output",
+                        str(output),
+                        "--progress-every",
+                        "0",
+                    ]
+                )
+
+            original = _read_frame(video, 1)
+            rendered = _read_frame(output, 1)
+            self.assertGreater(
+                float(np.mean(cv2.absdiff(original, rendered))),
+                0.5,
             )
 
     def test_h264_mode_creates_readable_video(self) -> None:

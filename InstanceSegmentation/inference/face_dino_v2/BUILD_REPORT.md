@@ -3,9 +3,9 @@
 ## 結論
 
 `inference/`の第2顔モデルとして`face_dino_v2`を追加した。既存の
-`rtdetr_head_face`と同じ`ObjectDetectionAdapter`、隔離プロセス、SQLite schema v2、
-atomic orchestrationへ接続しつつ、モデル内部では楕円・キーポイント・occlusionを
-含むrich出力を維持する。
+`rtdetr_head_face`と同じ`ObjectDetectionAdapter`、隔離プロセス、SQLite schema v3、
+atomic orchestrationへ接続し、楕円・顔確率マスク・キーポイント・occlusionを
+含むrich出力をSQLiteまで維持する。
 
 PyTorch checkpointから全TensorRT資産を新規生成するビルダーを実データで実行し、
 171.42秒で完了した。生成後は元の学習workspaceを参照せず、モデルフォルダ内の
@@ -27,11 +27,13 @@ SQLiteには次を保存する。
 - `Head`: Co-DINOのHead boxとscore
 - `Face`: Face存在判定がtrueの場合だけ、予測楕円のaxis-aligned envelopeと
   Face score
+- `face_observations`: Head/Face対応、正確な楕円とFace存在判定
+- `face_masks`: 64×64顔確率マスクと元画像上の対応box
+- `face_keypoints`: 5点、eye/nose/mouth、visible/occluded、各確率
 
 このため後頭部はHeadだけとなり、HeadとFaceの1対1強制には戻らない。
 
-共有schemaに専用tableがない楕円、5キーポイント、eye/nose/mouthクラス、
-visible/occluded、各確率は`FaceDinoRuntime.predict()`のGPU tensorとして利用できる。
+同じrich情報は`FaceDinoRuntime.predict()`のGPU tensorからも利用できる。
 
 ## 高速engine
 

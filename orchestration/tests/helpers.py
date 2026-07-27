@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import zlib
 from pathlib import Path
 
 import cv2
@@ -115,8 +116,8 @@ def create_unified_sqlite(path: Path, frames: int = 8) -> Path:
                 (
                     2,
                     "face_detection",
-                    "test-face",
-                    "test-face",
+                    "rtdetr_head_face",
+                    "rtdetr_head_face",
                     "object_detection",
                     "test",
                 ),
@@ -172,3 +173,142 @@ def create_unified_sqlite(path: Path, frames: int = 8) -> Path:
             )
     return path
 
+
+def create_rich_face_unified_sqlite(path: Path) -> Path:
+    create_unified_sqlite(path, frames=1)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE schema_info SET value='3' WHERE key='schema_version'"
+        )
+        connection.execute(
+            """
+            UPDATE model_executions
+            SET model_id='face_dino_v2',
+                runtime_model_id='face_dino_v2',
+                backend='tensorrt-fast'
+            WHERE role='face_detection'
+            """
+        )
+        connection.execute("ALTER TABLE detections ADD COLUMN group_id INTEGER")
+        connection.executescript(
+            """
+            CREATE TABLE face_observations(
+                id INTEGER PRIMARY KEY,
+                anchor_detection_id INTEGER NOT NULL,
+                head_detection_id INTEGER,
+                face_detection_id INTEGER,
+                face_score REAL NOT NULL,
+                face_present INTEGER NOT NULL,
+                geometry_type TEXT,
+                ellipse_cx REAL,
+                ellipse_cy REAL,
+                ellipse_major_radius REAL,
+                ellipse_minor_radius REAL,
+                ellipse_theta_radians REAL
+            );
+            CREATE TABLE face_keypoints(
+                observation_id INTEGER NOT NULL,
+                point_index INTEGER NOT NULL,
+                class_id INTEGER NOT NULL,
+                class_name TEXT NOT NULL,
+                x REAL NOT NULL,
+                y REAL NOT NULL,
+                state INTEGER NOT NULL,
+                state_name TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                valid INTEGER NOT NULL
+            );
+            CREATE TABLE face_masks(
+                observation_id INTEGER PRIMARY KEY,
+                encoding TEXT,
+                width INTEGER,
+                height INTEGER,
+                box_x1 REAL,
+                box_y1 REAL,
+                box_x2 REAL,
+                box_y2 REAL,
+                data BLOB
+            );
+            CREATE TABLE face_keypoint_class_probabilities(
+                observation_id INTEGER,
+                point_index INTEGER,
+                class_index INTEGER,
+                probability REAL
+            );
+            CREATE TABLE face_keypoint_state_probabilities(
+                observation_id INTEGER,
+                point_index INTEGER,
+                state_index INTEGER,
+                probability REAL
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO detections VALUES(
+                300, 1, 2, 1, 'Head', 0.97,
+                8, 4, 50, 44, NULL, 'head_detection', 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO face_masks VALUES(
+                1, 'zlib-u8-probability-v1', 64, 64,
+                18.0, 10.0, 42.0, 35.0, ?
+            )
+            """,
+            (zlib.compress(bytes([192]) * (64 * 64)),),
+        )
+        connection.execute("UPDATE detections SET group_id=0 WHERE id=200")
+        connection.execute(
+            """
+            INSERT INTO face_observations VALUES(
+                1, 300, 300, 200, 0.93, 1, 'ellipse',
+                30.0, 22.0, 12.0, 8.0, 0.2
+            )
+            """
+        )
+        for point_index in range(5):
+            class_id = (1, 1, 2, 3, 3)[point_index]
+            class_name = ("Eye", "Eye", "Nose", "Mouth", "Mouth")[point_index]
+            state = (2, 1, 2, 2, 0)[point_index]
+            state_name = (
+                "visible",
+                "occluded",
+                "visible",
+                "visible",
+                "absent",
+            )[point_index]
+            connection.execute(
+                """
+                INSERT INTO face_keypoints VALUES(
+                    1, ?, ?, ?, ?, ?, ?, ?, 0.9, ?
+                )
+                """,
+                (
+                    point_index,
+                    class_id,
+                    class_name,
+                    20.0 + point_index,
+                    18.0 + point_index,
+                    state,
+                    state_name,
+                    int(point_index < 4),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO face_keypoint_class_probabilities
+                VALUES(1, ?, ?, ?)
+                """,
+                ((point_index, class_index, 0.25) for class_index in range(4)),
+            )
+            connection.executemany(
+                """
+                INSERT INTO face_keypoint_state_probabilities
+                VALUES(1, ?, ?, ?)
+                """,
+                ((point_index, state_index, 0.5) for state_index in (1, 2)),
+            )
+    return path

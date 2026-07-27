@@ -93,9 +93,9 @@ masks(frame, mask_id, detection_index, label, class_name, category_id,
       score, detector_score, class_score, bbox_xyxy, polygons, source_json)
 ```
 
-InstanceSegmentationのunified inference schema v2も指定できます。schema名は
-`instance-segmentation-unified-inference`、versionは`2`とし、少なくとも次の
-テーブルを要求します。
+InstanceSegmentationのunified inference schema v2/v3も指定できます。schema名は
+`instance-segmentation-unified-inference`とし、少なくとも次のテーブルを
+要求します。
 
 ```text
 frames(id, run_id, frame_index, timestamp_sec, width, height)

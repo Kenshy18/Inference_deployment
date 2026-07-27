@@ -11,6 +11,14 @@ from .common import (
     TaskType,
     VisionAdapter,
 )
+from .face_attributes import (
+    KEYPOINT_CLASS_NAMES,
+    KEYPOINT_STATE_NAMES,
+    FaceEllipse,
+    FaceKeypoint,
+    FaceMask,
+    FaceObservation,
+)
 from .instance_segmentation import (
     InstanceSegmentationAdapter,
     Segmentation,
@@ -34,11 +42,17 @@ __all__ = [
     "ColorSpace",
     "Detection",
     "DetectionFrame",
+    "FaceEllipse",
+    "FaceKeypoint",
+    "FaceMask",
+    "FaceObservation",
     "Frame",
     "FrameBatch",
     "FrameReference",
     "InferenceFrame",
     "InstanceSegmentationAdapter",
+    "KEYPOINT_CLASS_NAMES",
+    "KEYPOINT_STATE_NAMES",
     "ModelDescriptor",
     "ObjectDetectionAdapter",
     "Segmentation",

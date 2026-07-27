@@ -105,9 +105,7 @@ def _iter_unified_detections(
                 polygons.append(polygon)
                 polygon = []
             polygon_index = next_polygon_index
-            polygon.extend(
-                [float(current_point["x"]), float(current_point["y"])]
-            )
+            polygon.extend([float(current_point["x"]), float(current_point["y"])])
             current_point = next(point_rows, None)
         if polygon:
             polygons.append(polygon)
@@ -168,9 +166,7 @@ def _normalize_unified_inference_sqlite(
         while current is not None and current[0] == frame_index:
             raw_detections.append(current[1])
             polygons += len(current[1]["polygons"])
-            points += sum(
-                len(polygon) // 2 for polygon in current[1]["polygons"]
-            )
+            points += sum(len(polygon) // 2 for polygon in current[1]["polygons"])
             current = next(detections_iter, None)
         record = normalize_frame_record(
             {
@@ -189,23 +185,24 @@ def _normalize_unified_inference_sqlite(
             "detections": record["detections"],
         }
         handle.write(
-            json.dumps(canonical, ensure_ascii=False, separators=(",", ":"))
-            + "\n"
+            json.dumps(canonical, ensure_ascii=False, separators=(",", ":")) + "\n"
         )
         frames += 1
         detections += len(raw_detections)
         empty_frames += int(not raw_detections)
     if current is not None:
-        raise ValueError(
-            f"detection references missing frame {int(current[0])}"
-        )
+        raise ValueError(f"detection references missing frame {int(current[0])}")
+    schema = dict(connection.execute("SELECT key, value FROM schema_info"))
     return {
         "frames": frames,
         "detections": detections,
         "empty_frames": empty_frames,
         "polygons": polygons,
         "points": points,
-        "input_schema": "instance-segmentation-unified-inference-v2",
+        "input_schema": (
+            "instance-segmentation-unified-inference-v"
+            f"{schema.get('schema_version', 'unknown')}"
+        ),
     }
 
 

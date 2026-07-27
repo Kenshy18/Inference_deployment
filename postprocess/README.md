@@ -88,7 +88,7 @@ python run_pipeline.py \
 - `metadata`、`frames`、未追跡の`masks.mask_id`を持つDINOv3
   `raw_mask_sqlite_v1`
 - `segmentation_polygons`と`segmentation_points`を持つ
-  InstanceSegmentation unified inference schema v2
+  InstanceSegmentation unified inference schema v2/v3
 
 未追跡SQLiteの場合だけ、動画をカット検出に使用した後、スコア方針、NMS、
 トラッキングから実行します。

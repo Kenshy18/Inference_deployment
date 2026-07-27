@@ -12,7 +12,11 @@ from overlay_renderer.sources import (
     iter_raw_segmentation_frames,
 )
 
-from helpers import create_mask_sqlite, create_unified_sqlite
+from helpers import (
+    create_mask_sqlite,
+    create_rich_face_sqlite,
+    create_unified_sqlite,
+)
 
 
 class SourceTests(unittest.TestCase):
@@ -44,7 +48,28 @@ class SourceTests(unittest.TestCase):
             self.assertEqual("7", frames[0].items[0].track_id)
             self.assertEqual(4, len(frames[0].items[0].polygons[0]))
 
+    def test_schema_v3_faces_use_exact_ellipse_and_keypoints(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
+
+            frames = list(iter_face_frames(path))
+
+            self.assertEqual(1, len(frames))
+            self.assertEqual(1, frames[0].frame_index)
+            face = next(item for item in frames[0].items if item.label == "Face")
+            head = next(item for item in frames[0].items if item.label == "Head")
+            self.assertIsNone(face.box)
+            self.assertEqual(
+                (30.0, 22.0, 12.0, 8.0, 0.25),
+                face.ellipse,
+            )
+            self.assertEqual(5, len(face.keypoints))
+            self.assertEqual(4, sum(point.valid for point in face.keypoints))
+            self.assertIsNotNone(face.face_mask)
+            assert face.face_mask is not None
+            self.assertEqual(16, len(face.face_mask.probabilities))
+            self.assertEqual((12.0, 5.0, 48.0, 42.0), head.box)
+
 
 if __name__ == "__main__":
     unittest.main()
-

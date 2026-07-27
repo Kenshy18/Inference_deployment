@@ -9,7 +9,7 @@ Pythonモジュールをimportしません。接続点は以下のSQLite列だ�
 
 ```text
 schema_name = instance-segmentation-unified-inference
-schema_version = 2
+schema_version = 2 or 3
 ```
 
 生マスクでは`model_executions.role = instance_segmentation`に属する
@@ -17,8 +17,11 @@ schema_version = 2
 `segmentation_points`を読みます。分類結果がある場合は表示ラベルとスコアに
 `classifications`を優先します。
 
-顔では`model_executions.role = face_detection`に属する`detections`の
-`[x1, y1, x2, y2)`を読みます。顔検出にはpolygonを要求しません。
+顔では`model_executions.role = face_detection`に属する`detections`を読みます。
+schema v2は従来どおり`[x1, y1, x2, y2)`を描画します。schema v3の
+`face_observations`がある場合、通常CPU/NVENC rendererはHead box、正確なFace楕円、
+顔確率マスク、validなキーポイントを描画します。高速native rendererはv3を受理し、
+互換用のHead/Face boxを描画します。
 
 フレーム番号と座標は0始まり、元動画画素座標です。
 
@@ -56,4 +59,3 @@ masks(
 - postprocess SQLiteでは最大フレーム番号を照合します。
 - 入力SQLiteは変更しません。
 - 出力動画は一時ファイルからatomicに置き換えます。
-

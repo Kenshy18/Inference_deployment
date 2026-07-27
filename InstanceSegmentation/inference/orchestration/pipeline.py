@@ -23,6 +23,8 @@ class OrchestrationSummary:
     detections: int
     classifications: int
     segmentations: int
+    face_observations: int
+    face_keypoints: int
     models: tuple[ImportedModelSummary, ...]
 
 
@@ -85,9 +87,7 @@ def run_orchestrated_inference(
                     "segmentation_model": request.segmentation_model,
                     "segmentation_backend": request.segmentation_backend,
                     "face_model": (
-                        request.face_model
-                        if request.mode.uses_face_detection
-                        else None
+                        request.face_model if request.mode.uses_face_detection else None
                     ),
                     "face_classes": request.face_classes,
                     "device": request.device,
@@ -115,6 +115,8 @@ def run_orchestrated_inference(
         detections=sum(item.detections for item in imported),
         classifications=sum(item.classifications for item in imported),
         segmentations=sum(item.segmentations for item in imported),
+        face_observations=sum(item.face_observations for item in imported),
+        face_keypoints=sum(item.face_keypoints for item in imported),
         models=tuple(imported),
     )
     print(
@@ -125,7 +127,9 @@ def run_orchestrated_inference(
         f"[orchestrator] frames={result.frames} "
         f"detections={result.detections} "
         f"classifications={result.classifications} "
-        f"segmentations={result.segmentations}",
+        f"segmentations={result.segmentations} "
+        f"face_observations={result.face_observations} "
+        f"face_keypoints={result.face_keypoints}",
         flush=True,
     )
     return result

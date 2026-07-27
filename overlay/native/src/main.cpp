@@ -558,7 +558,7 @@ void validate_inference_schema(
     }
     if (
         schema_name != "instance-segmentation-unified-inference" ||
-        schema_version != "2"
+        (schema_version != "2" && schema_version != "3")
     ) {
         throw std::runtime_error(
             path.string() + ": unsupported inference schema " +

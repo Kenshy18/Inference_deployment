@@ -5,15 +5,24 @@ from __future__ import annotations
 import itertools
 import json
 import sqlite3
+import zlib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from .models import FrameOverlay, OverlayItem, Polygon, SourceInfo
+from .models import (
+    FaceKeypointOverlay,
+    FaceMaskOverlay,
+    FrameOverlay,
+    OverlayItem,
+    Polygon,
+    SourceInfo,
+)
 
 
 INFERENCE_SCHEMA_NAME = "instance-segmentation-unified-inference"
-INFERENCE_SCHEMA_VERSION = "2"
+INFERENCE_SCHEMA_VERSION = "3"
+INFERENCE_SCHEMA_VERSIONS = frozenset({"2", "3"})
 
 INFERENCE_COLUMNS = {
     "schema_info": {"key", "value"},
@@ -41,6 +50,43 @@ INFERENCE_COLUMNS = {
         "point_index",
         "x",
         "y",
+    },
+}
+
+RICH_FACE_COLUMNS = {
+    "face_observations": {
+        "id",
+        "head_detection_id",
+        "face_detection_id",
+        "face_present",
+        "geometry_type",
+        "ellipse_cx",
+        "ellipse_cy",
+        "ellipse_major_radius",
+        "ellipse_minor_radius",
+        "ellipse_theta_radians",
+    },
+    "face_keypoints": {
+        "observation_id",
+        "point_index",
+        "class_name",
+        "x",
+        "y",
+        "state",
+        "state_name",
+        "confidence",
+        "valid",
+    },
+    "face_masks": {
+        "observation_id",
+        "encoding",
+        "width",
+        "height",
+        "box_x1",
+        "box_y1",
+        "box_x2",
+        "box_y2",
+        "data",
     },
 }
 
@@ -73,10 +119,7 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
 
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    return {
-        str(row[1])
-        for row in connection.execute(f'PRAGMA table_info("{table}")')
-    }
+    return {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
 
 
 def _validate_columns(
@@ -111,14 +154,19 @@ def _validate_inference(connection: sqlite3.Connection, path: Path) -> None:
             f"{path}: unsupported inference schema: "
             f"{info.get('schema_name', '<missing>')}"
         )
-    if info.get("schema_version") != INFERENCE_SCHEMA_VERSION:
+    schema_version = info.get("schema_version")
+    if schema_version not in INFERENCE_SCHEMA_VERSIONS:
         raise OverlayContractError(
             f"{path}: unsupported inference schema version: "
             f"{info.get('schema_version', '<missing>')}"
         )
+    if schema_version == "3":
+        _validate_columns(connection, RICH_FACE_COLUMNS, path=path)
     integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
     if integrity != "ok":
-        raise OverlayContractError(f"{path}: SQLite integrity check failed: {integrity}")
+        raise OverlayContractError(
+            f"{path}: SQLite integrity check failed: {integrity}"
+        )
 
 
 def _require_role(
@@ -247,12 +295,11 @@ def inspect_mask_source(path: Path) -> SourceInfo:
 
 
 def _classification_columns(connection: sqlite3.Connection) -> bool:
-    return (
-        "classifications" in _tables(connection)
-        and {"detection_id", "class_name", "score"}.issubset(
-            _columns(connection, "classifications")
-        )
-    )
+    return "classifications" in _tables(connection) and {
+        "detection_id",
+        "class_name",
+        "score",
+    }.issubset(_columns(connection, "classifications"))
 
 
 def _polygon_from_rows(rows: list[sqlite3.Row]) -> Polygon:
@@ -431,23 +478,118 @@ def iter_mask_frames(path: Path) -> Iterator[FrameOverlay]:
 
 
 def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
-    """Stream face/head detection boxes grouped by frame."""
+    """Stream boxes plus optional rich face ellipses/keypoints by frame."""
 
     resolved = Path(path).expanduser().resolve()
     connection = _connect_read_only(resolved)
     try:
         _validate_inference(connection, resolved)
         _require_role(connection, resolved, "face_detection")
-        rows = connection.execute(
+        has_rich_faces = "face_observations" in _tables(connection)
+        keypoints: dict[int, tuple[FaceKeypointOverlay, ...]] = {}
+        face_masks: dict[int, FaceMaskOverlay] = {}
+        if has_rich_faces:
+            grouped_points: dict[int, list[FaceKeypointOverlay]] = {}
+            for point in connection.execute(
+                """
+                SELECT observation_id, class_name, x, y,
+                       state, state_name, confidence, valid
+                FROM face_keypoints
+                ORDER BY observation_id, point_index
+                """
+            ):
+                grouped_points.setdefault(int(point["observation_id"]), []).append(
+                    FaceKeypointOverlay(
+                        x=float(point["x"]),
+                        y=float(point["y"]),
+                        class_name=str(point["class_name"]),
+                        state=int(point["state"]),
+                        state_name=str(point["state_name"]),
+                        confidence=float(point["confidence"]),
+                        valid=bool(point["valid"]),
+                    )
+                )
+            keypoints = {
+                observation_id: tuple(values)
+                for observation_id, values in grouped_points.items()
+            }
+            for mask in connection.execute(
+                """
+                SELECT observation_id, encoding, width, height,
+                       box_x1, box_y1, box_x2, box_y2, data
+                FROM face_masks
+                """
+            ):
+                if str(mask["encoding"]) != "zlib-u8-probability-v1":
+                    raise OverlayContractError(
+                        f"{resolved}: unsupported face mask encoding"
+                    )
+                width = int(mask["width"])
+                height = int(mask["height"])
+                try:
+                    probabilities = zlib.decompress(bytes(mask["data"]))
+                except zlib.error as exc:
+                    raise OverlayContractError(
+                        f"{resolved}: corrupt face mask"
+                    ) from exc
+                if len(probabilities) != width * height:
+                    raise OverlayContractError(f"{resolved}: face mask size mismatch")
+                face_masks[int(mask["observation_id"])] = FaceMaskOverlay(
+                    width=width,
+                    height=height,
+                    box=(
+                        float(mask["box_x1"]),
+                        float(mask["box_y1"]),
+                        float(mask["box_x2"]),
+                        float(mask["box_y2"]),
+                    ),
+                    probabilities=probabilities,
+                )
+        rich_columns = (
             """
+            , fo.id AS observation_id,
+              fo.face_detection_id,
+              fo.face_present,
+              fo.geometry_type,
+              fo.ellipse_cx,
+              fo.ellipse_cy,
+              fo.ellipse_major_radius,
+              fo.ellipse_minor_radius,
+              fo.ellipse_theta_radians
+            """
+            if has_rich_faces
+            else """
+            , NULL AS observation_id,
+              NULL AS face_detection_id,
+              NULL AS face_present,
+              NULL AS geometry_type,
+              NULL AS ellipse_cx,
+              NULL AS ellipse_cy,
+              NULL AS ellipse_major_radius,
+              NULL AS ellipse_minor_radius,
+              NULL AS ellipse_theta_radians
+            """
+        )
+        rich_join = (
+            """
+            LEFT JOIN face_observations fo
+              ON fo.head_detection_id=d.id OR fo.face_detection_id=d.id
+            """
+            if has_rich_faces
+            else ""
+        )
+        rows = connection.execute(
+            f"""
             SELECT f.frame_index,
                    d.id AS detection_id,
                    d.class_name,
                    d.score,
                    d.x1, d.y1, d.x2, d.y2
+                   {rich_columns}
             FROM detections d
             JOIN frames f ON f.id=d.frame_id
             JOIN model_executions me ON me.id=d.model_execution_id
+            {rich_join}
             WHERE me.role='face_detection'
             ORDER BY f.frame_index, d.id
             """
@@ -458,6 +600,28 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                 frame = int(row["frame_index"])
                 label = str(row["class_name"])
                 detection_id = int(row["detection_id"])
+                observation_id = (
+                    None
+                    if row["observation_id"] is None
+                    else int(row["observation_id"])
+                )
+                is_rich_face = (
+                    label.lower() == "face"
+                    and observation_id is not None
+                    and bool(row["face_present"])
+                    and row["geometry_type"] == "ellipse"
+                )
+                ellipse = (
+                    (
+                        float(row["ellipse_cx"]),
+                        float(row["ellipse_cy"]),
+                        float(row["ellipse_major_radius"]),
+                        float(row["ellipse_minor_radius"]),
+                        float(row["ellipse_theta_radians"]),
+                    )
+                    if is_rich_face
+                    else None
+                )
                 yield frame, OverlayItem(
                     identity=f"face:{detection_id}",
                     color_key=f"face:{label}",
@@ -465,12 +629,49 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
                     label=label,
                     score=float(row["score"]),
                     box=(
-                        float(row["x1"]),
-                        float(row["y1"]),
-                        float(row["x2"]),
-                        float(row["y2"]),
+                        None
+                        if is_rich_face
+                        else (
+                            float(row["x1"]),
+                            float(row["y1"]),
+                            float(row["x2"]),
+                            float(row["y2"]),
+                        )
+                    ),
+                    ellipse=ellipse,
+                    keypoints=(
+                        keypoints.get(observation_id, ())
+                        if is_rich_face and observation_id is not None
+                        else ()
+                    ),
+                    face_mask=(
+                        face_masks.get(observation_id)
+                        if is_rich_face and observation_id is not None
+                        else None
                     ),
                 )
+                if (
+                    label.lower() == "head"
+                    and observation_id is not None
+                    and row["face_detection_id"] is None
+                    and bool(row["face_present"])
+                    and row["geometry_type"] == "ellipse"
+                ):
+                    yield frame, OverlayItem(
+                        identity=f"face-observation:{observation_id}",
+                        color_key="face:Face",
+                        kind="face",
+                        label="Face",
+                        ellipse=(
+                            float(row["ellipse_cx"]),
+                            float(row["ellipse_cy"]),
+                            float(row["ellipse_major_radius"]),
+                            float(row["ellipse_minor_radius"]),
+                            float(row["ellipse_theta_radians"]),
+                        ),
+                        keypoints=keypoints.get(observation_id, ()),
+                        face_mask=face_masks.get(observation_id),
+                    )
 
         for frame_index, grouped in itertools.groupby(
             iter_items(), key=lambda pair: pair[0]
@@ -486,6 +687,7 @@ def iter_face_frames(path: Path) -> Iterator[FrameOverlay]:
 __all__ = [
     "INFERENCE_SCHEMA_NAME",
     "INFERENCE_SCHEMA_VERSION",
+    "INFERENCE_SCHEMA_VERSIONS",
     "OverlayContractError",
     "inspect_inference_source",
     "inspect_mask_source",

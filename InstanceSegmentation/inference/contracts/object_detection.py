@@ -8,6 +8,7 @@ from typing import Protocol, Sequence, runtime_checkable
 
 from .classification import Classification
 from .common import FrameBatch, FrameReference, ModelDescriptor
+from .face_attributes import FaceObservation
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,8 @@ class Detection:
     classification: Classification | None = None
     track_id: int | None = None
     source: str = "detection"
+    group_id: int | None = None
+    face_observation: FaceObservation | None = None
 
     def __post_init__(self) -> None:
         if self.class_id < 0:
@@ -54,8 +57,12 @@ class Detection:
             raise ValueError("detection score must be in [0, 1]")
         if self.track_id is not None and self.track_id < 0:
             raise ValueError("track_id must be non-negative")
+        if self.group_id is not None and self.group_id < 0:
+            raise ValueError("group_id must be non-negative")
         if not self.source:
             raise ValueError("detection source must not be empty")
+        if self.face_observation is not None and self.group_id is None:
+            raise ValueError("face observation requires group_id")
 
 
 @dataclass(frozen=True, slots=True)

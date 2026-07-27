@@ -1,4 +1,4 @@
-"""Validate and merge one standalone model SQLite into schema v2."""
+"""Validate and merge one standalone model SQLite into unified schema v3."""
 
 from __future__ import annotations
 
@@ -40,6 +40,8 @@ class ImportedModelSummary:
     detections: int
     classifications: int
     segmentations: int
+    face_observations: int
+    face_keypoints: int
 
 
 def import_candidate_database(
@@ -63,9 +65,7 @@ def import_candidate_database(
                 "SELECT key, value, value_type FROM metadata ORDER BY key"
             )
         )
-        metadata = {
-            str(row["key"]): str(row["value"]) for row in metadata_rows
-        }
+        metadata = {str(row["key"]): str(row["value"]) for row in metadata_rows}
         task = metadata.get("task", "")
         expected_task = ROLE_TASKS[role]
         if task != expected_task:
@@ -107,12 +107,12 @@ def import_candidate_database(
         detections=counts.detections,
         classifications=counts.classifications,
         segmentations=counts.segmentations,
+        face_observations=counts.face_observations,
+        face_keypoints=counts.face_keypoints,
     )
 
 
-def _validate_candidate(
-    candidate: sqlite3.Connection, source: Path
-) -> None:
+def _validate_candidate(candidate: sqlite3.Connection, source: Path) -> None:
     tables = {
         str(row[0])
         for row in candidate.execute(

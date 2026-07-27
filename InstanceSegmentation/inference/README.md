@@ -1,13 +1,12 @@
 # Inference architecture
 
 `inference/`は、モデル固有実装を共通の入出力契約へ接続する層です。モデルの
-交換や最適化では、利用側のパイプラインと保存形式を変更しないことを基本方針に
-します。
+交換や最適化では、利用側のパイプラインとの後方互換を維持します。
 
 ## Unified run
 
 公開入口は`run_inference.py`です。動画を入力し、次の3モードを同じSQLite
-schema v2で出力します。
+schema v3で出力します。既存schema v2は読み取り互換として残します。
 
 ```bash
 # インスタンスセグメンテーション＋分類器
@@ -55,7 +54,7 @@ run_inference.py
     -> orchestration/pipeline.py
     -> registered standalone model process(es)
     -> DetectionFrame | SegmentationFrame SQLite
-    -> unified schema-v2 SQLite
+    -> unified schema-v3 SQLite
 ```
 
 - `contracts/`: フレーム、分類、物体検出、インスタンスセグメンテーションの
@@ -81,8 +80,10 @@ half-openの`[x1, y1, x2, y2)`、スコアは`0.0`から`1.0`です。結果は�
   `SegmentationFrame`。検出矩形、検出スコア、任意の分類結果、元画像座標の
   polygon maskを持ちます。
 - 顔・頭部検出:
-  `DetectionFrame`。検出矩形とスコアを持ちます。追跡や顔検出後の時系列処理は
-  現在の推論範囲に含めません。
+  `DetectionFrame`。従来モデルは検出矩形とスコアを持ちます。
+  `face_dino_v2`では同じHead/Face検出行に加え、HeadとFaceの対応、顔確率、
+  楕円、64×64確率マスク、5点キーポイント、visible/occluded、validと各確率を
+  `FaceObservation`として持ちます。追跡は現在の推論範囲に含めません。
 - 分類:
   現時点では独立パイプラインではなく、各検出の任意フィールド
   `Classification`として保持します。
@@ -125,6 +126,17 @@ CLIの`--output`はSQLiteファイルのパスです。既存ファイルは誤�
 - `segmentations`: 検出とマスクの対応
 - `segmentation_polygons`: マスク内のpolygon
 - `segmentation_points`: polygonを構成する元動画座標の点
+- `face_observations`: Head/Face行の対応、顔有無、顔スコア、正確な楕円
+- `face_masks`: 元画像上の対応boxと`zlib-u8-probability-v1`顔確率マスク
+- `face_keypoints`: 5点の座標、意味クラス、visible/occluded、valid、confidence
+- `face_keypoint_class_probabilities`: background/eye/nose/mouth確率
+- `face_keypoint_state_probabilities`: occluded/visible確率
+
+schema v3でも従来の`detections`とFace外接boxは残るため、schema v2相当のreaderは
+列追加を許容すれば従来表示を継続できます。rich情報を利用するreaderは
+`face_observations`からHeadとFaceを対応付けます。顔楕円の角度はradian、
+座標と半径は元動画画素座標です。顔マスクは0〜255へ量子化した確率をzlib圧縮し、
+`face_masks`のboxへ写像します。
 
 モデル内部ではバイナリマスクを生成し、SQLite保存直前に
 `CHAIN_APPROX_SIMPLE`で輪郭polygonへ変換してから形状を簡略化します。

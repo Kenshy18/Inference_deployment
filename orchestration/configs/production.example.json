@@ -11,7 +11,7 @@
     "mode": "segmentation-face",
     "segmentation_model": "dinov3_codino",
     "segmentation_backend": "tensorrt-fast",
-    "face_model": "rtdetr_head_face",
+    "face_model": "face_dino_v2",
     "face_classes": ["Face", "Head"],
     "device": "cuda:0",
     "warmup_frames": 0,

@@ -12,6 +12,10 @@ from contracts import (
     BoundingBox,
     Detection,
     DetectionFrame,
+    FaceEllipse,
+    FaceKeypoint,
+    FaceMask,
+    FaceObservation,
     FrameBatch,
     FrameReference,
     ModelDescriptor,
@@ -82,9 +86,7 @@ class FaceDinoV2Adapter:
         selected = set()
         for value in values:
             selected.add(
-                lookup[value.lower()]
-                if value.lower() in lookup
-                else int(value)
+                lookup[value.lower()] if value.lower() in lookup else int(value)
             )
         invalid = selected - set(LABEL_NAMES)
         if invalid:
@@ -92,10 +94,7 @@ class FaceDinoV2Adapter:
         return frozenset(selected)
 
     def _allowed(self, class_id: int) -> bool:
-        return (
-            self.settings.classes is None
-            or class_id in self.settings.classes
-        )
+        return self.settings.classes is None or class_id in self.settings.classes
 
     def predict(self, batch: FrameBatch) -> tuple[DetectionFrame, ...]:
         raw_results = self.runtime.predict(batch.images)
@@ -108,26 +107,116 @@ class FaceDinoV2Adapter:
                     raw["face_scores"].detach().float()[:, None],
                     raw["face_present"].detach().float()[:, None],
                     raw["ellipses"].detach().float(),
+                    raw["keypoints"].detach().float().flatten(1),
+                    raw["point_classes"].detach().float(),
+                    raw["keypoint_states"].detach().float(),
+                    raw["point_confidence"].detach().float(),
+                    raw["point_valid"].detach().float(),
+                    raw["point_class_probabilities"].detach().float().flatten(1),
+                    raw["point_state_probabilities"].detach().float().flatten(1),
+                    raw["ellipse_mask_boxes"].detach().float(),
                 ),
                 dim=1,
             )
             for raw in raw_results
         ]
-        packed_rows = (
-            torch.cat(packed, dim=0).cpu().tolist()
+        packed_rows = torch.cat(packed, dim=0).cpu().tolist() if sum(counts) else []
+        packed_masks = (
+            torch.cat(
+                [
+                    (
+                        raw["ellipse_moment_masks"]
+                        .detach()
+                        .float()
+                        .clamp(0.0, 1.0)
+                        .mul(255.0)
+                        .round()
+                        .to(torch.uint8)
+                    )
+                    for raw in raw_results
+                ],
+                dim=0,
+            )
+            .cpu()
+            .numpy()
             if sum(counts)
-            else []
+            else None
         )
         frames: list[DetectionFrame] = []
         offset = 0
         for frame, count in zip(batch.frames, counts):
             detections: list[Detection] = []
-            for row in packed_rows[offset : offset + count]:
+            for group_id, row in enumerate(packed_rows[offset : offset + count]):
                 box = row[0:4]
                 head_score = row[4]
                 face_score = row[5]
                 present = row[6] >= 0.5
                 ellipse = row[7:12]
+                keypoint_xy = row[12:22]
+                point_classes = row[22:27]
+                point_states = row[27:32]
+                point_confidence = row[32:37]
+                point_valid = row[37:42]
+                class_probabilities = row[42:62]
+                state_probabilities = row[62:72]
+                mask_box = row[72:76]
+                mask_array = (
+                    None if packed_masks is None else packed_masks[offset + group_id]
+                )
+                observation = FaceObservation(
+                    score=float(face_score),
+                    present=present,
+                    ellipse=(
+                        FaceEllipse(
+                            cx=float(ellipse[0]),
+                            cy=float(ellipse[1]),
+                            major_radius=float(ellipse[2]),
+                            minor_radius=float(ellipse[3]),
+                            theta_radians=float(ellipse[4]),
+                        )
+                        if present
+                        else None
+                    ),
+                    keypoints=tuple(
+                        FaceKeypoint(
+                            point_index=index,
+                            class_id=int(round(point_classes[index])),
+                            x=float(keypoint_xy[index * 2]),
+                            y=float(keypoint_xy[index * 2 + 1]),
+                            state=int(round(point_states[index])),
+                            confidence=float(point_confidence[index]),
+                            valid=point_valid[index] >= 0.5,
+                            class_probabilities=tuple(
+                                float(value)
+                                for value in class_probabilities[
+                                    index * 4 : (index + 1) * 4
+                                ]
+                            ),
+                            state_probabilities=tuple(
+                                float(value)
+                                for value in state_probabilities[
+                                    index * 2 : (index + 1) * 2
+                                ]
+                            ),
+                        )
+                        for index in range(5)
+                    ),
+                    mask=(
+                        FaceMask(
+                            width=int(mask_array.shape[1]),
+                            height=int(mask_array.shape[0]),
+                            box_x1=float(mask_box[0]),
+                            box_y1=float(mask_box[1]),
+                            box_x2=float(mask_box[2]),
+                            box_y2=float(mask_box[3]),
+                            data=mask_array.tobytes(),
+                        )
+                        if present and mask_array is not None
+                        else None
+                    ),
+                )
+                head_allowed = self._allowed(1)
+                face_allowed = present and self._allowed(2)
                 if self._allowed(1):
                     detections.append(
                         Detection(
@@ -141,9 +230,11 @@ class FaceDinoV2Adapter:
                                 max(0.0, min(frame.height, float(box[3]))),
                             ),
                             source="head_detection",
+                            group_id=group_id,
+                            face_observation=observation,
                         )
                     )
-                if present and self._allowed(2):
+                if face_allowed:
                     x1, y1, x2, y2 = ellipse_xyxy(ellipse)
                     detections.append(
                         Detection(
@@ -157,6 +248,10 @@ class FaceDinoV2Adapter:
                                 max(0.0, min(frame.height, y2)),
                             ),
                             source="ellipse_detection",
+                            group_id=group_id,
+                            face_observation=(
+                                observation if not head_allowed else None
+                            ),
                         )
                     )
             offset += count

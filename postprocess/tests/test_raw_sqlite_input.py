@@ -34,14 +34,33 @@ class RawSqliteInputTests(unittest.TestCase):
     def test_detects_and_validates_unified_inference_schema(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            source = write_unified_inference_sqlite(root / "unified.sqlite", frames=3)
+
+            self.assertEqual("unified_inference", detect_mask_sqlite_kind(source))
+            validate_unified_inference_sqlite(source)
+
+    def test_accepts_unified_inference_schema_v3(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
             source = write_unified_inference_sqlite(
-                root / "unified.sqlite", frames=3
+                root / "unified-v3.sqlite", frames=3
             )
+            with sqlite3.connect(source) as connection:
+                connection.execute(
+                    """
+                    UPDATE schema_info SET value='3'
+                    WHERE key='schema_version'
+                    """
+                )
+            output = root / "normalized.jsonl"
+
+            validate_unified_inference_sqlite(source)
+            stats = normalize_raw_detection_sqlite(source, output)
 
             self.assertEqual(
-                "unified_inference", detect_mask_sqlite_kind(source)
+                "instance-segmentation-unified-inference-v3",
+                stats["input_schema"],
             )
-            validate_unified_inference_sqlite(source)
 
     def test_raw_sqlite_normalizes_flat_dinov3_polygons(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -83,9 +102,7 @@ class RawSqliteInputTests(unittest.TestCase):
             manifest = run_pipeline(args)
 
             self.assertTrue(manifest["complete"])
-            self.assertEqual(
-                "polygon_raw_sqlite_modular", manifest["pipeline"]
-            )
+            self.assertEqual("polygon_raw_sqlite_modular", manifest["pipeline"])
             self.assertEqual(
                 "preprocessing.raw_sqlite",
                 manifest["stages"][0]["implementation"],
@@ -101,9 +118,7 @@ class RawSqliteInputTests(unittest.TestCase):
     def test_unified_inference_normalizes_scores_and_empty_frames(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = write_unified_inference_sqlite(
-                root / "unified.sqlite", frames=3
-            )
+            source = write_unified_inference_sqlite(root / "unified.sqlite", frames=3)
             output = root / "normalized.jsonl"
 
             stats = normalize_raw_detection_sqlite(source, output)
@@ -126,9 +141,7 @@ class RawSqliteInputTests(unittest.TestCase):
     def test_default_polygon_pipeline_accepts_unified_inference(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = write_unified_inference_sqlite(
-                root / "unified.sqlite", frames=6
-            )
+            source = write_unified_inference_sqlite(root / "unified.sqlite", frames=6)
             args = build_parser().parse_args(
                 [
                     "--input-sqlite",

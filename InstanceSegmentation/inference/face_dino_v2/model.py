@@ -17,15 +17,9 @@ from .trt.bundle import FaceDinoEngineBundle, load_engine_bundle, sha256_file
 
 FAMILY_ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_ROOT = FAMILY_ROOT / ".runtime" / "src" / "face_detection"
-DEFAULT_CHECKPOINT = (
-    FAMILY_ROOT / "artifacts" / "detector" / "model_residual_v2.pth"
-)
+DEFAULT_CHECKPOINT = FAMILY_ROOT / "artifacts" / "detector" / "model_residual_v2.pth"
 DEFAULT_TRT_BUNDLE = (
-    FAMILY_ROOT
-    / "artifacts"
-    / "trt"
-    / "fast-sm120-fixed-b8-v1"
-    / "manifest.json"
+    FAMILY_ROOT / "artifacts" / "trt" / "fast-sm120-fixed-b8-v1" / "manifest.json"
 )
 
 
@@ -34,16 +28,8 @@ def configure_source_root(source_root: Path) -> Path:
     required = (
         root / "face_dino_v1",
         root / "codino_face_detection" / "models",
-        root
-        / "codino_face_detection"
-        / ".runtime"
-        / "external"
-        / "codino",
-        root
-        / "codino_face_detection"
-        / ".runtime"
-        / "external"
-        / "dinov3",
+        root / "codino_face_detection" / ".runtime" / "external" / "codino",
+        root / "codino_face_detection" / ".runtime" / "external" / "dinov3",
     )
     missing = [str(path) for path in required if not path.exists()]
     if missing:
@@ -110,6 +96,7 @@ class FaceDinoRuntime:
                     images,
                     sizes,
                     self.score_threshold,
+                    return_ellipse_masks=True,
                 )
         caller.wait_stream(self.inference_stream)
         images.record_stream(self.inference_stream)
@@ -120,9 +107,7 @@ class FaceDinoRuntime:
         frames: list[np.ndarray],
     ) -> list[dict[str, torch.Tensor]]:
         if not 1 <= len(frames) <= self.fixed_batch_size:
-            raise ValueError(
-                f"Face DINO expects 1..{self.fixed_batch_size} frames"
-            )
+            raise ValueError(f"Face DINO expects 1..{self.fixed_batch_size} frames")
         valid_count = len(frames)
         padded = [
             *frames,
@@ -173,9 +158,7 @@ def build_runtime(
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable")
     if tuple(torch.cuda.get_device_capability(target)) != (12, 0):
-        raise RuntimeError(
-            "the bundled Face DINO engines require an SM120 GPU"
-        )
+        raise RuntimeError("the bundled Face DINO engines require an SM120 GPU")
     source_root = configure_source_root(source_root)
     checkpoint = checkpoint.expanduser().resolve()
     if not checkpoint.is_file():
@@ -206,17 +189,17 @@ def build_runtime(
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cudnn.benchmark = True
     payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    model = build_face_dino_explored(
-        attribute_config=payload.get("attribute_config")
-    ).to(target).eval()
+    model = (
+        build_face_dino_explored(attribute_config=payload.get("attribute_config"))
+        .to(target)
+        .eval()
+    )
     model.load_state_dict(payload["model"], strict=True)
     calibration = payload.get("inference_calibration", {})
     model.face_threshold = float(calibration.get("face_threshold", 0.55))
     model.point_threshold = float(calibration.get("point_threshold", 0.75))
     model = model.to(memory_format=torch.channels_last)
-    model.detector.backbone = TensorRTBackboneNeck(
-        bundle.engines["backbone_neck"]
-    )
+    model.detector.backbone = TensorRTBackboneNeck(bundle.engines["backbone_neck"])
     model.detector.neck = torch.nn.Identity()
     install_tensorrt_transformer(
         model.detector,

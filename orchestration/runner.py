@@ -368,12 +368,11 @@ class OrchestrationRunner:
             validate_inference_sqlite(
                 self.config.inference.input_sqlite,
                 require_segmentation=self.config.inference.uses_segmentation,
-                require_faces=(
-                    self.config.overlay.enabled
-                    and (
-                        self.config.overlay.faces
-                        or self.config.overlay.final_include_faces
-                    )
+                require_faces=self.config.inference.uses_faces,
+                expected_face_model=(
+                    self.config.inference.face_model
+                    if self.config.inference.uses_faces
+                    else None
                 ),
             )
         if not self.config.postprocess.enabled:
@@ -400,12 +399,8 @@ class OrchestrationRunner:
         stats = validate_inference_sqlite(
             inference_sqlite,
             require_segmentation=settings.uses_segmentation,
-            require_faces=(
-                self.config.overlay.enabled
-                and (
-                    self.config.overlay.faces or self.config.overlay.final_include_faces
-                )
-            ),
+            require_faces=settings.uses_faces,
+            expected_face_model=(settings.face_model if settings.uses_faces else None),
         )
         self._publish_artifacts(
             {"inference_sqlite": inference_sqlite},

@@ -74,8 +74,10 @@ $PY face_dino_v2/infer.py \
   --overwrite
 ```
 
-統一SQLite契約には、Head検出boxと、Face楕円のaxis-aligned envelopeを保存します。
-HeadとFaceは独立行であり、後頭部ではHeadだけが保存されます。
+統一SQLite schema v3には、Head検出boxとFace楕円のaxis-aligned envelopeに加え、
+Head/Faceの対応、正確な楕円、64×64顔確率マスク、5点キーポイント、
+visible/occluded、valid、クラス・状態確率を保存します。後頭部ではHead行と
+`face_present=0`の観測を保存します。
 
 ## 統一CLI
 
@@ -89,7 +91,7 @@ $PY run_inference.py \
   --overwrite
 ```
 
-## Rich runtime API
+## Rich runtime / SQLite API
 
 `FaceDinoRuntime.predict()`はSQLiteへ縮約する前の次のGPU tensorを返します。
 
@@ -100,9 +102,11 @@ $PY run_inference.py \
 - `point_classes`: eye/nose/mouth
 - `keypoint_states`: visible/occluded
 - 各クラス・状態確率
+- `ellipse_moment_masks`と元画像上のmask box
 
-共有SQLite schemaには現時点で楕円・点専用tableがないため、Adapterだけが
-Head/Face boxへ縮約します。rich出力は失われず、モデルruntime APIから利用できます。
+Adapterはこれらを`FaceObservation`へ変換し、共有SQLite schema v3の
+`face_observations`、`face_masks`、`face_keypoints`と確率テーブルへ保存します。
+従来reader向けのHead/Face検出行とFace外接boxも維持します。
 
 ## 検証済み性能
 

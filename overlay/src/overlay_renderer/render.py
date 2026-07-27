@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import shutil
 import subprocess
@@ -66,31 +67,19 @@ class RenderOptions:
             raise ValueError("mask_alpha must be between 0 and 1")
         if self.outline_thickness < 1 or self.box_thickness < 1:
             raise ValueError("line thickness must be at least 1")
-        if (
-            len(self.codec) != 4
-            and self.codec.lower() not in NVENC_CODECS
-        ):
-            raise ValueError(
-                "codec must be a four-character FourCC or h264_nvenc"
-            )
+        if len(self.codec) != 4 and self.codec.lower() not in NVENC_CODECS:
+            raise ValueError("codec must be a four-character FourCC or h264_nvenc")
         if not 0 <= self.h264_crf <= 51:
             raise ValueError("h264_crf must be between 0 and 51")
         if self.h264_preset not in H264_PRESETS:
-            raise ValueError(
-                f"h264_preset must be one of {', '.join(H264_PRESETS)}"
-            )
+            raise ValueError(f"h264_preset must be one of {', '.join(H264_PRESETS)}")
         if not 0 <= self.nvenc_cq <= 51:
             raise ValueError("nvenc_cq must be between 0 and 51")
         if self.nvenc_preset not in NVENC_PRESETS:
-            raise ValueError(
-                f"nvenc_preset must be one of {', '.join(NVENC_PRESETS)}"
-            )
+            raise ValueError(f"nvenc_preset must be one of {', '.join(NVENC_PRESETS)}")
         if self.nvenc_gpu < 0:
             raise ValueError("nvenc_gpu must be non-negative")
-        if (
-            self.target_bitrate_mbps is not None
-            and self.target_bitrate_mbps <= 0
-        ):
+        if self.target_bitrate_mbps is not None and self.target_bitrate_mbps <= 0:
             raise ValueError("target_bitrate_mbps must be positive")
         if self.start_frame < 0:
             raise ValueError("start_frame must be non-negative")
@@ -434,9 +423,7 @@ def _draw_label(
     font = cv2.FONT_HERSHEY_SIMPLEX
     scale = 0.52
     thickness = 1
-    (text_width, text_height), baseline = cv2.getTextSize(
-        text, font, scale, thickness
-    )
+    (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
     x = max(0, min(origin[0], frame.shape[1] - text_width - 4))
     y = max(text_height + 4, min(origin[1], frame.shape[0] - baseline - 2))
     cv2.rectangle(
@@ -482,6 +469,39 @@ def _draw_items(
             dst=frame,
         )
 
+    if face_items and options.mask_alpha > 0.0:
+        for item in face_items:
+            mask = item.face_mask
+            if mask is None:
+                continue
+            x1, y1, x2, y2 = mask.box
+            left = max(0, min(width, round(x1)))
+            top = max(0, min(height, round(y1)))
+            right = max(0, min(width, round(x2)))
+            bottom = max(0, min(height, round(y2)))
+            if right <= left or bottom <= top:
+                continue
+            probability = np.frombuffer(
+                mask.probabilities,
+                dtype=np.uint8,
+            ).reshape(mask.height, mask.width)
+            probability = cv2.resize(
+                probability,
+                (right - left, bottom - top),
+                interpolation=cv2.INTER_LINEAR,
+            ).astype(np.float32)
+            alpha = probability[:, :, None] * (options.mask_alpha / 255.0)
+            roi = frame[top:bottom, left:right].astype(np.float32)
+            color = np.asarray(
+                _color(item.color_key),
+                dtype=np.float32,
+            ).reshape(1, 1, 3)
+            frame[top:bottom, left:right] = np.clip(
+                roi * (1.0 - alpha) + color * alpha,
+                0,
+                255,
+            ).astype(np.uint8)
+
     for item in mask_items:
         contours = _contours(item, width, height)
         if not contours:
@@ -506,27 +526,74 @@ def _draw_items(
             )
 
     for item in face_items:
-        if item.box is None:
-            continue
         color = _color(item.color_key)
-        x1, y1, x2, y2 = item.box
-        left = max(0, min(width - 1, round(x1)))
-        top = max(0, min(height - 1, round(y1)))
-        right = max(0, min(width - 1, round(x2)))
-        bottom = max(0, min(height - 1, round(y2)))
-        cv2.rectangle(
-            frame,
-            (left, top),
-            (right, bottom),
-            color,
-            options.box_thickness,
-            cv2.LINE_AA,
-        )
-        if options.show_labels:
+        label_origin: tuple[int, int] | None = None
+        if item.box is not None:
+            x1, y1, x2, y2 = item.box
+            left = max(0, min(width - 1, round(x1)))
+            top = max(0, min(height - 1, round(y1)))
+            right = max(0, min(width - 1, round(x2)))
+            bottom = max(0, min(height - 1, round(y2)))
+            cv2.rectangle(
+                frame,
+                (left, top),
+                (right, bottom),
+                color,
+                options.box_thickness,
+                cv2.LINE_AA,
+            )
+            label_origin = (left, top - 3)
+        if item.ellipse is not None:
+            cx, cy, major, minor, theta = item.ellipse
+            center = (
+                max(0, min(width - 1, round(cx))),
+                max(0, min(height - 1, round(cy))),
+            )
+            axes = (max(1, round(major)), max(1, round(minor)))
+            cv2.ellipse(
+                frame,
+                center,
+                axes,
+                math.degrees(theta),
+                0,
+                360,
+                color,
+                options.box_thickness,
+                cv2.LINE_AA,
+            )
+            label_origin = (
+                max(0, round(cx - major)),
+                max(0, round(cy - minor)) - 3,
+            )
+        for point in item.keypoints:
+            if not point.valid:
+                continue
+            px = max(0, min(width - 1, round(point.x)))
+            py = max(0, min(height - 1, round(point.y)))
+            point_color = (0, 165, 255) if point.state == 1 else (0, 255, 0)
+            if point.state == 1:
+                cv2.circle(
+                    frame,
+                    (px, py),
+                    max(3, options.box_thickness + 2),
+                    point_color,
+                    options.box_thickness,
+                    cv2.LINE_AA,
+                )
+            else:
+                cv2.circle(
+                    frame,
+                    (px, py),
+                    max(2, options.box_thickness + 1),
+                    point_color,
+                    -1,
+                    cv2.LINE_AA,
+                )
+        if options.show_labels and label_origin is not None:
             _draw_label(
                 frame,
                 _ascii_label(item),
-                (left, top - 3),
+                label_origin,
                 color,
             )
     return len(mask_items), len(face_items)
@@ -614,9 +681,7 @@ def render_video(
                 fps=fps,
                 crf=options.h264_crf,
                 preset=(
-                    options.nvenc_preset
-                    if options.uses_nvenc
-                    else options.h264_preset
+                    options.nvenc_preset if options.uses_nvenc else options.h264_preset
                 ),
                 nvenc=options.uses_nvenc,
                 nvenc_cq=options.nvenc_cq,
@@ -666,10 +731,7 @@ def render_video(
             faces_drawn += face_count
             first_written = frame_index if first_written is None else first_written
             last_written = frame_index
-            if (
-                options.progress_every
-                and frames_written % options.progress_every == 0
-            ):
+            if options.progress_every and frames_written % options.progress_every == 0:
                 print(
                     f"[overlay] frames={frames_written} "
                     f"source_frame={frame_index} masks={masks_drawn} "

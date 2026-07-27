@@ -12,11 +12,11 @@ from .candidate_import import (
     import_candidate_database,
 )
 from .metadata import flatten_metadata
-from .schema_v2 import create_indexes, initialize_schema
+from .schema_v3 import create_indexes, initialize_schema
 
 
 class UnifiedSqliteWriter:
-    """Own a schema-v2 database for exactly one orchestrated video run."""
+    """Own a schema-v3 database for exactly one orchestrated video run."""
 
     def __init__(
         self,
@@ -97,13 +97,10 @@ class UnifiedSqliteWriter:
             ).fetchall()
             if foreign_key_errors:
                 raise RuntimeError(
-                    "unified SQLite foreign-key errors: "
-                    f"{foreign_key_errors[:3]}"
+                    "unified SQLite foreign-key errors: " f"{foreign_key_errors[:3]}"
                 )
             integrity = str(
-                self.connection.execute(
-                    "PRAGMA integrity_check"
-                ).fetchone()[0]
+                self.connection.execute("PRAGMA integrity_check").fetchone()[0]
             )
             if integrity != "ok":
                 raise RuntimeError(

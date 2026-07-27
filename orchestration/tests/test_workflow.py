@@ -12,10 +12,57 @@ import cv2
 from orchestration.config import OrchestrationConfig
 from orchestration.runner import OrchestrationRunner
 
-from helpers import create_unified_sqlite, create_video
+from helpers import create_rich_face_unified_sqlite, create_unified_sqlite, create_video
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_reused_face_dino_v2_sqlite_renders_rich_face_overlay(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi", frames=1)
+            inference = create_rich_face_unified_sqlite(root / "inference.sqlite")
+            output = root / "run"
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(output),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(inference),
+                            "mode": "segmentation-face",
+                            "face_model": "face_dino_v2",
+                        },
+                        "postprocess": {"enabled": False},
+                        "overlay": {
+                            "enabled": True,
+                            "raw": False,
+                            "tracked": False,
+                            "final": False,
+                            "faces": True,
+                            "progress_every": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manifest = OrchestrationRunner(OrchestrationConfig.load(config_path)).run()
+
+            self.assertEqual("complete", manifest["status"])
+            self.assertEqual(
+                1,
+                manifest["validation"]["inference_sqlite"]["face_observations"],
+            )
+            overlay = Path(manifest["artifacts"]["overlay_faces"])
+            self.assertTrue(overlay.is_file())
+            capture = cv2.VideoCapture(str(overlay))
+            self.assertTrue(capture.isOpened())
+            self.assertEqual(1, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+            capture.release()
+
     def test_reused_inference_runs_real_postprocess_and_all_overlays(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

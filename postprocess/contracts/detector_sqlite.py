@@ -62,10 +62,7 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
 
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    return {
-        str(row[1])
-        for row in connection.execute(f'PRAGMA table_info("{table}")')
-    }
+    return {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
 
 
 def detect_mask_sqlite_kind(path: Path) -> MaskSqliteKind:
@@ -80,15 +77,11 @@ def detect_mask_sqlite_kind(path: Path) -> MaskSqliteKind:
             columns = _columns(connection, "masks")
             if {"frame", "track_id", "polygons"}.issubset(columns):
                 return "tracked"
-            if {"frame", "mask_id", "detection_index", "polygons"}.issubset(
-                columns
-            ):
+            if {"frame", "mask_id", "detection_index", "polygons"}.issubset(columns):
                 return "raw_detection"
         if set(UNIFIED_INFERENCE_COLUMNS).issubset(tables):
             return "unified_inference"
-    raise ValueError(
-        f"{source}: unsupported mask SQLite schema"
-    )
+    raise ValueError(f"{source}: unsupported mask SQLite schema")
 
 
 def _decode_json_list(value: object, *, field: str, row: str) -> list[object]:
@@ -180,9 +173,7 @@ def validate_raw_detection_sqlite(path: Path) -> None:
                 raise ValueError(f"{row}: detection_index must be >= 0")
             _decode_json_list(polygons, field="polygons", row=row)
             if bbox_xyxy is not None:
-                bbox = _decode_json_list(
-                    bbox_xyxy, field="bbox_xyxy", row=row
-                )
+                bbox = _decode_json_list(bbox_xyxy, field="bbox_xyxy", row=row)
                 if len(bbox) < 4:
                     raise ValueError(f"{row}: bbox_xyxy needs four values")
                 if not all(math.isfinite(float(value)) for value in bbox[:4]):
@@ -197,7 +188,7 @@ def validate_raw_detection_sqlite(path: Path) -> None:
 
 
 def validate_unified_inference_sqlite(path: Path) -> None:
-    """Validate InstanceSegmentation unified inference schema v2."""
+    """Validate supported InstanceSegmentation unified inference schemas."""
 
     source = Path(path)
     if not source.is_file():
@@ -224,7 +215,7 @@ def validate_unified_inference_sqlite(path: Path) -> None:
             raise ValueError(
                 f"{source}: unexpected schema_name={schema.get('schema_name')!r}"
             )
-        if schema.get("schema_version") != "2":
+        if schema.get("schema_version") not in {"2", "3"}:
             raise ValueError(
                 f"{source}: unsupported schema_version="
                 f"{schema.get('schema_version')!r}"
@@ -322,9 +313,7 @@ def validate_unified_inference_sqlite(path: Path) -> None:
             """
         ).fetchone()
         if invalid_detection is not None:
-            raise ValueError(
-                f"{source}: detection {invalid_detection[0]} is invalid"
-            )
+            raise ValueError(f"{source}: detection {invalid_detection[0]} is invalid")
 
 
 def validate_detector_input_sqlite(path: Path) -> None:

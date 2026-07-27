@@ -46,6 +46,9 @@ python3 -m orchestration --config config.json --dry-run
 
 `mode`はSQLiteに期待するroleです。`segmentation-face`では
 `instance_segmentation`と`face_detection`の両roleが必要です。
+`face_model: face_dino_v2`ではschema v3、Head/Face対応、楕円、顔確率マスク、
+5点キーポイントと確率テーブルまで検証します。従来の
+`face_model: rtdetr_head_face`および既存schema v2も利用できます。
 
 postprocessも再利用する場合は、tracked/finalを明示します。
 
@@ -100,8 +103,8 @@ Postprocess実行時に旧`Dinov3_postprocess`互換SQLiteも作る場合は、
 - `raw`: AI生出力instance mask
 - `tracked`: NMS、カット分割、tracking、短命track削除後
 - `final`: 最終後処理後
-- `faces`: 顔・頭部boxのみ
-- `final_include_faces`: `final`へ顔boxも追加
+- `faces`: 顔・頭部。Face DINO v2の通常rendererではbox、楕円、mask、keypoint
+- `final_include_faces`: `final`へ上記の顔情報も追加
 
 通常NVENC:
 

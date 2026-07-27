@@ -10,9 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "build" / "overlay_native"
-FFMPEG = (
-    ROOT.parent / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
-)
+FFMPEG = ROOT.parent / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
 FFPROBE = FFMPEG.with_name("ffprobe")
 
 
@@ -107,12 +105,10 @@ def create_inference_sqlite(path: Path) -> None:
                     "schema_name",
                     "instance-segmentation-unified-inference",
                 ),
-                ("schema_version", "2"),
+                ("schema_version", "3"),
             ),
         )
-        connection.execute(
-            "INSERT INTO videos VALUES (1, 'input.mp4', 8, 10, 64, 48)"
-        )
+        connection.execute("INSERT INTO videos VALUES (1, 'input.mp4', 8, 10, 64, 48)")
         connection.executemany(
             "INSERT INTO model_executions(id, role) VALUES (?, ?)",
             ((1, "instance_segmentation"), (2, "face_detection")),
@@ -125,15 +121,9 @@ def create_inference_sqlite(path: Path) -> None:
             "INSERT INTO detections VALUES "
             "(10, 1, 1, 'foreground', 0.91, 8, 8, 32, 32)"
         )
-        connection.execute(
-            "INSERT INTO classifications VALUES (10, 'sample', 0.82)"
-        )
-        connection.execute(
-            "INSERT INTO segmentations VALUES (10, 'polygon')"
-        )
-        connection.execute(
-            "INSERT INTO segmentation_polygons VALUES (100, 10, 0)"
-        )
+        connection.execute("INSERT INTO classifications VALUES (10, 'sample', 0.82)")
+        connection.execute("INSERT INTO segmentations VALUES (10, 'polygon')")
+        connection.execute("INSERT INTO segmentation_polygons VALUES (100, 10, 0)")
         connection.executemany(
             "INSERT INTO segmentation_points VALUES (100, ?, ?, ?)",
             (
@@ -144,15 +134,12 @@ def create_inference_sqlite(path: Path) -> None:
             ),
         )
         connection.execute(
-            "INSERT INTO detections VALUES "
-            "(20, 2, 2, 'Face', 0.95, 18, 10, 42, 34)"
+            "INSERT INTO detections VALUES " "(20, 2, 2, 'Face', 0.95, 18, 10, 42, 34)"
         )
 
 
 def create_mask_sqlite(path: Path) -> None:
-    polygons = json.dumps(
-        [[[10.0, 10.0], [36.0, 10.0], [36.0, 36.0], [10.0, 36.0]]]
-    )
+    polygons = json.dumps([[[10.0, 10.0], [36.0, 10.0], [36.0, 36.0], [10.0, 36.0]]])
     with sqlite3.connect(path) as connection:
         connection.execute(
             "CREATE TABLE masks("

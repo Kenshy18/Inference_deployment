@@ -147,13 +147,13 @@ def restore_result(
 
     if "boxes" in restored:
         restored["boxes"] = restore_xyxy(restored["boxes"])
+    if "ellipse_mask_boxes" in restored:
+        restored["ellipse_mask_boxes"] = restore_xyxy(restored["ellipse_mask_boxes"])
     if "ellipses" in restored:
         ellipses = restored["ellipses"].clone()
         ellipses[:, 0].sub_(transform.pad_left).div_(transform.scale_x)
         ellipses[:, 1].sub_(transform.pad_top).div_(transform.scale_y)
-        ellipses[:, 2:4].div_(
-            0.5 * (transform.scale_x + transform.scale_y)
-        )
+        ellipses[:, 2:4].div_(0.5 * (transform.scale_x + transform.scale_y))
         restored["ellipses"] = ellipses
     if "keypoints" in restored:
         points = restored["keypoints"].clone()

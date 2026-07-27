@@ -38,6 +38,49 @@ def _output(face_present: bool):
         "face_scores": torch.tensor([0.8]),
         "face_present": torch.tensor([face_present]),
         "ellipses": torch.tensor([[10.0, 10.0, 4.0, 2.0, 0.0]]),
+        "keypoints": torch.tensor(
+            [
+                [
+                    [7.0, 9.0],
+                    [13.0, 9.0],
+                    [10.0, 10.0],
+                    [8.0, 12.0],
+                    [12.0, 12.0],
+                ]
+            ]
+        ),
+        "point_classes": torch.tensor([[1, 1, 2, 3, 3]]),
+        "keypoint_states": torch.tensor([[2, 1, 2, 2, 0]]),
+        "point_confidence": torch.tensor([[0.9, 0.8, 0.95, 0.85, 0.2]]),
+        "point_valid": torch.tensor(
+            [[True, True, True, True, False]]
+            if face_present
+            else [[False, False, False, False, False]]
+        ),
+        "point_class_probabilities": torch.tensor(
+            [
+                [
+                    [0.05, 0.90, 0.03, 0.02],
+                    [0.05, 0.85, 0.05, 0.05],
+                    [0.02, 0.03, 0.93, 0.02],
+                    [0.03, 0.02, 0.05, 0.90],
+                    [0.70, 0.05, 0.05, 0.20],
+                ]
+            ]
+        ),
+        "point_state_probabilities": torch.tensor(
+            [
+                [
+                    [0.05, 0.95],
+                    [0.75, 0.25],
+                    [0.05, 0.95],
+                    [0.10, 0.90],
+                    [0.50, 0.50],
+                ]
+            ]
+        ),
+        "ellipse_moment_masks": torch.full((1, 64, 64), 0.75),
+        "ellipse_mask_boxes": torch.tensor([[4.0, 4.0, 16.0, 16.0]]),
     }
 
 
@@ -57,9 +100,7 @@ class FaceDinoV2AdapterTest(unittest.TestCase):
             ellipse_xyxy([10.0, 10.0, 4.0, 2.0, 0.0]),
             (6.0, 8.0, 14.0, 12.0),
         )
-        x1, y1, x2, y2 = ellipse_xyxy(
-            [10.0, 10.0, 4.0, 2.0, torch.pi / 2]
-        )
+        x1, y1, x2, y2 = ellipse_xyxy([10.0, 10.0, 4.0, 2.0, torch.pi / 2])
         self.assertAlmostEqual(x1, 8.0, places=6)
         self.assertAlmostEqual(y1, 6.0, places=6)
         self.assertAlmostEqual(x2, 12.0, places=6)
@@ -95,6 +136,19 @@ class FaceDinoV2AdapterTest(unittest.TestCase):
             (6.0, 8.0, 14.0, 12.0),
         )
         self.assertEqual(face.source, "ellipse_detection")
+        head = results[0].detections[0]
+        self.assertEqual(head.group_id, face.group_id)
+        observation = head.face_observation
+        self.assertIsNotNone(observation)
+        assert observation is not None
+        self.assertTrue(observation.present)
+        self.assertEqual(5, len(observation.keypoints))
+        self.assertEqual("Eye", observation.keypoints[0].class_name)
+        self.assertEqual("occluded", observation.keypoints[1].state_name)
+        self.assertFalse(observation.keypoints[-1].valid)
+        self.assertIsNotNone(observation.mask)
+        assert observation.mask is not None
+        self.assertEqual((64, 64), (observation.mask.width, observation.mask.height))
 
     def test_class_filter_and_parser(self) -> None:
         self.assertEqual(

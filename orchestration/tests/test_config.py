@@ -125,6 +125,7 @@ class ConfigTests(unittest.TestCase):
                             "mode": "segmentation-face",
                             "segmentation_model": "dinov3_codino",
                             "segmentation_backend": "tensorrt-fast",
+                            "face_model": "face_dino_v2",
                             "device": "cuda:0",
                         },
                         "postprocess": {"enabled": True, "device": "cpu"},
@@ -144,6 +145,10 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("--segmentation-model", command)
             self.assertIn("dinov3_codino", command)
             self.assertIn("--face-model", command)
+            self.assertEqual(
+                "face_dino_v2",
+                command[command.index("--face-model") + 1],
+            )
             self.assertTrue(inference["uses_gpu"])
             self.assertFalse((root / "output").exists())
 
