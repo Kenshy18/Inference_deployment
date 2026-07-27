@@ -53,7 +53,10 @@ def build_model(
     trt_deployment_shell: bool = False,
 ):
     if trt_deployment_shell:
-        from deployment.import_stubs import mh0_deployment_import_stubs
+        try:
+            from .deployment.import_stubs import mh0_deployment_import_stubs
+        except ImportError:
+            from deployment.import_stubs import mh0_deployment_import_stubs
 
         import_scope = mh0_deployment_import_stubs()
     else:
