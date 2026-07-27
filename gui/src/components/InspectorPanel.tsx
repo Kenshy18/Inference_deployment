@@ -19,6 +19,12 @@ import {
 
 type Draft = PipelineDraft;
 
+/** postprocess/cut_detection/detector.py CUT_DETECTORS */
+const CUT_METHODS = [
+  { value: "high_precision", label: "高精度 — 差分 + 色 + SSIM" },
+  { value: "frame_diff", label: "差分のみ — 軽量" },
+];
+
 export interface InspectorActions {
   inference: (values: Partial<Draft["inference"]>) => void;
   postprocess: (values: Partial<Draft["postprocess"]>) => void;
@@ -48,6 +54,19 @@ export function InspectorPanel({
   const { inference, postprocess, overlay } = draft;
   const faceOnly = inference.mode === "face";
   const usesFaces = inference.mode !== "segmentation";
+  /* register_cut_detector() lets the backend add methods, so a value that is
+     not built in is kept rather than silently reset. */
+  const cutMethods = CUT_METHODS.some(
+    (method) => method.value === postprocess.cutMethod,
+  )
+    ? CUT_METHODS
+    : [
+        ...CUT_METHODS,
+        {
+          value: postprocess.cutMethod,
+          label: `${postprocess.cutMethod} — カスタム`,
+        },
+      ];
   const spec = modelSpec(inference.segmentationModel);
   const backend =
     spec.backends.find(
@@ -238,12 +257,12 @@ export function InspectorPanel({
               label="シーン境界で track を分割"
             />
           </Row>
-          <Row label="検出手法">
-            <TextInput
+          <Row label="検出手法" hint={postprocess.cutMethod}>
+            <Select
               value={postprocess.cutMethod}
               disabled={busy || !postprocess.cutDetect}
-              mono
               onChange={(cutMethod) => actions.postprocess({ cutMethod })}
+              options={cutMethods}
             />
           </Row>
           <Row label="短命track除去">
