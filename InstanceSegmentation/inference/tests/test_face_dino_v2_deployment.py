@@ -14,6 +14,7 @@ from face_dino_v2.deployment import (
     prepare_deployment_shell,
     validate_deployment_state,
 )
+from face_dino_v2.cudagraph import build_zero_copy_detector_backend
 
 
 class _Attribute(torch.nn.Module):
@@ -21,6 +22,13 @@ class _Attribute(torch.nn.Module):
 
 
 class FaceDinoDeploymentTest(unittest.TestCase):
+    def test_cuda_graph_rejects_multiclass_detector(self) -> None:
+        detector = SimpleNamespace(
+            query_head=SimpleNamespace(num_classes=2),
+        )
+        with self.assertRaisesRegex(ValueError, "one detector class"):
+            build_zero_copy_detector_backend(detector)
+
     def test_import_substitutes_are_removed_after_construction(self) -> None:
         names = ("timm", "timm.models.layers", "dinov3", "dinov3.hub.backbones")
         if any(name in sys.modules for name in names):

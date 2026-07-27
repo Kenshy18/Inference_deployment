@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from .cudagraph import build_zero_copy_detector_backend
 from .deployment import (
     deployment_import_stubs,
     prepare_deployment_shell,
@@ -163,6 +164,7 @@ def build_runtime(
     score_threshold: float,
     warmup_iterations: int,
     verify: str = "engines",
+    cuda_graph: bool = False,
 ) -> FaceDinoRuntime:
     if not 0.0 <= score_threshold <= 1.0:
         raise ValueError("score_threshold must be in [0, 1]")
@@ -242,6 +244,13 @@ def build_runtime(
             ellipse_moment_power=model.attribute_model.ellipse_moment_power,
         )
     )
+    if cuda_graph:
+        model.set_detector_backend(
+            build_zero_copy_detector_backend(
+                model.detector,
+                warmup_iterations=1,
+            )
+        )
     del payload
     gc.collect()
     return FaceDinoRuntime(

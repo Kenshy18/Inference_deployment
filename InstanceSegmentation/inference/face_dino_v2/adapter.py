@@ -54,6 +54,7 @@ class FaceDinoV2Settings:
     warmup_iterations: int = 3
     classes: frozenset[int] | None = None
     verify: str = "engines"
+    cuda_graph: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +84,7 @@ class FaceDinoV2Adapter:
             score_threshold=settings.score_threshold,
             warmup_iterations=settings.warmup_iterations,
             verify=settings.verify,
+            cuda_graph=settings.cuda_graph,
         )
 
     @staticmethod

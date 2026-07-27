@@ -53,6 +53,15 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--classes", nargs="*")
     value.add_argument("--max-frames", type=int)
     value.add_argument("--warmup-iterations", type=int, default=3)
+    value.add_argument(
+        "--cuda-graph",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "capture the fixed detector core; defaults on for at least 512 "
+            "frames and unbounded/full-video runs"
+        ),
+    )
     value.add_argument("--progress-interval", type=int, default=1000)
     value.add_argument("--overwrite", action="store_true")
     value.add_argument("--fast-sqlite", action="store_true")
@@ -72,6 +81,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.max_frames is not None and args.max_frames < 0:
         raise ValueError("max_frames must be non-negative")
     classes = FaceDinoV2Adapter.parse_classes(args.classes)
+    cuda_graph = (
+        args.cuda_graph
+        if args.cuda_graph is not None
+        else args.max_frames is None or args.max_frames >= 512
+    )
     settings = FaceDinoV2Settings(
         source_root=args.source_root.expanduser().resolve(),
         checkpoint=args.checkpoint.expanduser().resolve(),
@@ -81,6 +95,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         warmup_iterations=args.warmup_iterations,
         classes=classes,
         verify=args.trt_verify,
+        cuda_graph=cuda_graph,
     )
     adapter = FaceDinoV2Adapter(settings)
     batch_size = adapter.runtime.fixed_batch_size
@@ -120,6 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "trt_bundle": str(settings.trt_bundle),
             "source_root": str(settings.source_root),
             "score_threshold": args.score_threshold,
+            "cuda_graph": cuda_graph,
             "classes": (
                 sorted(classes) if classes is not None else sorted((1, 2))
             ),
