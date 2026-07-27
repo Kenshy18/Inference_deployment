@@ -13,6 +13,84 @@ from helpers import create_video
 
 
 class ConfigTests(unittest.TestCase):
+    def test_three_overlay_execution_modes_select_expected_engines(self) -> None:
+        cases = (
+            ("cpu", "python_opencv", "h264", False, False),
+            ("nvenc", "python_opencv", "h264_nvenc", True, False),
+            (
+                "fast_parallel",
+                "experimental_cpp",
+                "h264_nvenc",
+                True,
+                True,
+            ),
+        )
+        for (
+            execution_mode,
+            backend,
+            codec,
+            uses_nvenc,
+            segmented,
+        ) in cases:
+            with self.subTest(execution_mode=execution_mode):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    video = create_video(root / "input.avi")
+                    sqlite = root / "input.sqlite"
+                    sqlite.touch()
+                    overlay: dict[str, object] = {
+                        "enabled": True,
+                        "execution_mode": execution_mode,
+                        "raw": True,
+                        "tracked": False,
+                        "final": False,
+                    }
+                    if execution_mode == "fast_parallel":
+                        overlay["target_bitrate_mbps"] = 8.0
+                    config_path = root / "config.json"
+                    config_path.write_text(
+                        json.dumps(
+                            {
+                                "input_video": str(video),
+                                "output_root": str(root / "output"),
+                                "execution": {
+                                    "runtime_python": sys.executable
+                                },
+                                "inference": {
+                                    "enabled": False,
+                                    "input_sqlite": str(sqlite),
+                                    "mode": "segmentation",
+                                },
+                                "postprocess": {"enabled": False},
+                                "overlay": overlay,
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    config = OrchestrationConfig.load(config_path)
+                    self.assertEqual(
+                        config.overlay.execution_mode,
+                        execution_mode,
+                    )
+                    self.assertEqual(config.overlay.backend, backend)
+                    self.assertEqual(config.overlay.codec, codec)
+                    self.assertEqual(
+                        config.overlay.uses_nvenc,
+                        uses_nvenc,
+                    )
+                    command = OrchestrationRunner(
+                        config,
+                        dry_run=True,
+                    ).overlay_command(
+                        mode="raw",
+                        source_sqlite=sqlite,
+                        output=root / "output" / "raw.mp4",
+                    )
+                    self.assertEqual(
+                        "benchmark_segmented.py" in " ".join(command),
+                        segmented,
+                    )
+
     def test_dry_run_builds_inference_command_without_executing_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -139,6 +139,7 @@ class PostprocessConfig:
 @dataclass(frozen=True)
 class OverlayConfig:
     enabled: bool = True
+    execution_mode: str = "cpu"
     backend: str = "python_opencv"
     raw: bool = True
     tracked: bool = True
@@ -375,6 +376,7 @@ class OrchestrationConfig:
         overlay_raw = _object(raw.get("overlay"), "overlay")
         overlay_allowed = {
             "enabled",
+            "execution_mode",
             "backend",
             "raw",
             "tracked",
@@ -399,11 +401,51 @@ class OrchestrationConfig:
             "extra_args",
         }
         _reject_unknown(overlay_raw, overlay_allowed, "overlay")
-        overlay_backend = str(
+        configured_execution_mode = overlay_raw.get("execution_mode")
+        configured_backend = str(
             overlay_raw.get("backend", "python_opencv")
         )
+        configured_codec = str(overlay_raw.get("codec", "mp4v"))
+        if configured_execution_mode is None:
+            if configured_backend == "experimental_cpp":
+                overlay_execution_mode = "fast_parallel"
+            elif configured_codec.lower() in {"nvenc", "h264_nvenc"}:
+                overlay_execution_mode = "nvenc"
+            else:
+                overlay_execution_mode = "cpu"
+            overlay_backend = configured_backend
+            overlay_codec = configured_codec
+        else:
+            overlay_execution_mode = str(configured_execution_mode)
+            expected_backend = (
+                "experimental_cpp"
+                if overlay_execution_mode == "fast_parallel"
+                else "python_opencv"
+            )
+            expected_codec = (
+                "h264_nvenc"
+                if overlay_execution_mode in {"nvenc", "fast_parallel"}
+                else "h264"
+            )
+            if (
+                "backend" in overlay_raw
+                and configured_backend != expected_backend
+            ):
+                raise OrchestrationConfigError(
+                    "overlay.backend conflicts with overlay.execution_mode"
+                )
+            if (
+                "codec" in overlay_raw
+                and configured_codec.lower() != expected_codec
+            ):
+                raise OrchestrationConfigError(
+                    "overlay.codec conflicts with overlay.execution_mode"
+                )
+            overlay_backend = expected_backend
+            overlay_codec = expected_codec
         overlay = OverlayConfig(
             enabled=bool(overlay_raw.get("enabled", True)),
+            execution_mode=overlay_execution_mode,
             backend=overlay_backend,
             raw=bool(overlay_raw.get("raw", True)),
             tracked=bool(overlay_raw.get("tracked", True)),
@@ -416,7 +458,7 @@ class OrchestrationConfig:
             outline_thickness=int(overlay_raw.get("outline_thickness", 2)),
             box_thickness=int(overlay_raw.get("box_thickness", 2)),
             show_labels=bool(overlay_raw.get("show_labels", True)),
-            codec=str(overlay_raw.get("codec", "mp4v")),
+            codec=overlay_codec,
             workers=int(overlay_raw.get("workers", 6)),
             cpu_workers=int(overlay_raw.get("cpu_workers", 0)),
             copy_audio=bool(overlay_raw.get("copy_audio", False)),
@@ -427,7 +469,9 @@ class OrchestrationConfig:
             nvenc_preset=str(
                 overlay_raw.get(
                     "nvenc_preset",
-                    "p1" if overlay_backend == "experimental_cpp" else "p5",
+                    "p1"
+                    if overlay_execution_mode == "fast_parallel"
+                    else "p5",
                 )
             ),
             nvenc_gpu=int(overlay_raw.get("nvenc_gpu", 0)),
@@ -585,6 +629,35 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "overlay.backend must be python_opencv or experimental_cpp"
             )
+        if self.overlay.execution_mode not in {
+            "cpu",
+            "nvenc",
+            "fast_parallel",
+        }:
+            raise OrchestrationConfigError(
+                "overlay.execution_mode must be cpu, nvenc, or fast_parallel"
+            )
+        expected_backend = (
+            "experimental_cpp"
+            if self.overlay.execution_mode == "fast_parallel"
+            else "python_opencv"
+        )
+        if self.overlay.backend != expected_backend:
+            raise OrchestrationConfigError(
+                "overlay.backend does not match overlay.execution_mode"
+            )
+        if self.overlay.execution_mode == "cpu" and self.overlay.uses_nvenc:
+            raise OrchestrationConfigError(
+                "overlay.execution_mode=cpu cannot use an NVENC codec"
+            )
+        if (
+            self.overlay.execution_mode in {"nvenc", "fast_parallel"}
+            and not self.overlay.uses_nvenc
+        ):
+            raise OrchestrationConfigError(
+                f"overlay.execution_mode={self.overlay.execution_mode} "
+                "requires codec=h264_nvenc"
+            )
         if self.overlay.workers < 1:
             raise OrchestrationConfigError(
                 "overlay.workers must be at least 1"
@@ -603,7 +676,7 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "overlay.nvenc_gpu must be non-negative"
             )
-        if self.overlay.backend == "experimental_cpp":
+        if self.overlay.execution_mode == "fast_parallel":
             if not self.overlay.uses_nvenc:
                 raise OrchestrationConfigError(
                     "experimental_cpp currently requires codec=h264_nvenc"
@@ -614,11 +687,13 @@ class OrchestrationConfig:
                 )
         elif self.overlay.copy_audio:
             raise OrchestrationConfigError(
-                "overlay.copy_audio requires backend=experimental_cpp"
+                "overlay.copy_audio requires "
+                "execution_mode=fast_parallel"
             )
         elif self.overlay.cpu_workers != 0:
             raise OrchestrationConfigError(
-                "overlay.cpu_workers is only used by backend=experimental_cpp"
+                "overlay.cpu_workers is only used by "
+                "execution_mode=fast_parallel"
             )
         if (
             len(self.overlay.codec) != 4

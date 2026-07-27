@@ -188,7 +188,7 @@ class OrchestrationRunner:
         face_sqlite: Path | None = None,
     ) -> list[str]:
         settings = self.config.overlay
-        if settings.backend == "experimental_cpp":
+        if settings.execution_mode == "fast_parallel":
             temporary_output = self._experimental_overlay_dir(output)
             command = [
                 str(self.config.execution.runtime_python),
@@ -550,7 +550,7 @@ class OrchestrationRunner:
                 face_sqlite=face_source,
             )
             experimental_output = self._experimental_overlay_dir(output)
-            if settings.backend == "experimental_cpp":
+            if settings.execution_mode == "fast_parallel":
                 for required in (
                     EXPERIMENTAL_RENDERER,
                     EXPERIMENTAL_SEGMENTED_RUNNER,
@@ -568,11 +568,11 @@ class OrchestrationRunner:
                 cpu_only=not settings.uses_nvenc,
                 extra_pythonpath=(
                     OVERLAY_ROOT / "src"
-                    if settings.backend == "python_opencv"
+                    if settings.execution_mode != "fast_parallel"
                     else None
                 ),
             )
-            if settings.backend == "experimental_cpp":
+            if settings.execution_mode == "fast_parallel":
                 generated_output = experimental_output / "final.mp4"
                 generated_manifest = (
                     experimental_output / "benchmark_summary.json"

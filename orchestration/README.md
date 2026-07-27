@@ -44,12 +44,44 @@ GPU推論を行わず、既存のunified inference SQLiteから開始できま�
 `segmentation-face`を指定し、SQLiteに`instance_segmentation`と
 `face_detection`の両roleが存在する必要があります。
 
+## Overlay execution modes
+
+`overlay.execution_mode`で作成方式を3種類から選択します。
+
+| execution_mode | 描画・encode経路 | 用途 |
+|---|---|---|
+| `cpu` | OpenCV CPU描画＋libx264 | GPU非依存の通常モード |
+| `nvenc` | OpenCV CPU描画＋NVENC | 通常描画を保ったGPU encode |
+| `fast_parallel` | NVDEC＋CUDA描画＋NVENC分割並列 | 採用した高速モード |
+
+```json
+{
+  "overlay": {
+    "execution_mode": "cpu"
+  }
+}
+```
+
+```json
+{
+  "overlay": {
+    "execution_mode": "nvenc",
+    "nvenc_preset": "p5",
+    "nvenc_gpu": 0
+  }
+}
+```
+
+`execution_mode`を指定した場合、`backend`と`codec`は自動決定されます。移行用に
+従来の`backend`と`codec`だけの設定も読み込めますが、新規設定では
+`execution_mode`を使用してください。
+
 ## GPU policy
 
 - inference: `inference.device`をそのままモデルCLIへ渡します。
 - postprocess: repository orchestrationではCPUだけを許可します。
-- overlay: `codec`が`h264_nvenc`または`nvenc`のときだけGPUを公開し、それ以外は
-  CPU stageとして実行します。
+- overlay: `execution_mode`が`nvenc`または`fast_parallel`のときだけGPUを公開し、
+  `cpu`はCPU stageとして実行します。
 
 CPU stageのsubprocessには`CUDA_VISIBLE_DEVICES=""`と
 `NVIDIA_VISIBLE_DEVICES=none`を設定します。
@@ -59,7 +91,7 @@ CPU stageのsubprocessには`CUDA_VISIBLE_DEVICES=""`と
 ```json
 {
   "overlay": {
-    "codec": "h264_nvenc",
+    "execution_mode": "nvenc",
     "nvenc_preset": "p5",
     "nvenc_gpu": 0,
     "extra_args": ["--nvenc-cq", "18"]
@@ -69,16 +101,15 @@ CPU stageのsubprocessには`CUDA_VISIBLE_DEVICES=""`と
 
 ## 低レイヤー高速overlay
 
-`overlay.backend`を`experimental_cpp`にすると、C++/libavで直接デコードし、
+`overlay.execution_mode`を`fast_parallel`にすると、C++/libavで直接デコードし、
 NVDEC → CUDA上の描画 → NVENCをフレーム単位のCPU往復なしで実行します。
-複数区間を並列処理し、最後に再エンコードなしで結合します。従来経路は
-`python_opencv`のままで、明示的に切り替えない限り変更されません。
+複数区間を並列処理し、最後に再エンコードなしで結合します。通常モードは
+OpenCV経路のままで、明示的に切り替えない限り高速版へ変わりません。
 
 ```json
 {
   "overlay": {
-    "backend": "experimental_cpp",
-    "codec": "h264_nvenc",
+    "execution_mode": "fast_parallel",
     "workers": 6,
     "cpu_workers": 0,
     "target_bitrate_mbps": 8.0,
@@ -102,6 +133,11 @@ NVDEC → CUDA上の描画 → NVENCをフレーム単位のCPU往復なしで�
 cd overlay/experimental
 ./build.sh
 ```
+
+高速版の採用検証結果と既知の表示差は
+[`../overlay/experimental/ADOPTION_VALIDATION.md`](../overlay/experimental/ADOPTION_VALIDATION.md)
+を参照してください。生成物ごとのフレーム数、PTS/DTS、分割境界、音声連続性、
+全stream decodeを再確認する場合は、同文書の`validate_fast_output.py`を使用します。
 
 ## 成果物
 

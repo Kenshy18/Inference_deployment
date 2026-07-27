@@ -149,19 +149,32 @@ libx264 workerをCPU経路で実行できます。ただし今回の実測では
 必要な場合は、単体rendererまたはsegmented benchmarkへ`--faststart`を追加
 してください。画質は変わりませんが最終ファイル移動の固定費が増えます。
 
-詳細な実測結果は[REPORT.md](REPORT.md)を参照してください。
+詳細な速度実測は[REPORT.md](REPORT.md)、3モード採用前の品質・時刻・分割完全性の
+検証結果は[ADOPTION_VALIDATION.md](ADOPTION_VALIDATION.md)を参照してください。
+
+高速出力を構造検証する場合:
+
+```bash
+python validate_fast_output.py \
+  --output output/gpu/final.mp4 \
+  --summary output/gpu/benchmark_summary.json \
+  --report output/gpu/validation.json
+```
+
+この検証は映像フレーム数、PTS/DTS、worker範囲、分割境界keyframe、全stream
+decode、音声preroll/連続性を確認します。`--reference`を追加するとVMAF、
+float SSIM、PSNR-Y、および境界周辺と非境界のVMAF差も測定します。
 
 ## Orchestration
 
-既存のPython/OpenCV backendを既定値のまま残し、設定で明示的に切り替えます。
+既存のPython/OpenCV通常モードを残し、`execution_mode`で明示的に切り替えます。
 `workers: 6, cpu_workers: 0`は純GPU、`workers: 6, cpu_workers: 3`は
 CPU 3＋NVENC 3です。
 
 ```json
 {
   "overlay": {
-    "backend": "experimental_cpp",
-    "codec": "h264_nvenc",
+    "execution_mode": "fast_parallel",
     "workers": 6,
     "cpu_workers": 0,
     "target_bitrate_mbps": 8.0,

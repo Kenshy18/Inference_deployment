@@ -30,7 +30,7 @@
   },
   "overlay": {
     "enabled": true,
-    "backend": "python_opencv",
+    "execution_mode": "cpu",
     "raw": true,
     "tracked": true,
     "final": true,
@@ -38,7 +38,6 @@
     "final_include_faces": true,
     "mask_alpha": 0.32,
     "show_labels": true,
-    "codec": "mp4v",
     "workers": 6,
     "cpu_workers": 0,
     "copy_audio": false,

@@ -19,7 +19,7 @@
   },
   "overlay": {
     "enabled": true,
-    "backend": "experimental_cpp",
+    "execution_mode": "fast_parallel",
     "raw": true,
     "tracked": true,
     "final": true,
@@ -29,7 +29,6 @@
     "outline_thickness": 2,
     "box_thickness": 2,
     "show_labels": true,
-    "codec": "h264_nvenc",
     "workers": 6,
     "cpu_workers": 0,
     "copy_audio": true,
