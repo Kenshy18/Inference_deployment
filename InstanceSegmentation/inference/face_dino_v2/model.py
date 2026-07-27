@@ -11,12 +11,17 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from .deployment import (
+    deployment_import_stubs,
+    prepare_deployment_shell,
+    validate_deployment_state,
+)
+from .optimized_predict import install_prefiltered_predict
 from .preprocessing import (
     FusedVideoPreprocessor,
     LetterboxTransform,
     restore_result,
 )
-from .optimized_predict import install_prefiltered_predict
 from .trt.bundle import FaceDinoEngineBundle, load_engine_bundle, sha256_file
 
 
@@ -183,29 +188,34 @@ def build_runtime(
             f"observed={observed_checkpoint_hash}"
         )
 
-    # Import only after the isolated runtime source paths are configured.
-    from codino_face_detection.models import compatibility as _compatibility
-    from face_dino_v1.inference import (
-        TensorRTAttributeBackend,
-        TensorRTBackboneNeck,
-        install_batched_bbox,
-        install_tensorrt_transformer,
-    )
-    from face_dino_v1.models.build import build_face_dino_explored
-
-    del _compatibility
     torch.set_num_threads(min(4, os.cpu_count() or 1))
     torch.set_float32_matmul_precision("high")
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cudnn.benchmark = True
     payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    model = (
-        build_face_dino_explored(attribute_config=payload.get("attribute_config"))
-        .to(target)
-        .eval()
+    with deployment_import_stubs():
+        # Import only after the isolated runtime source paths are configured.
+        from codino_face_detection.models import compatibility as _compatibility
+        from face_dino_v1.inference import (
+            TensorRTAttributeBackend,
+            TensorRTBackboneNeck,
+            install_batched_bbox,
+            install_tensorrt_transformer,
+        )
+        from face_dino_v1.models.build import build_face_dino_explored
+
+        del _compatibility
+        model = build_face_dino_explored(
+            attribute_config=payload.get("attribute_config")
+        ).eval()
+    prepare_deployment_shell(model)
+    model = model.to(target)
+    incompatible = model.load_state_dict(
+        payload["model"],
+        strict=False,
     )
-    model.load_state_dict(payload["model"], strict=True)
+    validate_deployment_state(incompatible)
     calibration = payload.get("inference_calibration", {})
     model.face_threshold = float(calibration.get("face_threshold", 0.55))
     model.point_threshold = float(calibration.get("point_threshold", 0.75))
