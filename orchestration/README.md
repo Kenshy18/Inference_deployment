@@ -38,7 +38,7 @@ python3 -m orchestration --config config.json --dry-run
 {
   "inference": {
     "parallel_models": true,
-    "parallel_model_stagger_seconds": 7.0,
+    "parallel_model_stagger_seconds": 0.0,
     "fast_sqlite": true
   },
   "postprocess": {
@@ -48,7 +48,7 @@ python3 -m orchestration --config config.json --dry-run
 ```
 
 - `parallel_models`: segmentationと顔検出を隔離プロセスのまま同時実行
-- `parallel_model_stagger_seconds`: 顔モデルを先に起動し、GPU電力競合を調整
+- `parallel_model_stagger_seconds`: モデル起動間隔。RTX 5090での3分実測では`0.0`が最速
 - `fast_sqlite`: SQLiteの異常終了耐性を速度優先に変更。最終公開はatomicのまま
 - `precompute_cuts_during_inference`: CPUカット検出を推論と重ね、同じ
   `cuts.json`を後処理へ渡す。現在は`high_precision`方式に対応

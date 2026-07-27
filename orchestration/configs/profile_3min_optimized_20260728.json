@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "input_video": "/home/kenshin/inference_backend2/data/codino_trt_3min_simple150_input.mp4",
-  "output_root": "/home/kenshin/inference_backend2/orchestration/output/profile_3min_optimization_20260728/18_optimized_b8_final",
+  "output_root": "/home/kenshin/inference_backend2/orchestration/output/autonomous_optimization_20260728/47_final_e2e",
   "execution": {
     "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
     "resume": false
@@ -18,7 +18,7 @@
     "warmup_frames": 0,
     "face_warmup_iterations": 3,
     "parallel_models": true,
-    "parallel_model_stagger_seconds": 7.0,
+    "parallel_model_stagger_seconds": 0.0,
     "fast_sqlite": true
   },
   "postprocess": {
