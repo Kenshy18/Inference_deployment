@@ -38,6 +38,7 @@ Gitではソースコード、設定、manifest、テスト、ドキュメント
 - 動画、SQLite、JSONL
 - モデル別の`.runtime`環境
 - `input`、`output`、ルート`data`配下の実行データ
+- `InstanceSegmentation/tentative_folder`のローカル受け渡し一式
 
 モデルの設定やTensorRT bundleのmanifestは、再現性のためGit管理に含めます。
 重みとエンジンは上記の既定ディレクトリへ配置してください。
