@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "input_video": "../../output/benchmark_10min_20260728/input/heyzo_first_10min.mp4",
+  "output_root": "../../output/benchmark_10min_20260728/inference/mh0_with_face",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": true,
+    "mode": "segmentation-face",
+    "segmentation_model": "dinov3_codino_mh0",
+    "segmentation_backend": "tensorrt-fast",
+    "face_model": "face_dino_v2",
+    "face_classes": ["Face", "Head"],
+    "device": "cuda:0",
+    "max_frames": 14400,
+    "warmup_frames": 0,
+    "face_warmup_iterations": 3,
+    "parallel_models": true,
+    "parallel_model_stagger_seconds": 0.0,
+    "fast_sqlite": true
+  },
+  "postprocess": {
+    "enabled": false
+  },
+  "overlay": {
+    "enabled": false
+  }
+}

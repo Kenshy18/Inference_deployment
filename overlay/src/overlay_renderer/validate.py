@@ -238,6 +238,11 @@ def segment_boundaries(
     if summary is None:
         return [], [], []
     records = list(summary.get("workers_detail", []))
+    # The normal OpenCV renderer also writes a manifest, but it is not split
+    # into worker ranges.  Only the segmented fast renderer has boundary
+    # invariants to validate.
+    if not records:
+        return [], [], []
     errors: list[str] = []
     boundaries: list[int] = []
     expected_start = int(summary["start_frame"])
@@ -406,7 +411,6 @@ def main() -> None:
     if (
         isinstance(loaded_summary, dict)
         and isinstance(loaded_summary.get("summary"), dict)
-        and "workers_detail" in loaded_summary["summary"]
     ):
         summary = loaded_summary["summary"]
     if not output.is_file():
@@ -431,7 +435,12 @@ def main() -> None:
     timestamps = probe_timestamps(ffprobe, output, "v:0")
     expected_frames = args.expected_frames
     if expected_frames is None and summary is not None:
-        expected_frames = int(summary["frames"])
+        reported_frames = summary.get(
+            "frames",
+            summary.get("frames_written"),
+        )
+        if reported_frames is not None:
+            expected_frames = int(reported_frames)
     if expected_frames is None:
         expected_frames = int(video.get("nb_read_packets", len(timestamps)))
     expected_step = 1.0 / fps
