@@ -96,9 +96,7 @@ def write_rich_inference(path: Path) -> Path:
 
 
 def write_predictions(path: Path, *, wal: bool = False) -> Path:
-    polygon = json.dumps(
-        [[[10.0, 10.0], [30.0, 10.0], [30.0, 30.0], [10.0, 30.0]]]
-    )
+    polygon = json.dumps([[[10.0, 10.0], [30.0, 10.0], [30.0, 30.0], [10.0, 30.0]]])
     with sqlite3.connect(path) as connection:
         connection.executescript(
             """
@@ -187,7 +185,7 @@ class FacePrivacyTests(unittest.TestCase):
                 self.assertEqual(
                     (
                         7,
-                        "face:eyes:1",
+                        "face:eyes:0:1",
                         "rectangle",
                         "Eyes",
                         "eyes",
@@ -195,6 +193,104 @@ class FacePrivacyTests(unittest.TestCase):
                         0.97,
                     ),
                     row,
+                )
+
+    def test_tracking_keeps_one_id_and_interpolates_only_the_internal_gap(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_rich_inference(root / "inference.sqlite")
+            with sqlite3.connect(source) as connection:
+                connection.execute(
+                    "UPDATE frames SET frame_index=0, timestamp_sec=0 WHERE id=1"
+                )
+                connection.execute(
+                    "INSERT INTO frames VALUES (2, 1, 2, 0.08, 200, 160)"
+                )
+                connection.execute(
+                    """
+                    INSERT INTO detections VALUES(
+                        2, 2, 1, 0, 'Head', 0.97, 32, 20, 172, 150
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO face_observations VALUES(
+                        2, 2, 0.95, 1, 'ellipse',
+                        102, 85, 60, 50, ?
+                    )
+                    """,
+                    (math.pi / 2.0,),
+                )
+                connection.executemany(
+                    "INSERT INTO face_keypoints VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        (2, 0, "Eye", 72.0, 65.0, 0.98, 1),
+                        (2, 1, "Eye", 132.0, 65.0, 0.97, 1),
+                        (2, 2, "Nose", 102.0, 95.0, 0.96, 1),
+                        (2, 3, "Mouth", 92.0, 120.0, 0.95, 1),
+                        (2, 4, "Mouth", 112.0, 120.0, 0.95, 1),
+                    ),
+                )
+            output = root / "eyes.sqlite"
+
+            summary = export_face_masks(
+                source,
+                output,
+                target="eyes",
+                interpolation_max_gap=1,
+            )
+
+            self.assertEqual(3, summary["rows"])
+            self.assertEqual(1, summary["face_tracks"])
+            self.assertEqual(1, summary["interpolated_rows"])
+            self.assertEqual(1, summary["interpolated_boxes"])
+            with sqlite3.connect(output) as connection:
+                self.assertEqual(
+                    [
+                        (0, "face:eyes:0:1", 0),
+                        (1, "face:eyes:0:1", 1),
+                        (2, "face:eyes:0:1", 0),
+                    ],
+                    connection.execute(
+                        """
+                        SELECT frame, track_id, is_interpolated
+                        FROM mask_provenance ORDER BY frame
+                        """
+                    ).fetchall(),
+                )
+                self.assertEqual(
+                    [
+                        (
+                            1,
+                            "face:0:1",
+                            31.0,
+                            20.0,
+                            171.0,
+                            150.0,
+                            "linear-two-sided",
+                        )
+                    ],
+                    connection.execute(
+                        """
+                        SELECT frame, final_track_id,
+                               head_x1, head_y1, head_x2, head_y2,
+                               interpolation_method
+                        FROM face_track_interpolations
+                        """
+                    ).fetchall(),
+                )
+                self.assertEqual(
+                    [("face:0:1", 2)],
+                    connection.execute(
+                        """
+                        SELECT final_track_id, COUNT(*)
+                        FROM face_tracking_assignments
+                        GROUP BY final_track_id
+                        """
+                    ).fetchall(),
                 )
 
     def test_merge_preserves_genital_masks_and_adds_face_masks(self) -> None:
@@ -223,7 +319,7 @@ class FacePrivacyTests(unittest.TestCase):
             )
             with sqlite3.connect(output) as connection:
                 self.assertEqual(
-                    [("1", "genital"), ("face:eyes:1", "Eyes")],
+                    [("1", "genital"), ("face:eyes:0:1", "Eyes")],
                     connection.execute(
                         "SELECT track_id, label FROM masks ORDER BY track_id"
                     ).fetchall(),
@@ -267,9 +363,7 @@ class FacePrivacyTests(unittest.TestCase):
                     "delete",
                     connection.execute("PRAGMA journal_mode").fetchone()[0],
                 )
-            self.assertFalse(
-                any(root.glob(".combined.sqlite.*.tmp-*"))
-            )
+            self.assertFalse(any(root.glob(".combined.sqlite.*.tmp-*")))
 
     def test_registered_stages_run_as_a_contract_connected_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

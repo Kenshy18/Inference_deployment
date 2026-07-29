@@ -145,6 +145,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.35,
     )
+    parser.add_argument("--face-tracking-max-gap-frames", type=int, default=5)
+    parser.add_argument(
+        "--face-tracking-high-score-threshold",
+        type=float,
+        default=0.50,
+    )
+    parser.add_argument(
+        "--face-tracking-low-score-threshold",
+        type=float,
+        default=0.05,
+    )
+    parser.add_argument("--face-short-track-max-hits", type=int, default=2)
+    parser.add_argument(
+        "--face-short-track-keep-score",
+        type=float,
+        default=0.90,
+    )
+    parser.add_argument("--face-interpolation-max-gap", type=int, default=3)
     return parser
 
 
@@ -350,6 +368,16 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                         "target": args.face_mask_target,
                         "eye_shape": args.eye_mask_shape,
                         "minimum_eye_confidence": args.minimum_eye_confidence,
+                        "tracking_max_gap_frames": (args.face_tracking_max_gap_frames),
+                        "tracking_high_score_threshold": (
+                            args.face_tracking_high_score_threshold
+                        ),
+                        "tracking_low_score_threshold": (
+                            args.face_tracking_low_score_threshold
+                        ),
+                        "short_track_max_hits": args.face_short_track_max_hits,
+                        "short_track_keep_score": (args.face_short_track_keep_score),
+                        "interpolation_max_gap": (args.face_interpolation_max_gap),
                     },
                 ),
                 StageSpec(

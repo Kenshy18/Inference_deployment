@@ -162,7 +162,7 @@ def _validate_face_masks_sqlite(path: Path) -> None:
         info = dict(connection.execute("SELECT key, value FROM schema_info"))
         if (
             info.get("schema_name") != "face-privacy-mask-sqlite"
-            or str(info.get("schema_version")) != "1"
+            or str(info.get("schema_version")) not in {"1", "2"}
         ):
             raise ArtifactContractError(f"{path}: unsupported face mask schema")
         geometry_columns = {

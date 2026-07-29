@@ -248,7 +248,7 @@ mask_provenance                 顔・目mask由来
 `predictions_sqlite`はpipeline内部の中間成果物であり、公開境界は
 `result_sqlite`です。
 
-`result_schema_info`は`schema_version=3`、`contract_revision=4`および
+`result_schema_info`は`schema_version=3`、`contract_revision=5`および
 `compatibility_profile=keyframe-primary-v3`でこの契約を示します。
 後処理なし、顔なし、
 旧顔検出などでデータが存在しない場合も、上記テーブルは削除せず0行で作成

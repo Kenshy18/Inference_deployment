@@ -34,7 +34,10 @@ combined-detailed  combined-simple
 
 性器を含むpresetでは`--genital-source raw|final`を併用します。詳細な顔表示は
 Head box、face moment-maskの点線境界、顔楕円、可視/遮蔽keypointと確信度を
-表示します。簡易表示は性器の最終binary maskと、顔楕円・keypointだけです。
+表示します。顔trackingがあるV3 resultでは、観測済みHeadを
+`TRACK <番号> / SCENE <番号>`付きの実線、両端観測間の補完Headを黄の点線、
+短命削除対象を赤枠と斜線で表示します。簡易表示は性器の最終binary maskと、
+顔楕円・keypointだけです。
 左上の全体HUDは表示しません。
 性器を含む簡易presetは固定ピンク`RGB(255, 105, 180)`、mask alphaは
 既定`0.45`です。詳細版および従来表示のalphaは`0.32`です。必要なら
@@ -49,15 +52,14 @@ Head box、face moment-maskの点線境界、顔楕円、可視/遮蔽keypoint�
 overlay-render \
   --preset combined-detailed \
   --genital-source final \
-  --execution-mode nvenc \
   --video input.mp4 \
   --sqlite predictions.sqlite \
-  --face-sqlite inference.sqlite \
   --output output/combined_detailed.mp4
 ```
 
-presetは表示形式を確定する段階のため、現在は`cpu`と`nvenc`が対応します。
-`fast`への移植は通常rendererとの表示検証後に行います。
+6つのpresetは`cpu`、`nvenc`、`fast`の全実行方式で使用できます。統合
+`result.sqlite`では顔と性器を同じファイルから読み、性器presetへ
+`face_privacy` domainの最終マスクが混入しないようdomainを分離します。
 
 ### 顔・目のプライバシーマスク
 
@@ -119,6 +121,8 @@ overlay-export-face-masks \
 | `nvenc` | Python/OpenCV描画＋NVENC | 通常表示を保ったGPU encode |
 | `fast` | C++/libav、NVDEC、CUDA描画、分割NVENC | 対応入力の最大スループット |
 
+`--execution-mode`を省略した既定は`fast`です。通常版を使う場合だけ`cpu`または
+`nvenc`を明示します。高速版の既定はNVENC 6 worker、p1、8 Mbpsです。
 `cpu`と`nvenc`の描画は同じです。`fast`は速度優先のYUV/NV12直接描画なので、
 マスク位置、フレーム対応、時刻は同じですが、フォント、アンチエイリアス、
 境界pixelは通常モードと完全一致しません。
@@ -238,8 +242,8 @@ Face DINO v2の通常rendererで最も重い要素は、フレームごとの顔
 確率mask塗りだけを省略できます。manifestの`face_components`に実際の設定が
 記録されます。
 
-`fast`は比較可能な容量と高速分割を保証するため
-`--target-bitrate-mbps`が必須です。`--copy-audio`と`--faststart`は現在
+`fast`は比較可能な容量と高速分割を保証するため、bitrate未指定時は8 Mbpsを
+使用します。`--copy-audio`と`--faststart`は現在
 `fast`だけが対応します。通常モードの出力は映像のみです。
 
 旧CLIの`--codec mp4v`、`--codec h264`、`--codec h264_nvenc`も互換目的で

@@ -134,9 +134,7 @@ class KeyframeCacheTests(unittest.TestCase):
             self.assertTrue(is_keyframe_primary(source))
 
             final = root / "final-cache.sqlite"
-            final_summary = materialize_overlay_cache(
-                source, final, mode="final"
-            )
+            final_summary = materialize_overlay_cache(source, final, mode="final")
             self.assertEqual(4, final_summary["rows"])
             with sqlite3.connect(final) as connection:
                 middle = json.loads(
@@ -162,9 +160,9 @@ class KeyframeCacheTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     0,
-                    connection.execute(
-                        "SELECT COUNT(*) FROM mask_ellipses"
-                    ).fetchone()[0],
+                    connection.execute("SELECT COUNT(*) FROM mask_ellipses").fetchone()[
+                        0
+                    ],
                 )
             self.assertEqual(8, len(middle[0]))
             self.assertEqual([1.0, 0.0], middle[0][0])
@@ -172,10 +170,31 @@ class KeyframeCacheTests(unittest.TestCase):
             self.assertEqual([3.0, 2.0], middle[0][4])
             self.assertEqual([1.0, 2.0], middle[0][6])
 
-            tracked = root / "tracked-cache.sqlite"
-            tracked_summary = materialize_overlay_cache(
-                source, tracked, mode="tracked"
+            genital = root / "genital-cache.sqlite"
+            genital_summary = materialize_overlay_cache(
+                source,
+                genital,
+                mode="final",
+                mask_domain="genital",
             )
+            self.assertEqual(3, genital_summary["rows"])
+            self.assertEqual("genital", genital_summary["mask_domain"])
+            with sqlite3.connect(genital) as connection:
+                self.assertEqual(
+                    [("1",)],
+                    connection.execute(
+                        "SELECT DISTINCT track_id FROM masks"
+                    ).fetchall(),
+                )
+                self.assertEqual(
+                    0,
+                    connection.execute("SELECT COUNT(*) FROM mask_ellipses").fetchone()[
+                        0
+                    ],
+                )
+
+            tracked = root / "tracked-cache.sqlite"
+            tracked_summary = materialize_overlay_cache(source, tracked, mode="tracked")
             self.assertEqual(3, tracked_summary["rows"])
             with sqlite3.connect(tracked) as connection:
                 self.assertEqual(
@@ -200,10 +219,7 @@ class KeyframeCacheTests(unittest.TestCase):
             self.assertEqual(2, len(shards["shards"]))
             self.assertEqual(
                 [1, 3],
-                [
-                    int(shard["rows"])
-                    for shard in shards["shards"]
-                ],
+                [int(shard["rows"]) for shard in shards["shards"]],
             )
             with sqlite3.connect(
                 Path(str(shards["shards"][1]["cache_sqlite"]))

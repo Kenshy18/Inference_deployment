@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -51,6 +52,24 @@ struct Box {
     double y2{};
 };
 
+struct Ellipse {
+    double cx{};
+    double cy{};
+    double radius_x{};
+    double radius_y{};
+    double theta{};
+};
+
+struct FaceKeypoint {
+    double x{};
+    double y{};
+    std::string class_name;
+    int state{};
+    double confidence{};
+    std::optional<double> state_confidence;
+    bool valid{};
+};
+
 enum class ItemKind {
     mask,
     face,
@@ -64,6 +83,37 @@ struct Mask {
     std::vector<Polygon> polygons;
     std::optional<Box> box;
     std::array<std::uint8_t, 3> bgr{};
+    std::string provenance;
+    std::optional<double> face_score;
+    std::optional<bool> face_present;
+    std::optional<Ellipse> ellipse;
+    std::vector<FaceKeypoint> keypoints;
+    std::vector<Point> face_mask_dots;
+    Polygon privacy_polygon;
+    std::string privacy_target;
+    std::string privacy_shape;
+    std::string privacy_derivation;
+    std::optional<double> privacy_confidence;
+    bool face_detailed{false};
+
+    Mask() = default;
+
+    Mask(
+        ItemKind input_kind,
+        std::string input_track_id,
+        std::string input_label,
+        std::optional<double> input_score,
+        std::vector<Polygon> input_polygons,
+        std::optional<Box> input_box,
+        std::array<std::uint8_t, 3> input_bgr
+    )
+        : kind(input_kind),
+          track_id(std::move(input_track_id)),
+          label(std::move(input_label)),
+          score(input_score),
+          polygons(std::move(input_polygons)),
+          box(input_box),
+          bgr(input_bgr) {}
 };
 
 using FrameMasks = std::map<int, std::vector<Mask>>;
@@ -75,6 +125,8 @@ struct Options {
     fs::path output;
     fs::path manifest;
     std::string mode{"final"};
+    std::string display_style{"legacy"};
+    std::string mask_domain{"all"};
     std::string encoder{"h264_nvenc"};
     std::string preset{"p1"};
     double bitrate_mbps{8.0};
@@ -632,7 +684,8 @@ FrameMasks load_postprocess_masks(
     const fs::path& path,
     int start_frame,
     const std::optional<int>& end_frame,
-    bool prefer_tracked
+    bool prefer_tracked,
+    const std::string& mask_domain
 ) {
     SqliteConnection connection(path);
     const std::string table =
@@ -645,18 +698,39 @@ FrameMasks load_postprocess_masks(
         table,
         "label"
     );
+    const bool filter_domain =
+        mask_domain != "all" &&
+        sqlite_table_exists(connection.get(), "tracks") &&
+        sqlite_column_exists(connection.get(), "tracks", "domain");
+    const std::string domain_join = filter_domain
+        ? " JOIN tracks domain_track ON "
+          "CAST(domain_track.track_id AS TEXT)=CAST(m.track_id AS TEXT) "
+        : "";
+    const std::string domain_where = filter_domain
+        ? " AND domain_track.domain=?3 "
+        : "";
     const std::string query =
-        "SELECT frame, CAST(track_id AS TEXT), polygons, " +
+        "SELECT m.frame, CAST(m.track_id AS TEXT), m.polygons, " +
         std::string(
-            has_label ? "COALESCE(label, '')" : "''"
+            has_label ? "COALESCE(m.label, '')" : "''"
         ) +
-        " FROM " + table + " WHERE frame >= ?1 "
-        "AND (?2 IS NULL OR frame <= ?2) ORDER BY frame, track_id";
+        " FROM " + table + " m " + domain_join + "WHERE m.frame >= ?1 "
+        "AND (?2 IS NULL OR m.frame <= ?2)" + domain_where +
+        " ORDER BY m.frame, m.track_id";
     SqliteStatement statement(
         connection.get(),
         query.c_str()
     );
     bind_frame_range(statement.get(), start_frame, end_frame);
+    if (filter_domain) {
+        sqlite3_bind_text(
+            statement.get(),
+            3,
+            mask_domain.c_str(),
+            -1,
+            SQLITE_TRANSIENT
+        );
+    }
 
     FrameMasks frames;
     while (true) {
@@ -947,12 +1021,175 @@ FrameMasks load_raw_masks(
     return frames;
 }
 
+std::optional<double> sqlite_optional_double(
+    sqlite3_stmt* statement,
+    int column
+) {
+    return sqlite3_column_type(statement, column) == SQLITE_NULL
+        ? std::nullopt
+        : std::optional<double>{sqlite3_column_double(statement, column)};
+}
+
+FrameMasks load_fast_face_cache(
+    sqlite3* connection,
+    int start_frame,
+    const std::optional<int>& end_frame
+) {
+    SqliteStatement items(
+        connection,
+        "SELECT id, frame, COALESCE(track_id, ''), label, score, "
+        "face_score, face_present, COALESCE(provenance, ''), detailed, "
+        "box_x1, box_y1, box_x2, box_y2, "
+        "ellipse_cx, ellipse_cy, ellipse_radius_x, ellipse_radius_y, "
+        "ellipse_theta, COALESCE(privacy_target, ''), "
+        "COALESCE(privacy_shape, ''), COALESCE(privacy_derivation, ''), "
+        "privacy_confidence, mask_dots_i16, privacy_points_f32 "
+        "FROM fast_face_items WHERE frame >= ?1 "
+        "AND (?2 IS NULL OR frame <= ?2) ORDER BY frame, id"
+    );
+    bind_frame_range(items.get(), start_frame, end_frame);
+    FrameMasks frames;
+    std::map<std::int64_t, std::pair<int, std::size_t>> locations;
+    while (true) {
+        const int result = sqlite3_step(items.get());
+        if (result == SQLITE_DONE) {
+            break;
+        }
+        if (result != SQLITE_ROW) {
+            throw std::runtime_error("fast face cache item read failed");
+        }
+        const std::int64_t id = sqlite3_column_int64(items.get(), 0);
+        const int frame = sqlite3_column_int(items.get(), 1);
+        const std::string provenance = sqlite_text(items.get(), 7);
+        std::array<std::uint8_t, 3> color{255, 170, 30};
+        if (provenance == "REMOVED_SHORT_TRACK") {
+            color = {70, 70, 255};
+        } else if (provenance == "INTERPOLATED") {
+            color = {0, 210, 255};
+        }
+        Mask item;
+        item.kind = ItemKind::face;
+        item.track_id = sqlite_text(items.get(), 2);
+        item.label = sqlite_text(items.get(), 3);
+        item.score = sqlite_optional_double(items.get(), 4);
+        item.face_score = sqlite_optional_double(items.get(), 5);
+        if (sqlite3_column_type(items.get(), 6) != SQLITE_NULL) {
+            item.face_present =
+                sqlite3_column_int(items.get(), 6) != 0;
+        }
+        item.provenance = provenance;
+        item.face_detailed = sqlite3_column_int(items.get(), 8) != 0;
+        if (sqlite3_column_type(items.get(), 9) != SQLITE_NULL) {
+            item.box = Box{
+                sqlite3_column_double(items.get(), 9),
+                sqlite3_column_double(items.get(), 10),
+                sqlite3_column_double(items.get(), 11),
+                sqlite3_column_double(items.get(), 12),
+            };
+        }
+        if (sqlite3_column_type(items.get(), 13) != SQLITE_NULL) {
+            item.ellipse = Ellipse{
+                sqlite3_column_double(items.get(), 13),
+                sqlite3_column_double(items.get(), 14),
+                sqlite3_column_double(items.get(), 15),
+                sqlite3_column_double(items.get(), 16),
+                sqlite3_column_double(items.get(), 17),
+            };
+        }
+        item.privacy_target = sqlite_text(items.get(), 18);
+        item.privacy_shape = sqlite_text(items.get(), 19);
+        item.privacy_derivation = sqlite_text(items.get(), 20);
+        item.privacy_confidence = sqlite_optional_double(items.get(), 21);
+        const auto* dots = static_cast<const std::uint8_t*>(
+            sqlite3_column_blob(items.get(), 22)
+        );
+        const int dots_size = sqlite3_column_bytes(items.get(), 22);
+        if (dots_size % 4 != 0) {
+            throw std::runtime_error("invalid fast face mask dot blob");
+        }
+        item.face_mask_dots.reserve(
+            static_cast<std::size_t>(dots_size / 4)
+        );
+        for (int offset = 0; offset < dots_size; offset += 4) {
+            std::int16_t x{};
+            std::int16_t y{};
+            std::memcpy(&x, dots + offset, sizeof(x));
+            std::memcpy(&y, dots + offset + 2, sizeof(y));
+            item.face_mask_dots.push_back(
+                Point{static_cast<double>(x), static_cast<double>(y)}
+            );
+        }
+        const auto* privacy = static_cast<const std::uint8_t*>(
+            sqlite3_column_blob(items.get(), 23)
+        );
+        const int privacy_size = sqlite3_column_bytes(items.get(), 23);
+        if (privacy_size % 8 != 0) {
+            throw std::runtime_error("invalid fast face privacy blob");
+        }
+        item.privacy_polygon.reserve(
+            static_cast<std::size_t>(privacy_size / 8)
+        );
+        for (int offset = 0; offset < privacy_size; offset += 8) {
+            float x{};
+            float y{};
+            std::memcpy(&x, privacy + offset, sizeof(x));
+            std::memcpy(&y, privacy + offset + 4, sizeof(y));
+            item.privacy_polygon.push_back(
+                Point{static_cast<double>(x), static_cast<double>(y)}
+            );
+        }
+        item.bgr = color;
+        auto& target = frames[frame];
+        locations.emplace(id, std::pair{frame, target.size()});
+        target.push_back(std::move(item));
+    }
+
+    SqliteStatement keypoints(
+        connection,
+        "SELECT k.item_id, k.x, k.y, k.class_name, k.state, "
+        "k.confidence, k.state_confidence, k.valid "
+        "FROM fast_face_keypoints k JOIN fast_face_items i ON i.id=k.item_id "
+        "WHERE i.frame >= ?1 AND (?2 IS NULL OR i.frame <= ?2) "
+        "ORDER BY k.item_id, k.point_index"
+    );
+    bind_frame_range(keypoints.get(), start_frame, end_frame);
+    while (sqlite3_step(keypoints.get()) == SQLITE_ROW) {
+        const auto found = locations.find(
+            sqlite3_column_int64(keypoints.get(), 0)
+        );
+        if (found == locations.end()) {
+            continue;
+        }
+        auto& item = frames[found->second.first][found->second.second];
+        item.keypoints.push_back(
+            FaceKeypoint{
+                sqlite3_column_double(keypoints.get(), 1),
+                sqlite3_column_double(keypoints.get(), 2),
+                sqlite_text(keypoints.get(), 3),
+                sqlite3_column_int(keypoints.get(), 4),
+                sqlite3_column_double(keypoints.get(), 5),
+                sqlite_optional_double(keypoints.get(), 6),
+                sqlite3_column_int(keypoints.get(), 7) != 0,
+            }
+        );
+    }
+
+    return frames;
+}
+
 FrameMasks load_faces(
     const fs::path& path,
     int start_frame,
     const std::optional<int>& end_frame
 ) {
     SqliteConnection connection(path);
+    if (sqlite_table_exists(connection.get(), "fast_face_items")) {
+        return load_fast_face_cache(
+            connection.get(),
+            start_frame,
+            end_frame
+        );
+    }
     validate_inference_schema(connection.get(), path);
     require_inference_role(connection.get(), path, "face_detection");
     SqliteStatement statement(
@@ -1323,6 +1560,162 @@ void draw_line(
 
 void draw_cpu_label(AVFrame* frame, const Mask& item);
 
+void draw_cpu_face(
+    AVFrame* frame,
+    const Mask& item,
+    int box_thickness,
+    bool show_labels
+) {
+    for (const auto& dot : item.face_mask_dots) {
+        draw_disc(
+            frame,
+            static_cast<int>(std::lround(dot.x)),
+            static_cast<int>(std::lround(dot.y)),
+            2,
+            bgr_to_bt709_limited({225, 225, 225})
+        );
+        draw_disc(
+            frame,
+            static_cast<int>(std::lround(dot.x)),
+            static_cast<int>(std::lround(dot.y)),
+            1,
+            bgr_to_bt709_limited({0, 0, 0})
+        );
+    }
+    if (item.box && box_thickness > 0) {
+        const YuvColor color = bgr_to_bt709_limited(item.bgr);
+        const Box& box = *item.box;
+        const auto line = [&](Point first, Point second) {
+            draw_line(frame, first, second, box_thickness, color);
+        };
+        if (item.provenance == "INTERPOLATED") {
+            constexpr double segment = 10.0;
+            constexpr double stride = 17.0;
+            for (double x = box.x1; x <= box.x2; x += stride) {
+                line({x, box.y1}, {std::min(box.x2, x + segment), box.y1});
+                line({x, box.y2}, {std::min(box.x2, x + segment), box.y2});
+            }
+            for (double y = box.y1; y <= box.y2; y += stride) {
+                line({box.x1, y}, {box.x1, std::min(box.y2, y + segment)});
+                line({box.x2, y}, {box.x2, std::min(box.y2, y + segment)});
+            }
+        } else {
+            line({box.x1, box.y1}, {box.x2, box.y1});
+            line({box.x2, box.y1}, {box.x2, box.y2});
+            line({box.x2, box.y2}, {box.x1, box.y2});
+            line({box.x1, box.y2}, {box.x1, box.y1});
+        }
+        if (item.provenance == "REMOVED_SHORT_TRACK") {
+            draw_line(
+                frame,
+                {box.x1, box.y2},
+                {box.x2, box.y1},
+                std::max(3, box_thickness + 1),
+                color
+            );
+        }
+    }
+    if (item.ellipse) {
+        const auto polygon = ellipse_polygon(
+            item.ellipse->cx,
+            item.ellipse->cy,
+            item.ellipse->radius_x,
+            item.ellipse->radius_y,
+            item.ellipse->theta,
+            96
+        );
+        const auto color = bgr_to_bt709_limited(
+            item.provenance == "REMOVED_SHORT_TRACK"
+                ? item.bgr
+                : std::array<std::uint8_t, 3>{255, 70, 255}
+        );
+        for (std::size_t index = 0; index < polygon.size(); ++index) {
+            draw_line(
+                frame,
+                polygon[index],
+                polygon[(index + 1) % polygon.size()],
+                box_thickness,
+                color
+            );
+        }
+    }
+    const int radius = std::max(4, static_cast<int>(std::lround(
+        static_cast<double>(frame->width) / 480.0
+    )));
+    for (const auto& point : item.keypoints) {
+        if (!point.valid || point.state == 0) {
+            continue;
+        }
+        const std::array<std::uint8_t, 3> bgr =
+            point.state == 1
+                ? std::array<std::uint8_t, 3>{0, 165, 255}
+                : std::array<std::uint8_t, 3>{0, 255, 0};
+        const auto color = bgr_to_bt709_limited(bgr);
+        draw_disc(
+            frame,
+            static_cast<int>(std::lround(point.x)),
+            static_cast<int>(std::lround(point.y)),
+            point.state == 1 ? radius + 2 : radius,
+            color
+        );
+        if (item.face_detailed && show_labels) {
+            std::string name = point.class_name;
+            std::transform(
+                name.begin(),
+                name.end(),
+                name.begin(),
+                [](unsigned char character) {
+                    return static_cast<char>(std::toupper(character));
+                }
+            );
+            std::ostringstream text;
+            text << name << ':' << (point.state == 1 ? 'O' : 'V')
+                 << " P" << std::fixed << std::setprecision(2)
+                 << point.confidence << "/S"
+                 << point.state_confidence.value_or(point.confidence);
+            Mask label;
+            label.kind = ItemKind::face;
+            label.label = text.str();
+            label.box = Box{
+                point.x + radius + 3.0,
+                point.y - radius + 1.0,
+                point.x + radius + 4.0,
+                point.y - radius + 2.0,
+            };
+            label.bgr = bgr;
+            draw_cpu_label(frame, label);
+        }
+    }
+    if (
+        item.face_detailed &&
+        show_labels &&
+        !item.privacy_polygon.empty()
+    ) {
+        double minimum_x = std::numeric_limits<double>::max();
+        double minimum_y = std::numeric_limits<double>::max();
+        for (const auto& point : item.privacy_polygon) {
+            minimum_x = std::min(minimum_x, point.x);
+            minimum_y = std::min(minimum_y, point.y);
+        }
+        Mask label;
+        label.kind = ItemKind::face;
+        label.label =
+            item.privacy_target + " MASK " + item.privacy_shape + " " +
+            item.privacy_derivation;
+        label.box = Box{
+            minimum_x,
+            minimum_y,
+            minimum_x + 1.0,
+            minimum_y + 1.0,
+        };
+        label.bgr = {255, 70, 255};
+        draw_cpu_label(frame, label);
+    }
+    if (item.face_detailed && show_labels && item.box) {
+        draw_cpu_label(frame, item);
+    }
+}
+
 void draw_masks(
     AVFrame* frame,
     const std::vector<Mask>& masks,
@@ -1332,23 +1725,37 @@ void draw_masks(
     bool show_labels
 ) {
     for (const auto& mask : masks) {
-        if (mask.kind != ItemKind::mask) {
-            continue;
-        }
-        const YuvColor color = bgr_to_bt709_limited(mask.bgr);
-        for (const auto& polygon : mask.polygons) {
-            fill_polygon(frame, polygon, color, alpha);
+        if (mask.kind == ItemKind::mask) {
+            const YuvColor color = bgr_to_bt709_limited(mask.bgr);
+            for (const auto& polygon : mask.polygons) {
+                fill_polygon(frame, polygon, color, alpha);
+            }
+        } else if (!mask.privacy_polygon.empty()) {
+            fill_polygon(
+                frame,
+                mask.privacy_polygon,
+                bgr_to_bt709_limited({255, 70, 255}),
+                alpha
+            );
         }
     }
     if (outline_thickness > 0) {
         for (const auto& mask : masks) {
-            if (mask.kind != ItemKind::mask) {
+            const bool regular_mask = mask.kind == ItemKind::mask;
+            const bool privacy_mask =
+                mask.kind == ItemKind::face &&
+                !mask.privacy_polygon.empty();
+            if (!regular_mask && !privacy_mask) {
                 continue;
             }
-            const YuvColor color = bgr_to_bt709_limited(mask.bgr);
-            for (const auto& polygon : mask.polygons) {
+            const YuvColor color = bgr_to_bt709_limited(
+                regular_mask
+                    ? mask.bgr
+                    : std::array<std::uint8_t, 3>{255, 70, 255}
+            );
+            const auto draw_outline = [&](const Polygon& polygon) {
                 if (polygon.size() < 2) {
-                    continue;
+                    return;
                 }
                 for (
                     std::size_t index = 0;
@@ -1363,6 +1770,45 @@ void draw_masks(
                         color
                     );
                 }
+            };
+            if (regular_mask) {
+                for (const auto& polygon : mask.polygons) {
+                    draw_outline(polygon);
+                }
+            } else {
+                draw_outline(mask.privacy_polygon);
+            }
+            if (mask.provenance == "DETAILED") {
+                double minimum_x = std::numeric_limits<double>::max();
+                double minimum_y = std::numeric_limits<double>::max();
+                double maximum_x = std::numeric_limits<double>::lowest();
+                double maximum_y = std::numeric_limits<double>::lowest();
+                for (const auto& polygon : mask.polygons) {
+                    for (const auto& point : polygon) {
+                        minimum_x = std::min(minimum_x, point.x);
+                        minimum_y = std::min(minimum_y, point.y);
+                        maximum_x = std::max(maximum_x, point.x);
+                        maximum_y = std::max(maximum_y, point.y);
+                    }
+                }
+                if (std::isfinite(minimum_x)) {
+                    draw_line(
+                        frame, {minimum_x, minimum_y},
+                        {maximum_x, minimum_y}, box_thickness, color
+                    );
+                    draw_line(
+                        frame, {maximum_x, minimum_y},
+                        {maximum_x, maximum_y}, box_thickness, color
+                    );
+                    draw_line(
+                        frame, {maximum_x, maximum_y},
+                        {minimum_x, maximum_y}, box_thickness, color
+                    );
+                    draw_line(
+                        frame, {minimum_x, maximum_y},
+                        {minimum_x, minimum_y}, box_thickness, color
+                    );
+                }
             }
         }
     }
@@ -1373,52 +1819,14 @@ void draw_masks(
             }
         }
     }
-    if (box_thickness > 0) {
-        for (const auto& item : masks) {
-            if (item.kind != ItemKind::face || !item.box) {
-                continue;
-            }
-            const YuvColor color = bgr_to_bt709_limited(item.bgr);
-            const Box& box = *item.box;
-            const Point top_left{box.x1, box.y1};
-            const Point top_right{box.x2, box.y1};
-            const Point bottom_right{box.x2, box.y2};
-            const Point bottom_left{box.x1, box.y2};
-            draw_line(
+    for (const auto& item : masks) {
+        if (item.kind == ItemKind::face) {
+            draw_cpu_face(
                 frame,
-                top_left,
-                top_right,
+                item,
                 box_thickness,
-                color
+                show_labels
             );
-            draw_line(
-                frame,
-                top_right,
-                bottom_right,
-                box_thickness,
-                color
-            );
-            draw_line(
-                frame,
-                bottom_right,
-                bottom_left,
-                box_thickness,
-                color
-            );
-            draw_line(
-                frame,
-                bottom_left,
-                top_left,
-                box_thickness,
-                color
-            );
-        }
-    }
-    if (show_labels) {
-        for (const auto& item : masks) {
-            if (item.kind == ItemKind::face) {
-                draw_cpu_label(frame, item);
-            }
         }
     }
 }
@@ -1667,9 +2075,65 @@ void append_cuda_line_spans(
 }
 
 std::string overlay_label(const Mask& item) {
+    if (item.kind == ItemKind::face && item.face_detailed) {
+        std::vector<std::string> parts;
+        std::stringstream stream(item.track_id);
+        std::string part;
+        while (std::getline(stream, part, ':')) {
+            parts.push_back(part);
+        }
+        std::ostringstream label;
+        if (
+            parts.size() == 3 && parts[0] == "face"
+        ) {
+            label << "TRACK " << parts[2] << " / SCENE " << parts[1];
+        } else if (
+            parts.size() == 4 && parts[0] == "face"
+        ) {
+            label << "TRACK " << parts[3] << " / S" << parts[2];
+        } else if (!item.track_id.empty()) {
+            label << "TRACK " << item.track_id;
+        } else {
+            label << "TRACK --";
+        }
+        if (item.provenance == "INTERPOLATED") {
+            label << " | INTERPOLATED";
+            return label.str();
+        }
+        if (item.provenance == "REMOVED_SHORT_TRACK") {
+            label << " | REMOVED";
+        } else {
+            label << " | OBSERVED";
+        }
+        label << " | HEAD ";
+        if (item.score) {
+            label << std::fixed << std::setprecision(2) << *item.score;
+        } else {
+            label << "--";
+        }
+        if (item.provenance != "REMOVED_SHORT_TRACK") {
+            label << " | ";
+            if (item.face_present && !*item.face_present) {
+                label << "NO FACE ";
+            } else {
+                label << "FACE ";
+            }
+            if (item.face_score) {
+                label << std::fixed << std::setprecision(2)
+                      << *item.face_score;
+            } else {
+                label << "--";
+            }
+        }
+        return label.str();
+    }
     std::vector<std::string> components;
     if (!item.track_id.empty()) {
-        components.push_back("T" + item.track_id);
+        components.push_back(
+            item.provenance == "DETAILED"
+                ? "TRACK " + item.track_id
+                : "T" + item.track_id
+        );
     }
     const bool ascii_label = std::all_of(
         item.label.begin(),
@@ -1692,6 +2156,8 @@ std::string overlay_label(const Mask& item) {
         std::ostringstream score;
         score << std::fixed << std::setprecision(2) << *item.score;
         components.push_back(score.str());
+    } else if (item.provenance == "DETAILED") {
+        components.push_back("SCORE --");
     }
     std::ostringstream output;
     for (std::size_t index = 0; index < components.size(); ++index) {
@@ -1705,6 +2171,16 @@ std::string overlay_label(const Mask& item) {
 
 Point label_anchor(const Mask& item) {
     if (item.kind == ItemKind::face && item.box) {
+        if (
+            item.face_detailed &&
+            item.box->y1 < 25.0 &&
+            (
+                item.provenance == "INTERPOLATED" ||
+                item.provenance == "REMOVED_SHORT_TRACK"
+            )
+        ) {
+            return Point{item.box->x1, item.box->y2 + 24.0};
+        }
         return Point{item.box->x1, item.box->y1 - 3.0};
     }
     double minimum_x = std::numeric_limits<double>::max();
@@ -1975,6 +2451,28 @@ void append_cuda_label(
             );
             continue;
         }
+        if (character == '/' || character == '|') {
+            append_cuda_line_spans(
+                output,
+                Point{
+                    static_cast<double>(
+                        origin_x + (character == '/' ? 6 : 3)
+                    ),
+                    static_cast<double>(layout.y + 1),
+                },
+                Point{
+                    static_cast<double>(
+                        origin_x + (character == '/' ? 0 : 3)
+                    ),
+                    static_cast<double>(layout.y + 11),
+                },
+                1,
+                foreground,
+                width,
+                height
+            );
+            continue;
+        }
         const std::uint8_t segments = glyph_segments(character);
         for (std::size_t segment = 0; segment < glyph_lines.size(); ++segment) {
             if ((segments & (1U << segment)) == 0) {
@@ -2039,6 +2537,26 @@ void draw_cpu_label(AVFrame* frame, const Mask& item) {
             draw_disc(frame, origin_x + 3, layout.y + 9, 1, foreground);
             continue;
         }
+        if (character == '/' || character == '|') {
+            draw_line(
+                frame,
+                Point{
+                    static_cast<double>(
+                        origin_x + (character == '/' ? 6 : 3)
+                    ),
+                    static_cast<double>(layout.y + 1),
+                },
+                Point{
+                    static_cast<double>(
+                        origin_x + (character == '/' ? 0 : 3)
+                    ),
+                    static_cast<double>(layout.y + 11),
+                },
+                1,
+                foreground
+            );
+            continue;
+        }
         const std::uint8_t segments = glyph_segments(character);
         for (std::size_t segment = 0; segment < glyph_lines.size(); ++segment) {
             if ((segments & (1U << segment)) == 0) {
@@ -2058,6 +2576,202 @@ void draw_cpu_label(AVFrame* frame, const Mask& item) {
                 foreground
             );
         }
+    }
+}
+
+void append_cuda_face(
+    std::vector<CudaOverlaySpan>& output,
+    std::vector<std::size_t>& batch_ends,
+    const Mask& item,
+    int width,
+    int height,
+    int box_thickness,
+    bool show_labels
+) {
+    const auto append_batch = [&](std::size_t start) {
+        if (output.size() != start) {
+            batch_ends.push_back(output.size());
+        }
+    };
+    std::size_t start = output.size();
+    for (const auto& dot : item.face_mask_dots) {
+        append_cuda_disc_spans(
+            output,
+            static_cast<int>(std::lround(dot.x)),
+            static_cast<int>(std::lround(dot.y)),
+            2,
+            bgr_to_bt709_limited({225, 225, 225}),
+            width,
+            height
+        );
+    }
+    append_batch(start);
+    start = output.size();
+    for (const auto& dot : item.face_mask_dots) {
+        append_cuda_disc_spans(
+            output,
+            static_cast<int>(std::lround(dot.x)),
+            static_cast<int>(std::lround(dot.y)),
+            1,
+            bgr_to_bt709_limited({0, 0, 0}),
+            width,
+            height
+        );
+    }
+    append_batch(start);
+    if (item.box && box_thickness > 0) {
+        const auto color = bgr_to_bt709_limited(item.bgr);
+        const Box& box = *item.box;
+        const auto line = [&](Point first, Point second, int thickness) {
+            append_cuda_line_spans(
+                output,
+                first,
+                second,
+                thickness,
+                color,
+                width,
+                height
+            );
+        };
+        start = output.size();
+        if (item.provenance == "INTERPOLATED") {
+            constexpr double segment = 10.0;
+            constexpr double stride = 17.0;
+            for (double x = box.x1; x <= box.x2; x += stride) {
+                line({x, box.y1}, {std::min(box.x2, x + segment), box.y1},
+                     box_thickness);
+                line({x, box.y2}, {std::min(box.x2, x + segment), box.y2},
+                     box_thickness);
+            }
+            for (double y = box.y1; y <= box.y2; y += stride) {
+                line({box.x1, y}, {box.x1, std::min(box.y2, y + segment)},
+                     box_thickness);
+                line({box.x2, y}, {box.x2, std::min(box.y2, y + segment)},
+                     box_thickness);
+            }
+        } else {
+            line({box.x1, box.y1}, {box.x2, box.y1}, box_thickness);
+            line({box.x2, box.y1}, {box.x2, box.y2}, box_thickness);
+            line({box.x2, box.y2}, {box.x1, box.y2}, box_thickness);
+            line({box.x1, box.y2}, {box.x1, box.y1}, box_thickness);
+        }
+        append_batch(start);
+        if (item.provenance == "REMOVED_SHORT_TRACK") {
+            start = output.size();
+            line(
+                {box.x1, box.y2},
+                {box.x2, box.y1},
+                std::max(3, box_thickness + 1)
+            );
+            append_batch(start);
+        }
+    }
+    if (item.ellipse) {
+        const auto polygon = ellipse_polygon(
+            item.ellipse->cx,
+            item.ellipse->cy,
+            item.ellipse->radius_x,
+            item.ellipse->radius_y,
+            item.ellipse->theta,
+            96
+        );
+        const auto color = bgr_to_bt709_limited(
+            item.provenance == "REMOVED_SHORT_TRACK"
+                ? item.bgr
+                : std::array<std::uint8_t, 3>{255, 70, 255}
+        );
+        const std::size_t start = output.size();
+        for (std::size_t index = 0; index < polygon.size(); ++index) {
+            append_cuda_line_spans(
+                output,
+                polygon[index],
+                polygon[(index + 1) % polygon.size()],
+                box_thickness,
+                color,
+                width,
+                height
+            );
+        }
+        append_batch(start);
+    }
+    const int radius = std::max(
+        4,
+        static_cast<int>(std::lround(static_cast<double>(width) / 480.0))
+    );
+    for (const auto& point : item.keypoints) {
+        if (!point.valid || point.state == 0) {
+            continue;
+        }
+        const std::array<std::uint8_t, 3> bgr =
+            point.state == 1
+                ? std::array<std::uint8_t, 3>{0, 165, 255}
+                : std::array<std::uint8_t, 3>{0, 255, 0};
+        std::size_t start = output.size();
+        append_cuda_disc_spans(
+            output,
+            static_cast<int>(std::lround(point.x)),
+            static_cast<int>(std::lround(point.y)),
+            point.state == 1 ? radius + 2 : radius,
+            bgr_to_bt709_limited(bgr),
+            width,
+            height
+        );
+        append_batch(start);
+        if (item.face_detailed && show_labels) {
+            std::string name = point.class_name;
+            std::transform(
+                name.begin(),
+                name.end(),
+                name.begin(),
+                [](unsigned char character) {
+                    return static_cast<char>(std::toupper(character));
+                }
+            );
+            std::ostringstream text;
+            text << name << ':' << (point.state == 1 ? 'O' : 'V')
+                 << " P" << std::fixed << std::setprecision(2)
+                 << point.confidence << "/S"
+                 << point.state_confidence.value_or(point.confidence);
+            Mask label;
+            label.kind = ItemKind::face;
+            label.label = text.str();
+            label.box = Box{
+                point.x + radius + 3.0,
+                point.y - radius + 1.0,
+                point.x + radius + 4.0,
+                point.y - radius + 2.0,
+            };
+            label.bgr = bgr;
+            append_cuda_label(output, batch_ends, label, width, height);
+        }
+    }
+    if (
+        item.face_detailed &&
+        show_labels &&
+        !item.privacy_polygon.empty()
+    ) {
+        double minimum_x = std::numeric_limits<double>::max();
+        double minimum_y = std::numeric_limits<double>::max();
+        for (const auto& point : item.privacy_polygon) {
+            minimum_x = std::min(minimum_x, point.x);
+            minimum_y = std::min(minimum_y, point.y);
+        }
+        Mask label;
+        label.kind = ItemKind::face;
+        label.label =
+            item.privacy_target + " MASK " + item.privacy_shape + " " +
+            item.privacy_derivation;
+        label.box = Box{
+            minimum_x,
+            minimum_y,
+            minimum_x + 1.0,
+            minimum_y + 1.0,
+        };
+        label.bgr = {255, 70, 255};
+        append_cuda_label(output, batch_ends, label, width, height);
+    }
+    if (item.face_detailed && show_labels && item.box) {
+        append_cuda_label(output, batch_ends, item, width, height);
     }
 }
 
@@ -2101,11 +2815,19 @@ public:
             255
         );
         for (const auto& mask : masks) {
-            if (mask.kind != ItemKind::mask) {
+            const bool regular_mask = mask.kind == ItemKind::mask;
+            const bool privacy_mask =
+                mask.kind == ItemKind::face &&
+                !mask.privacy_polygon.empty();
+            if (!regular_mask && !privacy_mask) {
                 continue;
             }
-            const YuvColor color = bgr_to_bt709_limited(mask.bgr);
-            for (const auto& polygon : mask.polygons) {
+            const YuvColor color = bgr_to_bt709_limited(
+                regular_mask
+                    ? mask.bgr
+                    : std::array<std::uint8_t, 3>{255, 70, 255}
+            );
+            const auto append_fill = [&](const Polygon& polygon) {
                 const std::size_t batch_start = fill_spans_.size();
                 append_cuda_fill_spans(
                     fill_spans_,
@@ -2118,18 +2840,33 @@ public:
                 if (fill_spans_.size() != batch_start) {
                     fill_batch_ends_.push_back(fill_spans_.size());
                 }
+            };
+            if (regular_mask) {
+                for (const auto& polygon : mask.polygons) {
+                    append_fill(polygon);
+                }
+            } else {
+                append_fill(mask.privacy_polygon);
             }
         }
         if (outline_thickness > 0) {
             for (const auto& mask : masks) {
-                if (mask.kind != ItemKind::mask) {
+                const bool regular_mask = mask.kind == ItemKind::mask;
+                const bool privacy_mask =
+                    mask.kind == ItemKind::face &&
+                    !mask.privacy_polygon.empty();
+                if (!regular_mask && !privacy_mask) {
                     continue;
                 }
                 const std::size_t batch_start = outline_spans_.size();
-                const YuvColor color = bgr_to_bt709_limited(mask.bgr);
-                for (const auto& polygon : mask.polygons) {
+                const YuvColor color = bgr_to_bt709_limited(
+                    regular_mask
+                        ? mask.bgr
+                        : std::array<std::uint8_t, 3>{255, 70, 255}
+                );
+                const auto append_outline = [&](const Polygon& polygon) {
                     if (polygon.size() < 2) {
-                        continue;
+                        return;
                     }
                     for (
                         std::size_t index = 0;
@@ -2145,6 +2882,46 @@ public:
                             frame->width,
                             frame->height
                         );
+                    }
+                };
+                if (regular_mask) {
+                    for (const auto& polygon : mask.polygons) {
+                        append_outline(polygon);
+                    }
+                } else {
+                    append_outline(mask.privacy_polygon);
+                }
+                if (mask.provenance == "DETAILED") {
+                    double minimum_x = std::numeric_limits<double>::max();
+                    double minimum_y = std::numeric_limits<double>::max();
+                    double maximum_x = std::numeric_limits<double>::lowest();
+                    double maximum_y = std::numeric_limits<double>::lowest();
+                    for (const auto& polygon : mask.polygons) {
+                        for (const auto& point : polygon) {
+                            minimum_x = std::min(minimum_x, point.x);
+                            minimum_y = std::min(minimum_y, point.y);
+                            maximum_x = std::max(maximum_x, point.x);
+                            maximum_y = std::max(maximum_y, point.y);
+                        }
+                    }
+                    if (std::isfinite(minimum_x)) {
+                        const std::array<Point, 4> box{
+                            Point{minimum_x, minimum_y},
+                            Point{maximum_x, minimum_y},
+                            Point{maximum_x, maximum_y},
+                            Point{minimum_x, maximum_y},
+                        };
+                        for (std::size_t index = 0; index < box.size(); ++index) {
+                            append_cuda_line_spans(
+                                outline_spans_,
+                                box[index],
+                                box[(index + 1) % box.size()],
+                                box_thickness,
+                                color,
+                                frame->width,
+                                frame->height
+                            );
+                        }
                     }
                 }
                 if (outline_spans_.size() != batch_start) {
@@ -2165,55 +2942,17 @@ public:
                 }
             }
         }
-        if (box_thickness > 0) {
-            for (const auto& item : masks) {
-                if (item.kind != ItemKind::face || !item.box) {
-                    continue;
-                }
-                const std::size_t batch_start = outline_spans_.size();
-                const YuvColor color = bgr_to_bt709_limited(item.bgr);
-                const Box& box = *item.box;
-                const std::array<Point, 4> points{
-                    Point{box.x1, box.y1},
-                    Point{box.x2, box.y1},
-                    Point{box.x2, box.y2},
-                    Point{box.x1, box.y2},
-                };
-                for (std::size_t index = 0; index < points.size(); ++index) {
-                    append_cuda_line_spans(
-                        outline_spans_,
-                        points[index],
-                        points[(index + 1) % points.size()],
-                        box_thickness,
-                        color,
-                        frame->width,
-                        frame->height
-                    );
-                }
-                if (outline_spans_.size() != batch_start) {
-                    outline_batch_ends_.push_back(outline_spans_.size());
-                }
-                if (show_labels) {
-                    append_cuda_label(
-                        outline_spans_,
-                        outline_batch_ends_,
-                        item,
-                        frame->width,
-                        frame->height
-                    );
-                }
-            }
-        } else if (show_labels) {
-            for (const auto& item : masks) {
-                if (item.kind == ItemKind::face) {
-                    append_cuda_label(
-                        outline_spans_,
-                        outline_batch_ends_,
-                        item,
-                        frame->width,
-                        frame->height
-                    );
-                }
+        for (const auto& item : masks) {
+            if (item.kind == ItemKind::face) {
+                append_cuda_face(
+                    outline_spans_,
+                    outline_batch_ends_,
+                    item,
+                    frame->width,
+                    frame->height,
+                    box_thickness,
+                    show_labels
+                );
             }
         }
         std::array<char, 512> error{};
@@ -2275,6 +3014,10 @@ Options parse_options(int argc, char** argv) {
             options.manifest = require_value(index, argument);
         } else if (argument == "--mode") {
             options.mode = require_value(index, argument);
+        } else if (argument == "--display-style") {
+            options.display_style = require_value(index, argument);
+        } else if (argument == "--mask-domain") {
+            options.mask_domain = require_value(index, argument);
         } else if (argument == "--include-faces") {
             options.include_faces = true;
         } else if (argument == "--no-labels") {
@@ -2355,6 +3098,8 @@ Options parse_options(int argc, char** argv) {
             std::cout
                 << "overlay_native --video FILE --sqlite FILE --output FILE "
                 << "[--mode raw|tracked|final|faces] "
+                << "[--display-style legacy|detailed|simple] "
+                << "[--mask-domain all|genital|face_privacy] "
                 << "[--include-faces --face-sqlite FILE] "
                 << "[--no-labels] [--copy-audio] [--manifest FILE] "
                 << "[--encoder libx264|h264_nvenc] [--preset VALUE] "
@@ -2387,9 +3132,22 @@ Options parse_options(int argc, char** argv) {
             "mode must be raw, tracked, final or faces"
         );
     }
-    if (options.include_faces && options.mode != "final") {
+    if (
+        options.display_style != "legacy" &&
+        options.display_style != "detailed" &&
+        options.display_style != "simple"
+    ) {
         throw std::runtime_error(
-            "--include-faces is only valid with --mode final"
+            "display style must be legacy, detailed or simple"
+        );
+    }
+    if (
+        options.mask_domain != "all" &&
+        options.mask_domain != "genital" &&
+        options.mask_domain != "face_privacy"
+    ) {
+        throw std::runtime_error(
+            "mask domain must be all, genital or face_privacy"
         );
     }
     if (options.include_faces && options.face_sqlite.empty()) {
@@ -2399,7 +3157,7 @@ Options parse_options(int argc, char** argv) {
     }
     if (!options.face_sqlite.empty() && !options.include_faces) {
         throw std::runtime_error(
-            "--face-sqlite requires --mode final --include-faces"
+            "--face-sqlite requires --include-faces"
         );
     }
     if (!options.manifest.empty() && options.manifest == options.output) {
@@ -3294,7 +4052,8 @@ int main(int argc, char** argv) {
                 options.sqlite,
                 options.start_frame,
                 options.end_frame,
-                options.mode == "tracked"
+                options.mode == "tracked",
+                options.mask_domain
             );
         } else {
             masks = load_faces(
@@ -3313,6 +4072,25 @@ int main(int argc, char** argv) {
                 )
             );
         }
+        if (options.display_style == "simple") {
+            for (auto& [frame, items] : masks) {
+                static_cast<void>(frame);
+                for (auto& item : items) {
+                    if (item.kind == ItemKind::mask) {
+                        item.bgr = {180, 105, 255};
+                    }
+                }
+            }
+        } else if (options.display_style == "detailed") {
+            for (auto& [frame, items] : masks) {
+                static_cast<void>(frame);
+                for (auto& item : items) {
+                    if (item.kind == ItemKind::mask) {
+                        item.provenance = "DETAILED";
+                    }
+                }
+            }
+        }
         const std::string unique_suffix = std::to_string(
             std::chrono::steady_clock::now().time_since_epoch().count()
         );
@@ -3323,6 +4101,10 @@ int main(int argc, char** argv) {
             );
         Options render_options = options;
         render_options.output = temporary_output;
+        if (render_options.display_style == "simple") {
+            render_options.outline_thickness = 0;
+            render_options.show_labels = false;
+        }
         RunSummary summary;
         try {
             summary = render(render_options, masks);

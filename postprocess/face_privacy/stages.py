@@ -8,6 +8,7 @@ from typing import Any
 from contracts.stages import StageContext, StageResult
 
 from .sqlite import export_face_masks, merge_face_masks
+from .tracking import FaceTrackingConfig
 
 
 @dataclass(frozen=True)
@@ -20,9 +21,7 @@ class FacePrivacyMaskStage:
     def run(self, context: StageContext) -> StageResult:
         target = str(self.options.get("target", "eyes"))
         eye_shape = str(self.options.get("eye_shape", "ellipse"))
-        minimum_eye_confidence = float(
-            self.options.get("minimum_eye_confidence", 0.35)
-        )
+        minimum_eye_confidence = float(self.options.get("minimum_eye_confidence", 0.35))
         output = context.stage_dir / "face_masks.sqlite"
         summary = export_face_masks(
             context.artifacts["input_raw_sqlite"],
@@ -30,6 +29,21 @@ class FacePrivacyMaskStage:
             target=target,
             eye_shape=eye_shape,
             minimum_eye_confidence=minimum_eye_confidence,
+            tracking_config=FaceTrackingConfig(
+                max_gap_frames=int(self.options.get("tracking_max_gap_frames", 5)),
+                high_score_threshold=float(
+                    self.options.get("tracking_high_score_threshold", 0.50)
+                ),
+                low_score_threshold=float(
+                    self.options.get("tracking_low_score_threshold", 0.05)
+                ),
+                short_track_max_hits=int(self.options.get("short_track_max_hits", 2)),
+                short_track_keep_score=float(
+                    self.options.get("short_track_keep_score", 0.90)
+                ),
+            ),
+            interpolation_max_gap=int(self.options.get("interpolation_max_gap", 3)),
+            cuts_json=context.artifacts.get("cuts_json"),
         )
         return StageResult({"face_masks_sqlite": output}, summary)
 
@@ -38,9 +52,7 @@ class FacePrivacyMaskStage:
 class FacePrivacyMergeStage:
     options: dict[str, Any] = field(default_factory=dict)
     name: str = "face_privacy_merge"
-    requires: frozenset[str] = frozenset(
-        {"predictions_sqlite", "face_masks_sqlite"}
-    )
+    requires: frozenset[str] = frozenset({"predictions_sqlite", "face_masks_sqlite"})
     provides: frozenset[str] = frozenset({"combined_predictions_sqlite"})
 
     def run(self, context: StageContext) -> StageResult:

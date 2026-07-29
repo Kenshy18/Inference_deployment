@@ -111,8 +111,21 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(simple.include_faces)
         self.assertEqual(0.45, simple.mask_alpha)
         self.assertEqual((180, 105, 255), _color("genital:simple"))
+        fast_command = _fast_command(
+            simple,
+            output_dir=Path("/tmp/overlay-fast-combined-raw"),
+        )
+        self.assertIn("--include-faces", fast_command)
+        self.assertEqual(
+            "raw",
+            fast_command[fast_command.index("--mode") + 1],
+        )
+        self.assertEqual(
+            "genital",
+            fast_command[fast_command.index("--mask-domain") + 1],
+        )
 
-    def test_presets_are_rejected_by_fast_renderer_until_ported(self) -> None:
+    def test_fast_renderer_accepts_presets_and_forwards_display_style(self) -> None:
         args = build_parser().parse_args(
             [
                 "--execution-mode",
@@ -129,8 +142,13 @@ class RenderTests(unittest.TestCase):
                 "8",
             ]
         )
-        with self.assertRaisesRegex(ValueError, "not yet implemented"):
-            _validate_mode_args(args)
+        _validate_mode_args(args)
+        command = _fast_command(args, output_dir=Path("/tmp/overlay-fast"))
+        self.assertEqual("faces", args.mode)
+        self.assertEqual(
+            "simple",
+            command[command.index("--display-style") + 1],
+        )
 
     def test_execution_modes_and_overlay_type_alias_are_resolved(self) -> None:
         parser = build_parser()
@@ -169,7 +187,7 @@ class RenderTests(unittest.TestCase):
         self.assertEqual("6", command[command.index("--workers") + 1])
         self.assertEqual("0", command[command.index("--cpu-workers") + 1])
 
-    def test_fast_mode_rejects_missing_bitrate(self) -> None:
+    def test_fast_mode_defaults_to_eight_mbps(self) -> None:
         args = build_parser().parse_args(
             [
                 "--execution-mode",
@@ -184,8 +202,25 @@ class RenderTests(unittest.TestCase):
                 "output.mp4",
             ]
         )
-        with self.assertRaisesRegex(ValueError, "target-bitrate"):
-            _validate_mode_args(args)
+        _validate_mode_args(args)
+        self.assertEqual(8.0, args.target_bitrate_mbps)
+
+    def test_default_execution_mode_is_fast(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--mode",
+                "final",
+                "--video",
+                "input.mp4",
+                "--sqlite",
+                "input.sqlite",
+                "--output",
+                "output.mp4",
+            ]
+        )
+        _validate_mode_args(args)
+        self.assertEqual("fast", args.execution_mode)
+        self.assertEqual("p1", args.nvenc_preset)
 
     @unittest.skipUnless(
         NATIVE_RENDERER.is_file() and NATIVE_FFMPEG.is_file(),
@@ -315,7 +350,15 @@ class RenderTests(unittest.TestCase):
             )
             for invocation in invocations:
                 with contextlib.redirect_stdout(io.StringIO()):
-                    main(invocation + ["--progress-every", "0"])
+                    main(
+                        invocation
+                        + [
+                            "--execution-mode",
+                            "cpu",
+                            "--progress-every",
+                            "0",
+                        ]
+                    )
 
             for output in outputs.values():
                 self.assertTrue(output.is_file())
@@ -373,6 +416,8 @@ class RenderTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 main(
                     [
+                        "--execution-mode",
+                        "cpu",
                         "--mode",
                         "faces",
                         "--video",
@@ -406,6 +451,8 @@ class RenderTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 main(
                     [
+                        "--execution-mode",
+                        "cpu",
                         "--preset",
                         "face-simple",
                         "--face-mask-target",
@@ -450,6 +497,8 @@ class RenderTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 main(
                     [
+                        "--execution-mode",
+                        "cpu",
                         "--mode",
                         "final",
                         "--video",
@@ -483,6 +532,8 @@ class RenderTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 main(
                     [
+                        "--execution-mode",
+                        "cpu",
                         "--mode",
                         "final",
                         "--video",
@@ -516,6 +567,8 @@ class RenderTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 main(
                     [
+                        "--execution-mode",
+                        "cpu",
                         "--mode",
                         "final",
                         "--video",

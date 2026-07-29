@@ -22,12 +22,16 @@
 |---|---|---|---|
 | `cpu` | OpenCV描画 + libx264 | GPUを使わない基準・fallback | 採用 |
 | `nvenc` | OpenCV描画 + NVENC | 通常表示を保った高速encode | 採用 |
-| `fast` | NVDEC + CUDA描画 + NVENC 6分割 | 1080p大量処理 | 条件付き採用 |
+| `fast` | NVDEC + CUDA描画 + NVENC 6分割 | 1080p大量処理・既定 | 採用 |
 
 `fast`のフレーム完全性、時刻、音声、分割境界、encode品質には問題を
 検出しなかった。ただしOpenCV通常版と描画pixelは同一ではない。フォント、
 アンチエイリアス、色変換の見た目を通常版と完全一致させる用途では
 `cpu`または`nvenc`を使う。
+
+2026-07-29に、6つの表示preset、顔確率mask境界、楕円、keypoint、
+顔tracking ID、補完点線、短命削除表示、顔／目privacy maskを高速版へ追加した。
+統合SQLiteの`genital`と`face_privacy` domainも表示対象別に分離した。
 
 ## 実動画試験
 
@@ -56,6 +60,23 @@
 - 映像とAACを含む全stream decode error 0
 - AAC decoded audioは0秒開始、packet/frame timestampにgapなし
 - 6 workerが合計4025 masks、17135 facesを描画
+
+### rich face tracking 10分再検証（2026-07-29）
+
+1280x720、24 fps、14,400 framesの実動画を、顔詳細preset、NVENC 6 worker、
+8 Mbpsで処理した。顔primitive cacheは16,384 items、78,585 keypoints、
+2,490,446 probability-mask境界点を保持し、19.1 MB、1.30秒で生成した。
+
+| 項目 | 結果 |
+|---|---:|
+| 描画＋encode＋concat | 9.419秒 / 1,529 fps |
+| cacheを含む高速処理全体 | 10.980秒 / 1,311 fps |
+| 出力 | 14,400 frames / 600.000秒 |
+| PTS | 0始まり、単調、512 tick一定 |
+| 5分割境界の内容対応 | 前後10点すべて元動画frame offset 0 |
+
+キャッシュの境界点生成をNumPyでベクトル化する前は全体16.00秒／900 fpsだった。
+描画内容と境界点数を変えず、全体を31.4%短縮した。
 
 ## 非GOP境界・途中範囲試験
 

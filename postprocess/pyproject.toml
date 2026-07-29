@@ -37,6 +37,7 @@ packages = [
   "keyframes",
   "gap_fill",
   "evaluation",
+  "face_privacy",
   "artifacts",
   "visualization",
   "tentative",

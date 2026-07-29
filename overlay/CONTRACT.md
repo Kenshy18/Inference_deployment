@@ -20,8 +20,10 @@ schema_version = 2 or 3
 顔では`model_executions.role = face_detection`に属する`detections`を読みます。
 schema v2は従来どおり`[x1, y1, x2, y2)`を描画します。schema v3の
 `face_observations`がある場合、通常CPU/NVENC rendererはHead box、正確なFace楕円、
-顔確率マスク、validなキーポイントを描画します。高速native rendererはv3を受理し、
-互換用のHead/Face boxを描画します。
+顔確率マスク、validなキーポイントを描画します。高速native rendererも同じ
+primitive、tracking ID、補完の点線、短命削除の赤枠・斜線、顔／目privacy maskを
+描画します。高速版のフォントとアンチエイリアスはnative実装のためpixel同一では
+ありませんが、表示する情報と座標契約は同じです。
 
 フレーム番号と座標は0始まり、元動画画素座標です。
 
@@ -51,6 +53,10 @@ masks(
 
 両者の物理schemaは同じです。処理段階を推測せず、利用者がモードと成果物を
 明示します。
+
+統合SQLiteに`tracks.domain`がある場合、genital/combined presetの性器mask読取は
+`domain='genital'`に限定します。`domain='face_privacy'`は顔側の
+`--face-mask-target`で独立に制御されます。
 
 ## Face privacy mask sidecar SQLite
 

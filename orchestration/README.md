@@ -152,6 +152,8 @@ fallbackです。policy内はクラス指定、`default`、このfallbackの順�
 `backend`と`codec`は`execution_mode`から自動決定します。旧設定の
 `backend: experimental_cpp`、`execution_mode: fast_parallel`、codecだけの指定は
 読み込み互換として残していますが、新規設定では使用しません。
+未指定時は`execution_mode: fast`、native renderer、NVENC 6 worker、p1、
+8 Mbpsが既定です。
 
 作成するオーバーレイは個別に選択できます。
 
@@ -178,6 +180,34 @@ fallbackです。policy内はクラス指定、`default`、このfallbackの順�
 - `final`: 最終後処理後
 - `faces`: 顔・頭部。Face DINO v2の通常rendererではbox、楕円、mask、keypoint
 - `final_include_faces`: `final`へ上記の顔情報も追加
+
+対象3種類×詳細度2種類を明示する場合は`presets`を使います。指定時は上記の
+`raw/tracked/final/faces` booleanに代わり、列挙した動画だけを生成します。
+
+```json
+{
+  "overlay": {
+    "presets": [
+      "genital-detailed",
+      "genital-simple",
+      "face-detailed",
+      "face-simple",
+      "combined-detailed",
+      "combined-simple"
+    ],
+    "genital_source": "final",
+    "face_mask_target": "none",
+    "eye_mask_shape": "ellipse",
+    "minimum_eye_confidence": 0.35,
+    "face_probability_masks": true,
+    "face_keypoints": true,
+    "face_ellipses": true
+  }
+}
+```
+
+`face_mask_target`は`none / face / eyes`、目マスクは`ellipse / rectangle`です。
+高速版を含む3方式すべてで同じ設定項目を受け付けます。
 
 通常NVENC:
 
@@ -296,7 +326,7 @@ raw/tracked/final/facesのoverlayもこの1ファイルだけを読みます。
 
 安定契約は`result_schema_info`の
 `schema_version=3`、`compatibility_profile=keyframe-primary-v3`、
-`contract_revision=4`で識別します。
+`contract_revision=5`で識別します。
 `result_capabilities`には`instance_segmentation`、`face_detection`、
 `rich_face_geometry`、`tracking_assignments`、`final_annotations`、
 `cut_detection`、
@@ -333,14 +363,25 @@ postprocessを明示的に無効にした場合も、rawだけが既定で有効
   "postprocess": {
     "face_mask_target": "eyes",
     "eye_mask_shape": "ellipse",
-    "minimum_eye_confidence": 0.35
+    "minimum_eye_confidence": 0.35,
+    "face_tracking_max_gap_frames": 5,
+    "face_short_track_max_hits": 2,
+    "face_short_track_keep_score": 0.90,
+    "face_interpolation_max_gap": 3,
+    "precompute_cuts_during_inference": true
   }
 }
 ```
 
 この場合も顔／目マスクは通常の`mask_keyframes`、`tracks`、
 `mask_provenance`に入り、`final_annotations`と`face_privacy_masks`
-capabilityが有効になります。
+capabilityが有効になります。顔形状自体は平滑化せず、Head boxを使った
+二段階Hungarian割り当てで`face_tracking_assignments`へIDを記録します。
+短命削除は設定したhit数以下かつ高信頼でないtrackだけに限定し、補完は同一
+trackの両端に観測がある短い内部欠損だけです。カットをまたぐ対応付けと補完は
+行いません。補完したHead boxは`face_track_interpolations`へ座標と前後の
+観測IDを保存します。`result_capabilities.face_tracking`で利用可否と件数を
+確認できます。
 
 `01_inference`と各postprocess stageのSQLiteは、失敗時の安全性、stage契約、
 resumeのための内部中間成果物です。`run_manifest.json`の公開artifactには出さず、

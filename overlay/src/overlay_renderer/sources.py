@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import itertools
 import json
 import sqlite3
@@ -304,14 +305,10 @@ def inspect_mask_source(path: Path) -> SourceInfo:
                 role="mask",
                 item_count=int(row["item_count"]),
                 first_frame=(
-                    None
-                    if row["first_frame"] is None
-                    else int(row["first_frame"])
+                    None if row["first_frame"] is None else int(row["first_frame"])
                 ),
                 last_frame=(
-                    None
-                    if row["last_frame"] is None
-                    else int(row["last_frame"])
+                    None if row["last_frame"] is None else int(row["last_frame"])
                 ),
                 width=width,
                 height=height,
@@ -501,14 +498,13 @@ def iter_mask_frames(
     prefer_tracked: bool = False,
     start_frame: int = 0,
     end_frame: int | None = None,
+    mask_domain: str | None = None,
 ) -> Iterator[FrameOverlay]:
     """Stream tracked or final postprocess masks grouped by frame."""
 
     resolved = Path(path).expanduser().resolve()
     if is_keyframe_primary(resolved):
-        with tempfile.TemporaryDirectory(
-            prefix="overlay-keyframe-cache-"
-        ) as temporary:
+        with tempfile.TemporaryDirectory(prefix="overlay-keyframe-cache-") as temporary:
             cache = Path(temporary) / "masks.sqlite"
             materialize_overlay_cache(
                 resolved,
@@ -516,6 +512,7 @@ def iter_mask_frames(
                 mode="tracked" if prefer_tracked else "final",
                 start_frame=start_frame,
                 end_frame=end_frame,
+                mask_domain=mask_domain,
             )
             yield from iter_mask_frames(
                 cache,
@@ -523,6 +520,7 @@ def iter_mask_frames(
                 prefer_tracked=False,
                 start_frame=start_frame,
                 end_frame=end_frame,
+                mask_domain=None,
             )
         return
     connection = _connect_read_only(resolved)
@@ -530,9 +528,7 @@ def iter_mask_frames(
         _validate_columns(connection, MASK_COLUMNS, path=resolved)
         tables = _tables(connection)
         mask_table = (
-            "tracked_masks"
-            if prefer_tracked and "tracked_masks" in tables
-            else "masks"
+            "tracked_masks" if prefer_tracked and "tracked_masks" in tables else "masks"
         )
         if mask_table != "masks":
             _validate_columns(
@@ -542,7 +538,7 @@ def iter_mask_frames(
             )
         columns = _columns(connection, mask_table)
         label_expression = (
-            "COALESCE(label, '') AS label" if "label" in columns else "'' AS label"
+            "COALESCE(m.label, '') AS label" if "label" in columns else "'' AS label"
         )
         has_raw_audit = "raw_tracked_masks" in tables
         audit_join = (
@@ -566,14 +562,32 @@ def iter_mask_frames(
             if audit_join
             else "NULL AS source_score"
         )
+        domain_join = ""
+        domain_where = ""
+        parameters: tuple[object, ...] = ()
+        if (
+            mask_domain is not None
+            and "tracks" in tables
+            and {"track_id", "domain"}.issubset(_columns(connection, "tracks"))
+        ):
+            domain_join = (
+                "JOIN tracks domain_track "
+                "ON CAST(domain_track.track_id AS TEXT)="
+                "CAST(m.track_id AS TEXT)"
+            )
+            domain_where = "WHERE domain_track.domain=?"
+            parameters = (mask_domain,)
         rows = connection.execute(
             f"""
             SELECT m.frame, m.track_id, m.polygons, {label_expression},
                    {score_expression}
             FROM {mask_table} m
+            {domain_join}
             {audit_join}
+            {domain_where}
             ORDER BY m.frame, m.track_id
-            """
+            """,
+            parameters,
         )
 
         def iter_items() -> Iterator[tuple[int, OverlayItem]]:
@@ -606,8 +620,7 @@ def iter_mask_frames(
                     polygons=polygons,
                     provenance=(
                         "GAP-FILL"
-                        if display_style == "detailed"
-                        and row["source_score"] is None
+                        if display_style == "detailed" and row["source_score"] is None
                         else "OBSERVED"
                         if display_style == "detailed"
                         else None
@@ -795,8 +808,30 @@ def iter_face_frames(
         )
         if has_rich_faces and display_style in {"detailed", "simple"}:
             assert detail_reader is not None
-            rows = connection.execute(
+            has_face_tracking = "face_tracking_assignments" in _tables(connection)
+            tracking_columns = (
+                """,
+                       fta.raw_track_id,
+                       fta.final_track_id,
+                       fta.removed_by_short_track
                 """
+                if has_face_tracking
+                else """,
+                       NULL AS raw_track_id,
+                       NULL AS final_track_id,
+                       0 AS removed_by_short_track
+                """
+            )
+            tracking_join = (
+                """
+                LEFT JOIN face_tracking_assignments fta
+                  ON fta.observation_id=fo.id
+                """
+                if has_face_tracking
+                else ""
+            )
+            rows = connection.execute(
+                f"""
                 SELECT f.frame_index,
                        fo.id AS observation_id,
                        fo.face_score,
@@ -812,10 +847,12 @@ def iter_face_frames(
                        COALESCE(h.y1, a.y1) AS head_y1,
                        COALESCE(h.x2, a.x2) AS head_x2,
                        COALESCE(h.y2, a.y2) AS head_y2
+                       {tracking_columns}
                 FROM face_observations fo
                 JOIN detections a ON a.id=fo.anchor_detection_id
                 JOIN frames f ON f.id=a.frame_id
                 LEFT JOIN detections h ON h.id=fo.head_detection_id
+                {tracking_join}
                 ORDER BY f.frame_index, fo.id
                 """
             )
@@ -823,11 +860,21 @@ def iter_face_frames(
             def iter_observations() -> Iterator[tuple[int, OverlayItem]]:
                 for row in rows:
                     observation_id = int(row["observation_id"])
+                    removed = bool(row["removed_by_short_track"])
+                    if removed and display_style != "detailed":
+                        continue
+                    track_id = (
+                        str(row["raw_track_id"])
+                        if removed and row["raw_track_id"] is not None
+                        else (
+                            None
+                            if row["final_track_id"] is None
+                            else str(row["final_track_id"])
+                        )
+                    )
                     has_face = bool(row["face_present"])
                     details = (
-                        detail_reader.get(observation_id)
-                        if has_face
-                        else ((), None)
+                        detail_reader.get(observation_id) if has_face else ((), None)
                     )
                     ellipse = (
                         (
@@ -843,8 +890,20 @@ def iter_face_frames(
                         else None
                     )
                     yield int(row["frame_index"]), OverlayItem(
-                        identity=f"face-observation:{observation_id}",
-                        color_key="face:observation",
+                        identity=(
+                            f"face-observation:{observation_id}"
+                            if track_id is None
+                            else f"face-track:{track_id}"
+                        ),
+                        color_key=(
+                            "face:removed"
+                            if removed
+                            else (
+                                "face:observation"
+                                if track_id is None
+                                else f"face-track:{track_id}"
+                            )
+                        ),
                         kind="face",
                         label="Head",
                         score=float(row["head_score"]),
@@ -860,9 +919,7 @@ def iter_face_frames(
                         ),
                         ellipse=ellipse,
                         keypoints=(
-                            details[0]
-                            if has_face and include_keypoints
-                            else ()
+                            details[0] if has_face and include_keypoints else ()
                         ),
                         face_mask=(
                             details[1]
@@ -873,10 +930,48 @@ def iter_face_frames(
                         ),
                         face_score=float(row["face_score"]),
                         face_present=has_face,
+                        track_id=track_id,
+                        provenance=("REMOVED_SHORT_TRACK" if removed else "OBSERVED"),
                     )
 
-            for frame_index, grouped in itertools.groupby(
+            def iter_interpolations() -> Iterator[tuple[int, OverlayItem]]:
+                if (
+                    display_style != "detailed"
+                    or "face_track_interpolations" not in _tables(connection)
+                ):
+                    return
+                for row in connection.execute(
+                    """
+                    SELECT frame, final_track_id,
+                           head_x1, head_y1, head_x2, head_y2
+                    FROM face_track_interpolations
+                    ORDER BY frame, final_track_id
+                    """
+                ):
+                    track_id = str(row["final_track_id"])
+                    yield int(row["frame"]), OverlayItem(
+                        identity=f"face-track:{track_id}:interpolated",
+                        color_key=f"face-track:{track_id}",
+                        kind="face",
+                        label="Head",
+                        score=None,
+                        box=(
+                            float(row["head_x1"]),
+                            float(row["head_y1"]),
+                            float(row["head_x2"]),
+                            float(row["head_y2"]),
+                        ),
+                        track_id=track_id,
+                        provenance="INTERPOLATED",
+                    )
+
+            combined = heapq.merge(
                 iter_observations(),
+                iter_interpolations(),
+                key=lambda pair: (pair[0], pair[1].identity),
+            )
+            for frame_index, grouped in itertools.groupby(
+                combined,
                 key=lambda pair: pair[0],
             ):
                 yield FrameOverlay(
@@ -986,9 +1081,7 @@ def iter_face_frames(
                     ),
                     ellipse=ellipse,
                     keypoints=rich_details[0] if include_keypoints else (),
-                    face_mask=(
-                        rich_details[1] if include_probability_masks else None
-                    ),
+                    face_mask=(rich_details[1] if include_probability_masks else None),
                 )
                 if (
                     label.lower() == "head"
@@ -1012,13 +1105,9 @@ def iter_face_frames(
                             float(row["ellipse_minor_radius"]),
                             float(row["ellipse_theta_radians"]),
                         ),
-                        keypoints=(
-                            synthetic_details[0] if include_keypoints else ()
-                        ),
+                        keypoints=(synthetic_details[0] if include_keypoints else ()),
                         face_mask=(
-                            synthetic_details[1]
-                            if include_probability_masks
-                            else None
+                            synthetic_details[1] if include_probability_masks else None
                         ),
                     )
 

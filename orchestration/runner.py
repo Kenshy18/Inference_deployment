@@ -220,6 +220,18 @@ class OrchestrationRunner:
                     settings.eye_mask_shape,
                     "--minimum-eye-confidence",
                     str(settings.minimum_eye_confidence),
+                    "--face-tracking-max-gap-frames",
+                    str(settings.face_tracking_max_gap_frames),
+                    "--face-tracking-high-score-threshold",
+                    str(settings.face_tracking_high_score_threshold),
+                    "--face-tracking-low-score-threshold",
+                    str(settings.face_tracking_low_score_threshold),
+                    "--face-short-track-max-hits",
+                    str(settings.face_short_track_max_hits),
+                    "--face-short-track-keep-score",
+                    str(settings.face_short_track_keep_score),
+                    "--face-interpolation-max-gap",
+                    str(settings.face_interpolation_max_gap),
                 ]
             )
         command.extend(settings.extra_args)
@@ -228,10 +240,11 @@ class OrchestrationRunner:
     def overlay_command(
         self,
         *,
-        mode: str,
+        mode: str | None,
         source_sqlite: Path,
         output: Path,
         face_sqlite: Path | None = None,
+        preset: str | None = None,
     ) -> list[str]:
         settings = self.config.overlay
         command = [
@@ -240,8 +253,6 @@ class OrchestrationRunner:
             "overlay_renderer",
             "--execution-mode",
             settings.execution_mode,
-            "--mode",
-            mode,
             "--video",
             str(self.config.input_video),
             "--sqlite",
@@ -260,7 +271,32 @@ class OrchestrationRunner:
             str(settings.start_frame),
             "--progress-every",
             str(settings.progress_every),
+            "--face-mask-target",
+            settings.face_mask_target,
+            "--eye-mask-shape",
+            settings.eye_mask_shape,
+            "--minimum-eye-confidence",
+            str(settings.minimum_eye_confidence),
         ]
+        if preset is None:
+            if mode is None:
+                raise OrchestrationError("overlay mode or preset is required")
+            command.extend(["--mode", mode])
+        else:
+            command.extend(
+                [
+                    "--preset",
+                    preset,
+                    "--genital-source",
+                    settings.genital_source,
+                ]
+            )
+        if not settings.face_probability_masks:
+            command.append("--no-face-probability-masks")
+        if not settings.face_keypoints:
+            command.append("--no-face-keypoints")
+        if not settings.face_ellipses:
+            command.append("--no-face-ellipses")
         if settings.end_frame is not None:
             command.extend(["--end-frame", str(settings.end_frame)])
         if not settings.show_labels:
@@ -319,6 +355,7 @@ class OrchestrationRunner:
         output: Path,
         tracked_sqlite: Path | None = None,
         final_sqlite: Path | None = None,
+        precomputed_cuts: Path | None = None,
     ) -> list[str]:
         command = [
             str(self.config.execution.runtime_python),
@@ -343,8 +380,22 @@ class OrchestrationRunner:
                     self.config.postprocess.eye_mask_shape,
                     "--minimum-eye-confidence",
                     str(self.config.postprocess.minimum_eye_confidence),
+                    "--face-tracking-max-gap-frames",
+                    str(self.config.postprocess.face_tracking_max_gap_frames),
+                    "--face-tracking-high-score-threshold",
+                    str(self.config.postprocess.face_tracking_high_score_threshold),
+                    "--face-tracking-low-score-threshold",
+                    str(self.config.postprocess.face_tracking_low_score_threshold),
+                    "--face-short-track-max-hits",
+                    str(self.config.postprocess.face_short_track_max_hits),
+                    "--face-short-track-keep-score",
+                    str(self.config.postprocess.face_short_track_keep_score),
+                    "--face-interpolation-max-gap",
+                    str(self.config.postprocess.face_interpolation_max_gap),
                 ]
             )
+        if precomputed_cuts is not None:
+            command.extend(["--precomputed-cuts-json", str(precomputed_cuts)])
         return command
 
     def plan(self) -> dict[str, object]:
@@ -424,6 +475,11 @@ class OrchestrationRunner:
                         tracked_sqlite=self.config.postprocess.tracked_sqlite,
                         final_sqlite=self.config.postprocess.final_sqlite,
                         output=result_output,
+                        precomputed_cuts=(
+                            self.output_root / "00_preflight" / "cuts.json"
+                            if self.config.postprocess.precompute_cuts_during_inference
+                            else None
+                        ),
                     ),
                 }
             )
@@ -472,7 +528,10 @@ class OrchestrationRunner:
                 artifacts,
                 precomputed_cuts=precomputed_cuts,
             )
-            artifacts = self._run_result_packaging(artifacts)
+            artifacts = self._run_result_packaging(
+                artifacts,
+                precomputed_cuts=precomputed_cuts,
+            )
             self._run_overlays(artifacts)
         except BaseException as exc:
             if cut_stage is not None:
@@ -644,6 +703,8 @@ class OrchestrationRunner:
     def _run_result_packaging(
         self,
         artifacts: WorkflowArtifacts,
+        *,
+        precomputed_cuts: Path | None = None,
     ) -> WorkflowArtifacts:
         """Guarantee one stable public result SQLite for every mode."""
 
@@ -677,6 +738,7 @@ class OrchestrationRunner:
                     tracked_sqlite=artifacts.tracked_sqlite,
                     final_sqlite=artifacts.final_sqlite,
                     output=output,
+                    precomputed_cuts=precomputed_cuts,
                 ),
                 cpu_only=True,
             )
@@ -823,26 +885,41 @@ class OrchestrationRunner:
             return
         output_root = self.output_root / "03_overlay"
         output_root.mkdir(parents=True, exist_ok=True)
-        requested: list[tuple[str, Path, Path | None]] = []
-        if settings.raw:
+        requested: list[tuple[str, str | None, Path, Path | None, str | None]] = []
+        unified = artifacts.result_sqlite or artifacts.inference_sqlite
+        if settings.presets:
+            requested.extend(
+                (
+                    preset.replace("-", "_"),
+                    None,
+                    unified,
+                    None,
+                    preset,
+                )
+                for preset in settings.presets
+            )
+        elif settings.raw:
             requested.append(
                 (
                     "raw",
+                    "raw",
                     artifacts.result_sqlite or artifacts.inference_sqlite,
+                    None,
                     None,
                 )
             )
-        if settings.tracked:
+        if not settings.presets and settings.tracked:
             tracked_source = artifacts.result_sqlite or artifacts.tracked_sqlite
             if tracked_source is None:
                 raise OrchestrationError("tracked overlay has no tracked SQLite")
-            requested.append(("tracked", tracked_source, None))
-        if settings.final:
+            requested.append(("tracked", "tracked", tracked_source, None, None))
+        if not settings.presets and settings.final:
             final_source = artifacts.result_sqlite or artifacts.final_sqlite
             if final_source is None:
                 raise OrchestrationError("final overlay has no final SQLite")
             requested.append(
                 (
+                    "final",
                     "final",
                     final_source,
                     (
@@ -850,22 +927,25 @@ class OrchestrationRunner:
                         if settings.final_include_faces
                         else None
                     ),
-                )
-            )
-        if settings.faces:
-            requested.append(
-                (
-                    "faces",
-                    artifacts.result_sqlite or artifacts.inference_sqlite,
                     None,
                 )
             )
-        for mode, source, face_source in requested:
-            output = output_root / f"{mode}.mp4"
+        if not settings.presets and settings.faces:
+            requested.append(
+                (
+                    "faces",
+                    "faces",
+                    artifacts.result_sqlite or artifacts.inference_sqlite,
+                    None,
+                    None,
+                )
+            )
+        for name, mode, source, face_source, preset in requested:
+            output = output_root / f"{name}.mp4"
             output_manifest = output.with_suffix(".json")
-            artifact_name = f"overlay_{mode}"
+            artifact_name = f"overlay_{name}"
             if self._can_resume_stage(
-                f"overlay_{mode}",
+                f"overlay_{name}",
                 {
                     artifact_name: output,
                     f"{artifact_name}_manifest": output_manifest,
@@ -877,9 +957,10 @@ class OrchestrationRunner:
                 source_sqlite=source,
                 output=output,
                 face_sqlite=face_source,
+                preset=preset,
             )
             self._execute(
-                f"overlay_{mode}",
+                f"overlay_{name}",
                 command,
                 cpu_only=not settings.uses_nvenc,
                 extra_pythonpath=OVERLAY_ROOT / "src",

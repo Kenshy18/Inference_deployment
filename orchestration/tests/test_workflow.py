@@ -22,6 +22,56 @@ from helpers import (
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_overlay_defaults_to_fast_and_exposes_typed_presets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi", frames=1)
+            inference = create_rich_face_unified_sqlite(root / "inference.sqlite")
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "run"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(inference),
+                            "mode": "segmentation-face",
+                            "face_model": "face_dino_v2",
+                        },
+                        "postprocess": {"enabled": False},
+                        "overlay": {
+                            "enabled": False,
+                            "presets": [
+                                "genital-simple",
+                                "face-detailed",
+                                "combined-simple",
+                            ],
+                            "face_mask_target": "eyes",
+                            "eye_mask_shape": "rectangle",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = OrchestrationConfig.load(config_path)
+            command = OrchestrationRunner(config).overlay_command(
+                mode=None,
+                source_sqlite=inference,
+                output=root / "combined.mp4",
+                preset="combined-simple",
+            )
+
+            self.assertEqual("fast", config.overlay.execution_mode)
+            self.assertEqual("native", config.overlay.backend)
+            self.assertEqual(8.0, config.overlay.target_bitrate_mbps)
+            self.assertIn("combined-simple", command)
+            self.assertIn("--genital-source", command)
+            self.assertIn("--face-mask-target", command)
+            self.assertIn("rectangle", command)
+
     def test_face_only_privacy_mask_uses_the_same_final_masks_contract(
         self,
     ) -> None:
@@ -84,6 +134,7 @@ class WorkflowTests(unittest.TestCase):
                             'instance_segmentation',
                             'face_detection',
                             'tracking_assignments',
+                            'face_tracking',
                             'final_annotations',
                             'face_privacy_masks'
                         )
@@ -95,6 +146,7 @@ class WorkflowTests(unittest.TestCase):
                         "instance_segmentation": 0,
                         "face_detection": 1,
                         "tracking_assignments": 0,
+                        "face_tracking": 1,
                         "final_annotations": 1,
                         "face_privacy_masks": 1,
                     },
@@ -326,6 +378,7 @@ class WorkflowTests(unittest.TestCase):
                         "postprocess": {"enabled": False},
                         "overlay": {
                             "enabled": True,
+                            "execution_mode": "cpu",
                             "raw": False,
                             "tracked": False,
                             "final": False,
@@ -436,6 +489,9 @@ class WorkflowTests(unittest.TestCase):
                         "face_keypoint_state_probabilities",
                         "annotation_state",
                         "tracking_assignments",
+                        "face_tracks",
+                        "face_tracking_assignments",
+                        "face_track_interpolations",
                         "tracks",
                         "cuts",
                         "cut_detection_metadata",
@@ -547,6 +603,7 @@ class WorkflowTests(unittest.TestCase):
                         },
                         "overlay": {
                             "enabled": True,
+                            "execution_mode": "cpu",
                             "raw": True,
                             "tracked": True,
                             "final": True,

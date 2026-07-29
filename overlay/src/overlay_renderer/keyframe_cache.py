@@ -45,15 +45,11 @@ def is_keyframe_primary(path: Path) -> bool:
         }
         if "result_schema_info" not in tables:
             return False
-        info = dict(
-            connection.execute("SELECT key, value FROM result_schema_info")
-        )
+        info = dict(connection.execute("SELECT key, value FROM result_schema_info"))
         return info.get("compatibility_profile") == "keyframe-primary-v3"
 
 
-def _ellipse_polygon(
-    values: tuple[float, ...], *, points: int = 96
-) -> Polygon:
+def _ellipse_polygon(values: tuple[float, ...], *, points: int = 96) -> Polygon:
     cx, cy, radius_x, radius_y, theta = values
     cosine = math.cos(theta)
     sine = math.sin(theta)
@@ -67,8 +63,7 @@ def _ellipse_polygon(
             + radius_y * math.sin(phase) * cosine,
         )
         for phase in (
-            2.0 * math.pi * index / max(12, points)
-            for index in range(max(12, points))
+            2.0 * math.pi * index / max(12, points) for index in range(max(12, points))
         )
     ]
 
@@ -154,9 +149,7 @@ def _interpolate_component(
         right_points = list(right.values)  # type: ignore[arg-type]
         count = max(8, len(left_points), len(right_points))
         left_sample = _perimeter_samples(left_points, count)
-        right_sample = _align(
-            left_sample, _perimeter_samples(right_points, count)
-        )
+        right_sample = _align(left_sample, _perimeter_samples(right_points, count))
         return Component(
             "polygon",
             [
@@ -164,9 +157,7 @@ def _interpolate_component(
                     (1.0 - alpha) * first[0] + alpha * second[0],
                     (1.0 - alpha) * first[1] + alpha * second[1],
                 )
-                for first, second in zip(
-                    left_sample, right_sample, strict=True
-                )
+                for first, second in zip(left_sample, right_sample, strict=True)
             ],
         )
     left_values = tuple(left.values)  # type: ignore[arg-type]
@@ -192,9 +183,7 @@ def _interpolate_component(
         "rectangle",
         tuple(
             (1.0 - alpha) * first + alpha * second
-            for first, second in zip(
-                left_values[:4], right_values[:4], strict=True
-            )
+            for first, second in zip(left_values[:4], right_values[:4], strict=True)
         )
         + (_interpolate_angle(left_values[4], right_values[4], alpha),),
     )
@@ -202,12 +191,15 @@ def _interpolate_component(
 
 def _polygon_area(points: Polygon) -> float:
     following = points[1:] + points[:1]
-    return abs(
-        sum(
-            first[0] * second[1] - second[0] * first[1]
-            for first, second in zip(points, following, strict=True)
+    return (
+        abs(
+            sum(
+                first[0] * second[1] - second[0] * first[1]
+                for first, second in zip(points, following, strict=True)
+            )
         )
-    ) * 0.5
+        * 0.5
+    )
 
 
 def _interpolate_polygon_keyframes(
@@ -218,9 +210,7 @@ def _interpolate_polygon_keyframes(
     """Match the postprocess polygon interpolator's area-based slot pairing."""
 
     left_components = [
-        component
-        for _slot, component in left.components
-        if component.kind == "polygon"
+        component for _slot, component in left.components if component.kind == "polygon"
     ]
     right_components = [
         component
@@ -246,20 +236,14 @@ def _interpolate_polygon_keyframes(
         reverse=True,
     )
     output: list[Component] = []
-    for left_points, right_points in zip(
-        left_arrays, right_arrays, strict=True
-    ):
+    for left_points, right_points in zip(left_arrays, right_arrays, strict=True):
         count = max(8, len(left_points), len(right_points))
         left_sample = _numpy_resample(left_points, count)
-        right_sample = _numpy_align(
-            left_sample, _numpy_resample(right_points, count)
-        )
+        right_sample = _numpy_align(left_sample, _numpy_resample(right_points, count))
         output.append(
             Component(
                 "polygon",
-                (
-                    (1.0 - alpha) * left_sample + alpha * right_sample
-                ).tolist(),
+                ((1.0 - alpha) * left_sample + alpha * right_sample).tolist(),
             )
         )
     return tuple(output)
@@ -268,10 +252,7 @@ def _interpolate_polygon_keyframes(
 def _numpy_polygon_area(points: np.ndarray) -> float:
     x = points[:, 0]
     y = points[:, 1]
-    return (
-        abs(float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)))
-        * 0.5
-    )
+    return abs(float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))) * 0.5
 
 
 def _numpy_resample(points: np.ndarray, count: int) -> np.ndarray:
@@ -286,37 +267,23 @@ def _numpy_resample(points: np.ndarray, count: int) -> np.ndarray:
     for index, distance in enumerate(samples):
         segment = min(
             max(
-                int(
-                    np.searchsorted(
-                        cumulative, distance, side="right"
-                    )
-                    - 1
-                ),
+                int(np.searchsorted(cumulative, distance, side="right") - 1),
                 0,
             ),
             len(points) - 1,
         )
-        ratio = (distance - cumulative[segment]) / max(
-            lengths[segment], 1e-6
-        )
-        output[index] = (
-            (1.0 - ratio) * points[segment]
-            + ratio * following[segment]
-        )
+        ratio = (distance - cumulative[segment]) / max(lengths[segment], 1e-6)
+        output[index] = (1.0 - ratio) * points[segment] + ratio * following[segment]
     return output
 
 
-def _numpy_align(
-    reference: np.ndarray, candidate: np.ndarray
-) -> np.ndarray:
+def _numpy_align(reference: np.ndarray, candidate: np.ndarray) -> np.ndarray:
     best = candidate
     best_error = float("inf")
     for variant in (candidate, candidate[::-1]):
         for shift in range(len(variant)):
             shifted = np.roll(variant, shift, axis=0)
-            error = float(
-                np.mean(np.sum((shifted - reference) ** 2, axis=1))
-            )
+            error = float(np.mean(np.sum((shifted - reference) ** 2, axis=1)))
             if error < best_error:
                 best = shifted
                 best_error = error
@@ -331,9 +298,7 @@ def _components_at(
     frames = [keyframe.frame for keyframe in keyframes]
     position = bisect.bisect_left(frames, frame)
     if position < len(keyframes) and frames[position] == frame:
-        return tuple(
-            component for _slot, component in keyframes[position].components
-        )
+        return tuple(component for _slot, component in keyframes[position].components)
     polygon_segment = all(
         component.kind == "polygon"
         for keyframe in keyframes
@@ -343,13 +308,9 @@ def _components_at(
         if interpolation_method == "none":
             return ()
         if position == 0:
-            return tuple(
-                component for _slot, component in keyframes[0].components
-            )
+            return tuple(component for _slot, component in keyframes[0].components)
         if position == len(keyframes):
-            return tuple(
-                component for _slot, component in keyframes[-1].components
-            )
+            return tuple(component for _slot, component in keyframes[-1].components)
         left = keyframes[position - 1]
         right = keyframes[position]
         alpha = (frame - left.frame) / (right.frame - left.frame)
@@ -456,17 +417,14 @@ def _component_polygons(
                     tuple(component.values),  # type: ignore[arg-type]
                     points=(
                         64
-                        if face_label is not None
-                        and face_label.casefold() == "eyes"
+                        if face_label is not None and face_label.casefold() == "eyes"
                         else 96
                     ),
                 )
             )
         else:
             output.append(
-                _rectangle_polygon(
-                    tuple(component.values)  # type: ignore[arg-type]
-                )
+                _rectangle_polygon(tuple(component.values))  # type: ignore[arg-type]
             )
     return output
 
@@ -481,9 +439,7 @@ def _polygon_components_for_final_frame(
     """Reproduce the polygon pipeline's observed-frame then gap-fill order."""
 
     if not observed_frames:
-        return _components_at(
-            keyframes, frame, interpolation_method
-        )
+        return _components_at(keyframes, frame, interpolation_method)
     exact = observed_components.get(frame)
     if exact is not None:
         return exact
@@ -554,6 +510,7 @@ def _materialize_final(
     end_frame: int | None,
     *,
     compact_typed: bool,
+    mask_domain: str | None,
 ) -> int:
     limit = (2**31 - 1) if end_frame is None else end_frame
     insert_sql = "INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?)"
@@ -580,30 +537,32 @@ def _materialize_final(
 
     # Face privacy geometry currently has one observation/keyframe per
     # segment.  Read it in one scan instead of issuing one query per face.
-    face_rows = source.execute(
-        """
-        SELECT k.frame, s.track_id, COALESCE(t.label, ''),
-               c.slot_index, c.geometry_type,
-               e.cx, e.cy, e.radius_x, e.radius_y, e.theta_radians,
-               r.cx, r.cy, r.half_width, r.half_height, r.theta_radians
-        FROM mask_track_segments s
-        JOIN tracks t ON t.track_id=s.track_id
-        JOIN mask_keyframes k ON k.segment_id=s.id
-        JOIN keyframe_components c ON c.keyframe_id=k.id
-        LEFT JOIN keyframe_ellipses e ON e.component_id=c.id
-        LEFT JOIN keyframe_rectangles r ON r.component_id=c.id
-        WHERE t.domain='face_privacy' AND k.frame BETWEEN ? AND ?
-        ORDER BY k.frame, s.track_id, c.slot_index
-        """,
-        (start_frame, limit),
+    face_rows = (
+        source.execute(
+            """
+            SELECT k.frame, s.track_id, COALESCE(t.label, ''),
+                   c.slot_index, c.geometry_type,
+                   e.cx, e.cy, e.radius_x, e.radius_y, e.theta_radians,
+                   r.cx, r.cy, r.half_width, r.half_height, r.theta_radians
+            FROM mask_track_segments s
+            JOIN tracks t ON t.track_id=s.track_id
+            JOIN mask_keyframes k ON k.segment_id=s.id
+            JOIN keyframe_components c ON c.keyframe_id=k.id
+            LEFT JOIN keyframe_ellipses e ON e.component_id=c.id
+            LEFT JOIN keyframe_rectangles r ON r.component_id=c.id
+            WHERE t.domain='face_privacy' AND k.frame BETWEEN ? AND ?
+            ORDER BY k.frame, s.track_id, c.slot_index
+            """,
+            (start_frame, limit),
+        )
+        if mask_domain in {None, "face_privacy"}
+        else ()
     )
     for row in face_rows:
         kind = str(row[4])
         values = tuple(
             float(row[index])
-            for index in (
-                range(5, 10) if kind == "ellipse" else range(10, 15)
-            )
+            for index in (range(5, 10) if kind == "ellipse" else range(10, 15))
         )
         if compact_typed:
             common = (
@@ -627,9 +586,7 @@ def _materialize_final(
                 flush_typed()
             continue
         component = Component(kind, values)
-        polygons = _component_polygons(
-            (component,), face_label=str(row[2])
-        )
+        polygons = _component_polygons((component,), face_label=str(row[2]))
         batch.append(
             (
                 int(row[0]),
@@ -644,17 +601,23 @@ def _materialize_final(
             output.executemany(insert_sql, batch)
             batch.clear()
 
+    domain_clause = "t.domain<>'face_privacy'" if mask_domain is None else "t.domain=?"
+    parameters: tuple[object, ...] = (
+        (start_frame, limit)
+        if mask_domain is None
+        else (mask_domain, start_frame, limit)
+    )
     rows = source.execute(
-        """
+        f"""
         SELECT s.id, s.track_id, COALESCE(t.label, ''), t.domain,
                s.start_frame, s.end_frame, s.interpolation_method
         FROM mask_track_segments s
         JOIN tracks t ON t.track_id=s.track_id
-        WHERE t.domain<>'face_privacy'
+        WHERE {domain_clause}
           AND s.end_frame>=? AND s.start_frame<=?
         ORDER BY s.start_frame, s.id
         """,
-        (start_frame, limit),
+        parameters,
     )
     for segment_id, track_id, label, domain, first, last, method in rows:
         keyframes = _load_keyframes(source, int(segment_id))
@@ -685,9 +648,7 @@ def _materialize_final(
                 )
             ]
             observed_components = {
-                observed_frame: _components_at(
-                    keyframes, observed_frame, str(method)
-                )
+                observed_frame: _components_at(keyframes, observed_frame, str(method))
                 for observed_frame in observed_frames
             }
         for frame in range(first_frame, last_frame + 1):
@@ -705,8 +666,7 @@ def _materialize_final(
             if not components:
                 continue
             if compact_typed and all(
-                component.kind in {"ellipse", "rectangle"}
-                for component in components
+                component.kind in {"ellipse", "rectangle"} for component in components
             ):
                 for slot_index, component in enumerate(components):
                     values = tuple(component.values)  # type: ignore[arg-type]
@@ -737,9 +697,7 @@ def _materialize_final(
                 continue
             polygons = _component_polygons(
                 components,
-                face_label=(
-                    str(label) if str(domain) == "face_privacy" else None
-                ),
+                face_label=(str(label) if str(domain) == "face_privacy" else None),
             )
             if not polygons:
                 continue
@@ -834,9 +792,7 @@ def _materialize_tracked(
         polygon.append((float(x), float(y)))
     flush()
     if batch:
-        output.executemany(
-            "INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?)", batch
-        )
+        output.executemany("INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?)", batch)
     return total
 
 
@@ -848,11 +804,14 @@ def materialize_overlay_cache(
     start_frame: int = 0,
     end_frame: int | None = None,
     compact_typed: bool = False,
+    mask_domain: str | None = None,
 ) -> dict[str, object]:
     """Build a disposable dense cache for an existing overlay renderer."""
 
     if mode not in {"tracked", "final"}:
         raise ValueError("keyframe cache mode must be tracked or final")
+    if mask_domain not in {None, "genital", "face_privacy"}:
+        raise ValueError("unsupported mask domain")
     source_path = Path(source_sqlite).expanduser().resolve()
     output_path = Path(output_sqlite).expanduser().resolve()
     if source_path == output_path:
@@ -860,9 +819,7 @@ def materialize_overlay_cache(
     if output_path.exists():
         raise FileExistsError(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output_path.with_name(
-        f".{output_path.name}.{uuid.uuid4().hex}.tmp"
-    )
+    temporary = output_path.with_name(f".{output_path.name}.{uuid.uuid4().hex}.tmp")
     started = time.perf_counter()
     try:
         with sqlite3.connect(
@@ -873,9 +830,7 @@ def materialize_overlay_cache(
             output.execute("PRAGMA synchronous=OFF")
             _create_cache_schema(output)
             rows = (
-                _materialize_tracked(
-                    source, output, start_frame, end_frame
-                )
+                _materialize_tracked(source, output, start_frame, end_frame)
                 if mode == "tracked"
                 else _materialize_final(
                     source,
@@ -883,6 +838,7 @@ def materialize_overlay_cache(
                     start_frame,
                     end_frame,
                     compact_typed=compact_typed,
+                    mask_domain=mask_domain,
                 )
             )
             output.executemany(
@@ -893,6 +849,7 @@ def materialize_overlay_cache(
                     ("start_frame", str(start_frame)),
                     ("end_frame", "" if end_frame is None else str(end_frame)),
                     ("compact_typed", "1" if compact_typed else "0"),
+                    ("mask_domain", "" if mask_domain is None else mask_domain),
                 ),
             )
             output.commit()
@@ -906,6 +863,7 @@ def materialize_overlay_cache(
         "cache_sqlite": str(output_path),
         "mode": mode,
         "compact_typed": compact_typed,
+        "mask_domain": mask_domain,
         "rows": rows,
         "seconds": time.perf_counter() - started,
         "size_bytes": output_path.stat().st_size,
@@ -913,9 +871,17 @@ def materialize_overlay_cache(
 
 
 def _materialize_cache_job(
-    arguments: tuple[Path, Path, str, int, int, bool],
+    arguments: tuple[Path, Path, str, int, int, bool, str | None],
 ) -> dict[str, object]:
-    source, output, mode, start_frame, end_frame, compact_typed = arguments
+    (
+        source,
+        output,
+        mode,
+        start_frame,
+        end_frame,
+        compact_typed,
+        mask_domain,
+    ) = arguments
     return materialize_overlay_cache(
         source,
         output,
@@ -923,6 +889,7 @@ def _materialize_cache_job(
         start_frame=start_frame,
         end_frame=end_frame,
         compact_typed=compact_typed,
+        mask_domain=mask_domain,
     )
 
 
@@ -933,6 +900,7 @@ def materialize_overlay_cache_shards(
     mode: str,
     frame_ranges: list[tuple[int, int]],
     workers: int,
+    mask_domain: str | None = None,
 ) -> dict[str, object]:
     """Build independent frame-range caches concurrently.
 
@@ -944,6 +912,8 @@ def materialize_overlay_cache_shards(
         raise ValueError("keyframe cache mode must be tracked or final")
     if workers < 1:
         raise ValueError("cache workers must be positive")
+    if mask_domain not in {None, "genital", "face_privacy"}:
+        raise ValueError("unsupported mask domain")
     if not frame_ranges:
         raise ValueError("at least one cache frame range is required")
     previous_end: int | None = None
@@ -965,6 +935,7 @@ def materialize_overlay_cache_shards(
             start_frame,
             end_frame,
             True,
+            mask_domain,
         )
         for index, (start_frame, end_frame) in enumerate(frame_ranges)
     ]
@@ -972,18 +943,16 @@ def materialize_overlay_cache_shards(
     if len(jobs) == 1 or workers == 1:
         shards = [_materialize_cache_job(job) for job in jobs]
     else:
-        with ProcessPoolExecutor(
-            max_workers=min(workers, len(jobs))
-        ) as executor:
+        with ProcessPoolExecutor(max_workers=min(workers, len(jobs))) as executor:
             shards = list(executor.map(_materialize_cache_job, jobs))
     return {
         "source_sqlite": str(source),
         "mode": mode,
         "strategy": "parallel-frame-range-shards",
         "workers": min(workers, len(jobs)),
+        "mask_domain": mask_domain,
         "ranges": [
-            {"start_frame": start, "end_frame": end}
-            for start, end in frame_ranges
+            {"start_frame": start, "end_frame": end} for start, end in frame_ranges
         ],
         "rows": sum(int(shard["rows"]) for shard in shards),
         "seconds": time.perf_counter() - started,

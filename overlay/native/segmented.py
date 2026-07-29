@@ -36,6 +36,30 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument("--include-faces", action="store_true")
     result.add_argument("--face-sqlite", type=Path)
+    result.add_argument(
+        "--display-style",
+        choices=("legacy", "detailed", "simple"),
+        default="legacy",
+    )
+    result.add_argument(
+        "--mask-domain",
+        choices=("all", "genital", "face_privacy"),
+        default="all",
+    )
+    result.add_argument("--no-face-probability-masks", action="store_true")
+    result.add_argument("--no-face-keypoints", action="store_true")
+    result.add_argument("--no-face-ellipses", action="store_true")
+    result.add_argument(
+        "--face-mask-target",
+        choices=("none", "face", "eyes"),
+        default="none",
+    )
+    result.add_argument(
+        "--eye-mask-shape",
+        choices=("ellipse", "rectangle"),
+        default="ellipse",
+    )
+    result.add_argument("--minimum-eye-confidence", type=float, default=0.35)
     result.add_argument("--no-labels", action="store_true")
     result.add_argument("--copy-audio", action="store_true")
     result.add_argument("--output-dir", required=True, type=Path)
@@ -47,13 +71,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--ffmpeg-bin",
         type=Path,
-        default=(
-            root.parent
-            / ".runtime"
-            / "ffmpeg-nvenc-btbn-8.1"
-            / "bin"
-            / "ffmpeg"
-        ),
+        default=(root.parent / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"),
     )
     result.add_argument("--workers", required=True, type=int)
     result.add_argument("--cpu-workers", required=True, type=int)
@@ -177,8 +195,7 @@ def probe_video_frames(ffmpeg: Path, video: Path) -> list[VideoFrame]:
         for timestamp, _, keyframe in packets
     ]
     if any(
-        second.timestamp <= first.timestamp
-        for first, second in zip(frames, frames[1:])
+        second.timestamp <= first.timestamp for first, second in zip(frames, frames[1:])
     ):
         raise RuntimeError(
             "source video PTS is not strictly increasing in presentation "
@@ -220,9 +237,7 @@ def seek_anchor(
     frame_index: int,
 ) -> tuple[int, VideoFrame]:
     """Return the nearest keyframe at or before a requested frame."""
-    keyframes = [
-        index for index, frame in enumerate(frames) if frame.keyframe
-    ]
+    keyframes = [index for index, frame in enumerate(frames) if frame.keyframe]
     position = bisect.bisect_right(keyframes, frame_index) - 1
     if position < 0:
         raise RuntimeError(
@@ -250,10 +265,7 @@ def is_keyframe_primary(path: Path) -> bool:
             WHERE key='compatibility_profile'
             """
         ).fetchone()
-        return (
-            profile is not None
-            and str(profile[0]) == "keyframe-primary-v3"
-        )
+        return profile is not None and str(profile[0]) == "keyframe-primary-v3"
 
 
 def materialize_keyframe_shards(
@@ -263,6 +275,7 @@ def materialize_keyframe_shards(
     mode: str,
     ranges: list[tuple[int, int]],
     workers: int,
+    mask_domain: str | None,
 ) -> dict[str, object]:
     # Loading overlay_renderer as a package imports OpenCV, which adds roughly
     # three seconds to a short fast run even though cache generation does not
@@ -275,9 +288,7 @@ def materialize_keyframe_shards(
         / "overlay_renderer"
         / "keyframe_cache.py"
     )
-    specification = importlib.util.spec_from_file_location(
-        module_name, module_path
-    )
+    specification = importlib.util.spec_from_file_location(module_name, module_path)
     if specification is None or specification.loader is None:
         raise RuntimeError(f"cannot load keyframe cache module: {module_path}")
     module = importlib.util.module_from_spec(specification)
@@ -290,6 +301,7 @@ def materialize_keyframe_shards(
         mode=mode,
         frame_ranges=ranges,
         workers=workers,
+        mask_domain=mask_domain,
     )
     summary["module_load_seconds"] = module_seconds
     summary["materialization_seconds"] = float(summary["seconds"])
@@ -297,24 +309,58 @@ def materialize_keyframe_shards(
     return summary
 
 
+def materialize_fast_face_cache(
+    source: Path,
+    output: Path,
+    *,
+    display_style: str,
+    start_frame: int,
+    end_frame: int,
+    include_probability_masks: bool,
+    include_keypoints: bool,
+    include_ellipses: bool,
+    draw_keypoints: bool,
+    draw_ellipses: bool,
+    face_privacy_target: str,
+    eye_mask_shape: str,
+    minimum_eye_confidence: float,
+) -> dict[str, object]:
+    started = time.perf_counter()
+    from overlay_renderer.fast_face_cache import (
+        materialize_fast_face_cache as materialize,
+    )
+
+    summary = materialize(
+        source,
+        output,
+        display_style=display_style,
+        start_frame=start_frame,
+        end_frame=end_frame,
+        include_probability_masks=include_probability_masks,
+        include_keypoints=include_keypoints,
+        include_ellipses=include_ellipses,
+        draw_keypoints=draw_keypoints,
+        draw_ellipses=draw_ellipses,
+        face_privacy_target=face_privacy_target,
+        eye_mask_shape=eye_mask_shape,
+        minimum_eye_confidence=minimum_eye_confidence,
+    )
+    summary["seconds"] = time.perf_counter() - started
+    return summary
+
+
 def main() -> None:
     args = parser().parse_args()
-    if args.include_faces and args.mode != "final":
-        raise ValueError("--include-faces is only valid with --mode final")
     if args.include_faces and args.face_sqlite is None:
         raise ValueError("--include-faces requires --face-sqlite")
     if args.face_sqlite is not None and not args.include_faces:
-        raise ValueError(
-            "--face-sqlite requires --mode final --include-faces"
-        )
+        raise ValueError("--face-sqlite requires --include-faces")
     renderer = args.renderer.expanduser().resolve()
     ffmpeg = args.ffmpeg_bin.expanduser().resolve()
     video = args.video.expanduser().resolve()
     sqlite = args.sqlite.expanduser().resolve()
     face_sqlite = (
-        None
-        if args.face_sqlite is None
-        else args.face_sqlite.expanduser().resolve()
+        None if args.face_sqlite is None else args.face_sqlite.expanduser().resolve()
     )
     output_dir = args.output_dir.expanduser().resolve()
     index_started = time.perf_counter()
@@ -338,6 +384,10 @@ def main() -> None:
             f"end-frame {args.end_frame} exceeds the indexed source "
             f"range 0..{len(video_frames) - 1}"
         )
+    frame_total = args.end_frame - args.start_frame + 1
+    if args.workers > frame_total:
+        args.workers = frame_total
+        args.cpu_workers = min(args.cpu_workers, args.workers)
     output_dir.mkdir(parents=True, exist_ok=False)
 
     encoders = worker_encoders(args.workers, args.cpu_workers)
@@ -347,25 +397,51 @@ def main() -> None:
     ]
     ranges = weighted_ranges(args.start_frame, args.end_frame, weights)
     cache_summary: dict[str, object] | None = None
+    face_cache_summary: dict[str, object] | None = None
     worker_sqlites = [sqlite] * len(ranges)
-    if (
-        args.mode in {"tracked", "final"}
-        and is_keyframe_primary(sqlite)
-    ):
+    if args.mode in {"tracked", "final"} and is_keyframe_primary(sqlite):
         cache_summary = materialize_keyframe_shards(
             sqlite,
             output_dir / "keyframe_cache",
             mode=args.mode,
             ranges=ranges,
             workers=args.workers,
+            mask_domain=(None if args.mask_domain == "all" else args.mask_domain),
         )
         worker_sqlites = [
             Path(str(shard["cache_sqlite"]))
             for shard in cache_summary["shards"]  # type: ignore[index]
         ]
-    processes: list[
-        tuple[subprocess.Popen[str], object, dict[str, object]]
-    ] = []
+    if args.display_style in {"detailed", "simple"} and (
+        args.mode == "faces" or args.include_faces
+    ):
+        face_source = sqlite if args.mode == "faces" else face_sqlite
+        assert face_source is not None
+        face_cache = output_dir / "fast_face_cache.sqlite"
+        face_cache_summary = materialize_fast_face_cache(
+            face_source,
+            face_cache,
+            display_style=args.display_style,
+            start_frame=args.start_frame,
+            end_frame=args.end_frame,
+            include_probability_masks=not args.no_face_probability_masks,
+            include_keypoints=(
+                not args.no_face_keypoints or args.face_mask_target == "eyes"
+            ),
+            include_ellipses=(
+                not args.no_face_ellipses or args.face_mask_target != "none"
+            ),
+            draw_keypoints=not args.no_face_keypoints,
+            draw_ellipses=not args.no_face_ellipses,
+            face_privacy_target=args.face_mask_target,
+            eye_mask_shape=args.eye_mask_shape,
+            minimum_eye_confidence=args.minimum_eye_confidence,
+        )
+        if args.mode == "faces":
+            worker_sqlites = [face_cache] * len(ranges)
+        else:
+            face_sqlite = face_cache
+    processes: list[tuple[subprocess.Popen[str], object, dict[str, object]]] = []
 
     parallel_started = time.perf_counter()
     for index, ((start, end), encoder, worker_sqlite) in enumerate(
@@ -375,9 +451,7 @@ def main() -> None:
         output = output_dir / f"segment_{index:02d}.mp4"
         summary_path = output_dir / f"segment_{index:02d}.json"
         error_path = output_dir / f"segment_{index:02d}.stderr.log"
-        preset = (
-            args.cpu_preset if encoder == "libx264" else args.nvenc_preset
-        )
+        preset = args.cpu_preset if encoder == "libx264" else args.nvenc_preset
         command = [
             str(renderer),
             "--video",
@@ -386,6 +460,10 @@ def main() -> None:
             str(worker_sqlite),
             "--mode",
             args.mode,
+            "--display-style",
+            args.display_style,
+            "--mask-domain",
+            args.mask_domain,
             "--output",
             str(output),
             "--encoder",
@@ -420,9 +498,7 @@ def main() -> None:
         if args.no_labels:
             command.append("--no-labels")
         if args.include_faces:
-            command.extend(
-                ["--include-faces", "--face-sqlite", str(face_sqlite)]
-            )
+            command.extend(["--include-faces", "--face-sqlite", str(face_sqlite)])
         summary_file = summary_path.open("w", encoding="utf-8")
         error_file = error_path.open("w", encoding="utf-8")
         process = subprocess.Popen(
@@ -467,17 +543,12 @@ def main() -> None:
     concat_path = output_dir / "concat.txt"
     concat_path.write_text(
         "".join(
-            f"file '{Path(str(record['output'])).as_posix()}'\n"
-            for record in records
+            f"file '{Path(str(record['output'])).as_posix()}'\n" for record in records
         ),
         encoding="utf-8",
     )
     final_output = output_dir / "final.mp4"
-    concat_output = (
-        output_dir / "video_only.mp4"
-        if args.copy_audio
-        else final_output
-    )
+    concat_output = output_dir / "video_only.mp4" if args.copy_audio else final_output
     concat_command = [
         str(ffmpeg),
         "-hide_banner",
@@ -535,10 +606,9 @@ def main() -> None:
         audio_mux_seconds = time.perf_counter() - audio_mux_started
         concat_output.unlink()
     total_seconds = parallel_seconds + concat_seconds + audio_mux_seconds
-    cache_seconds = (
-        0.0
-        if cache_summary is None
-        else float(cache_summary["seconds"])
+    cache_seconds = 0.0 if cache_summary is None else float(cache_summary["seconds"])
+    face_cache_seconds = (
+        0.0 if face_cache_summary is None else float(face_cache_summary["seconds"])
     )
     timestamp_deltas = [
         second.timestamp - first.timestamp
@@ -568,10 +638,9 @@ def main() -> None:
         "nvenc_gpu": args.nvenc_gpu,
         "encoders": encoders,
         "mode": args.mode,
+        "display_style": args.display_style,
         "include_faces": args.include_faces,
-        "face_sqlite": (
-            None if face_sqlite is None else str(face_sqlite)
-        ),
+        "face_sqlite": (None if face_sqlite is None else str(face_sqlite)),
         "show_labels": not args.no_labels,
         "copy_audio": args.copy_audio,
         "cpu_weight": args.cpu_weight,
@@ -598,18 +667,18 @@ def main() -> None:
         "parallel_seconds": parallel_seconds,
         "concat_seconds": concat_seconds,
         "audio_mux_seconds": audio_mux_seconds,
-        "total_seconds": total_seconds + index_seconds + cache_seconds,
+        "total_seconds": (
+            total_seconds + index_seconds + cache_seconds + face_cache_seconds
+        ),
         "render_seconds": total_seconds,
         "renderer_total_seconds": total_seconds + index_seconds,
         "aggregate_fps": frames
-        / (total_seconds + index_seconds + cache_seconds),
+        / (total_seconds + index_seconds + cache_seconds + face_cache_seconds),
         "bitrate_mbps": args.bitrate_mbps,
         "decoder_threads": args.decoder_threads,
         "hw_decode": args.hw_decode or args.gpu_pipeline,
         "gpu_pipeline": args.gpu_pipeline,
-        "gpu_pipeline_nvenc_only": (
-            args.gpu_pipeline and args.cpu_workers == 0
-        ),
+        "gpu_pipeline_nvenc_only": (args.gpu_pipeline and args.cpu_workers == 0),
         "faststart": args.faststart,
         "final_output": str(final_output),
         "size_bytes": final_output.stat().st_size,
@@ -619,6 +688,8 @@ def main() -> None:
     }
     if cache_summary is not None:
         summary["keyframe_materialization"] = cache_summary
+    if face_cache_summary is not None:
+        summary["face_primitive_materialization"] = face_cache_summary
     (output_dir / "benchmark_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

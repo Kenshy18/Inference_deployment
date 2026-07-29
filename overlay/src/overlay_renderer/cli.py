@@ -35,13 +35,7 @@ OVERLAY_ROOT = Path(__file__).resolve().parents[2]
 NATIVE_ROOT = OVERLAY_ROOT / "native"
 NATIVE_RUNNER = NATIVE_ROOT / "segmented.py"
 NATIVE_RENDERER = NATIVE_ROOT / "build" / "overlay_native"
-NATIVE_FFMPEG = (
-    OVERLAY_ROOT
-    / ".runtime"
-    / "ffmpeg-nvenc-btbn-8.1"
-    / "bin"
-    / "ffmpeg"
-)
+NATIVE_FFMPEG = OVERLAY_ROOT / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--execution-mode",
         choices=EXECUTION_MODES,
-        default="cpu",
+        default="fast",
         help=(
             "cpu: OpenCV+libx264, nvenc: OpenCV+NVENC, "
             "fast: NVDEC+CUDA+parallel NVENC"
@@ -74,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--preset",
         choices=PRESETS,
-        help="reader-facing subject/detail preset; currently supported by cpu/nvenc",
+        help="reader-facing subject/detail preset supported by every execution mode",
     )
     parser.add_argument(
         "--genital-source",
@@ -184,9 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--nvenc-preset",
         default=None,
-        help=(
-            "NVENC preset p1-p7; defaults to p5 for nvenc and p1 for fast"
-        ),
+        help=("NVENC preset p1-p7; defaults to p5 for nvenc and p1 for fast"),
     )
     parser.add_argument(
         "--nvenc-gpu",
@@ -241,8 +233,8 @@ def _validate_mode_args(args: argparse.Namespace) -> None:
         else:
             args.mode = args.genital_source
             args.include_faces = subject == "combined"
-        if args.execution_mode == "fast":
-            raise ValueError("presets are not yet implemented by fast mode")
+            if args.include_faces and args.face_sqlite is None:
+                args.face_sqlite = args.sqlite
     elif args.mode is None:
         raise ValueError("either --mode or --preset is required")
     if args.mask_alpha is None:
@@ -254,9 +246,7 @@ def _validate_mode_args(args: argparse.Namespace) -> None:
             else 0.32
         )
     if args.nvenc_preset is None:
-        args.nvenc_preset = (
-            "p1" if args.execution_mode == "fast" else "p5"
-        )
+        args.nvenc_preset = "p1" if args.execution_mode == "fast" else "p5"
     if args.nvenc_preset not in {
         "p1",
         "p2",
@@ -275,21 +265,11 @@ def _validate_mode_args(args: argparse.Namespace) -> None:
         raise ValueError("line thickness must be at least 1")
     if args.start_frame < 0:
         raise ValueError("--start-frame must be non-negative")
-    if (
-        args.end_frame is not None
-        and args.end_frame < args.start_frame
-    ):
+    if args.end_frame is not None and args.end_frame < args.start_frame:
         raise ValueError("--end-frame must be >= --start-frame")
-    if (
-        args.target_bitrate_mbps is not None
-        and args.target_bitrate_mbps <= 0
-    ):
+    if args.target_bitrate_mbps is not None and args.target_bitrate_mbps <= 0:
         raise ValueError("--target-bitrate-mbps must be positive")
-    if (
-        args.include_faces
-        and args.mode != "final"
-        and args.preset is None
-    ):
+    if args.include_faces and args.mode != "final" and args.preset is None:
         raise ValueError("--include-faces is only valid with --mode final")
     if args.include_faces and args.face_sqlite is None:
         raise ValueError("--include-faces requires --face-sqlite")
@@ -302,22 +282,14 @@ def _validate_mode_args(args: argparse.Namespace) -> None:
         and args.mode != "faces"
         and not args.include_faces
     ):
-        raise ValueError(
-            "--face-mask-target requires a face or combined overlay"
-        )
-    if args.face_mask_target != "none" and args.execution_mode == "fast":
-        raise ValueError("--face-mask-target is not yet implemented by fast mode")
+        raise ValueError("--face-mask-target requires a face or combined overlay")
     if args.execution_mode == "fast":
         if args.target_bitrate_mbps is None:
-            raise ValueError(
-                "--execution-mode fast requires --target-bitrate-mbps"
-            )
+            args.target_bitrate_mbps = 8.0
         if args.workers < 1:
             raise ValueError("--workers must be at least 1")
         if not 0 <= args.cpu_workers <= args.workers:
-            raise ValueError(
-                "--cpu-workers must be between 0 and --workers"
-            )
+            raise ValueError("--cpu-workers must be between 0 and --workers")
         if args.codec is not None and args.codec.lower() not in {
             "nvenc",
             "h264_nvenc",
@@ -383,6 +355,14 @@ def _fast_command(
         ),
         "--mode",
         args.mode,
+        "--display-style",
+        ("legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]),
+        "--mask-domain",
+        (
+            "genital"
+            if args.preset is not None and not args.preset.startswith("face-")
+            else "all"
+        ),
         "--output-dir",
         str(output_dir),
         "--renderer",
@@ -407,6 +387,12 @@ def _fast_command(
         str(args.outline_thickness),
         "--box-thickness",
         str(args.box_thickness),
+        "--face-mask-target",
+        args.face_mask_target,
+        "--eye-mask-shape",
+        args.eye_mask_shape,
+        "--minimum-eye-confidence",
+        str(args.minimum_eye_confidence),
         "--gpu-pipeline",
         "--compact-output",
     ]
@@ -414,6 +400,12 @@ def _fast_command(
         command.extend(["--end-frame", str(args.end_frame)])
     if args.no_labels:
         command.append("--no-labels")
+    if args.no_face_probability_masks:
+        command.append("--no-face-probability-masks")
+    if args.no_face_keypoints:
+        command.append("--no-face-keypoints")
+    if args.no_face_ellipses:
+        command.append("--no-face-ellipses")
     if args.include_faces:
         command.extend(
             [
@@ -468,15 +460,13 @@ def _run_fast(
             )
             raise RuntimeError(
                 "fast overlay failed; worker artifacts were retained at "
-                f"{work_dir}"
-                + (f"\n{detail}" if detail else "")
+                f"{work_dir}" + (f"\n{detail}" if detail else "")
             )
         generated = work_dir / "final.mp4"
         summary_path = work_dir / "benchmark_summary.json"
         if not generated.is_file() or not summary_path.is_file():
             raise RuntimeError(
-                "fast overlay did not create final.mp4 and "
-                "benchmark_summary.json"
+                "fast overlay did not create final.mp4 and " "benchmark_summary.json"
             )
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         os.replace(generated, output)
@@ -488,8 +478,47 @@ def _run_fast(
             "video": str(Path(args.video).expanduser().resolve()),
             "execution_mode": "fast",
             "overlay_type": args.mode,
+            "preset": args.preset,
+            "genital_source": (
+                args.genital_source
+                if args.preset and not args.preset.startswith("face-")
+                else None
+            ),
             "include_faces": bool(args.include_faces),
             "audio_copied": bool(args.copy_audio),
+            "display_style": (
+                "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
+            ),
+            "drawing": {
+                "mask_alpha": args.mask_alpha,
+                "outline_thickness": args.outline_thickness,
+                "box_thickness": args.box_thickness,
+            },
+            "face_components": {
+                "probability_masks": (
+                    (args.mode == "faces" or args.include_faces)
+                    and args.preset is not None
+                    and args.preset.endswith("-detailed")
+                    and not args.no_face_probability_masks
+                ),
+                "keypoints": not args.no_face_keypoints,
+                "ellipses": not args.no_face_ellipses,
+                "head_boxes": (
+                    args.preset is None or args.preset.endswith("-detailed")
+                ),
+                "labels": (args.preset is None or args.preset.endswith("-detailed")),
+                "privacy_mask": {
+                    "target": args.face_mask_target,
+                    "shape": (
+                        args.eye_mask_shape
+                        if args.face_mask_target == "eyes"
+                        else "ellipse"
+                        if args.face_mask_target == "face"
+                        else None
+                    ),
+                    "minimum_eye_confidence": args.minimum_eye_confidence,
+                },
+            },
             "encoding": {
                 "codec": "h264",
                 "segment_encoders": summary.get("encoders", []),
@@ -514,9 +543,7 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     _validate_mode_args(args)
     manifest = (
-        None
-        if args.manifest is None
-        else Path(args.manifest).expanduser().resolve()
+        None if args.manifest is None else Path(args.manifest).expanduser().resolve()
     )
     output = Path(args.output).expanduser().resolve()
     if manifest is not None:
@@ -534,9 +561,7 @@ def main(argv: list[str] | None = None) -> None:
         mask_frames = iter_raw_segmentation_frames(
             args.sqlite,
             display_style=(
-                "legacy"
-                if args.preset is None
-                else args.preset.rsplit("-", 1)[1]
+                "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
             ),
         )
     elif args.mode in {"tracked", "final"}:
@@ -545,13 +570,16 @@ def main(argv: list[str] | None = None) -> None:
         mask_frames = iter_mask_frames(
             args.sqlite,
             display_style=(
-                "legacy"
-                if args.preset is None
-                else args.preset.rsplit("-", 1)[1]
+                "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
             ),
             prefer_tracked=args.mode == "tracked",
             start_frame=args.start_frame,
             end_frame=args.end_frame,
+            mask_domain=(
+                "genital"
+                if args.preset is not None and not args.preset.startswith("face-")
+                else None
+            ),
         )
     elif args.mode == "faces":
         source = inspect_inference_source(args.sqlite, "face_detection")
@@ -567,9 +595,7 @@ def main(argv: list[str] | None = None) -> None:
             include_probability_masks=not args.no_face_probability_masks,
             require_privacy_geometry=args.face_mask_target != "none",
             display_style=(
-                "legacy"
-                if args.preset is None
-                else args.preset.rsplit("-", 1)[1]
+                "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
             ),
         )
 
@@ -587,9 +613,7 @@ def main(argv: list[str] | None = None) -> None:
             include_probability_masks=not args.no_face_probability_masks,
             require_privacy_geometry=args.face_mask_target != "none",
             display_style=(
-                "legacy"
-                if args.preset is None
-                else args.preset.rsplit("-", 1)[1]
+                "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
             ),
         )
 
@@ -620,9 +644,7 @@ def main(argv: list[str] | None = None) -> None:
         end_frame=args.end_frame,
         progress_every=args.progress_every,
         display_style=(
-            "legacy"
-            if args.preset is None
-            else args.preset.rsplit("-", 1)[1]
+            "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
         ),
         face_privacy_target=args.face_mask_target,
         eye_mask_shape=args.eye_mask_shape,
@@ -659,8 +681,7 @@ def main(argv: list[str] | None = None) -> None:
         },
         "face_components": {
             "probability_masks": (
-                options.display_style != "simple"
-                and not args.no_face_probability_masks
+                options.display_style != "simple" and not args.no_face_probability_masks
             ),
             "keypoints": not args.no_face_keypoints,
             "ellipses": not args.no_face_ellipses,
@@ -686,13 +707,9 @@ def main(argv: list[str] | None = None) -> None:
         "encoding": {
             "codec": options.normalized_codec,
             "h264_crf": options.h264_crf if options.uses_libx264 else None,
-            "h264_preset": (
-                options.h264_preset if options.uses_libx264 else None
-            ),
+            "h264_preset": (options.h264_preset if options.uses_libx264 else None),
             "nvenc_cq": options.nvenc_cq if options.uses_nvenc else None,
-            "nvenc_preset": (
-                options.nvenc_preset if options.uses_nvenc else None
-            ),
+            "nvenc_preset": (options.nvenc_preset if options.uses_nvenc else None),
             "nvenc_gpu": options.nvenc_gpu if options.uses_nvenc else None,
             "target_bitrate_mbps": options.target_bitrate_mbps,
         },

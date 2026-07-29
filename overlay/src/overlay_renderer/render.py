@@ -434,18 +434,27 @@ def _ascii_label(item: OverlayItem) -> str:
 
 
 def _detailed_mask_label(item: OverlayItem) -> str:
-    components: list[str] = []
+    components: list[str] = [_track_label(item.track_id)]
     if item.label and item.label.isascii():
         components.append(item.label)
     if item.score is not None:
         components.append(f"score={item.score:.2f}")
     else:
         components.append("score=--")
-    if item.track_id is not None:
-        components.append(f"T#{item.track_id}")
     if item.provenance:
         components.append(item.provenance)
     return "  ".join(components)
+
+
+def _track_label(track_id: str | None) -> str:
+    if track_id is None:
+        return "TRACK --"
+    parts = track_id.split(":")
+    if len(parts) == 3 and parts[0] == "face":
+        return f"TRACK {parts[2]} / SCENE {parts[1]}"
+    if len(parts) == 4 and parts[0] == "face":
+        return f"TRACK {parts[3]} / SCENE {parts[2]}"
+    return f"TRACK {track_id}"
 
 
 def _draw_label(
@@ -453,12 +462,13 @@ def _draw_label(
     text: str,
     origin: tuple[int, int],
     color: tuple[int, int, int],
+    *,
+    scale: float = 0.52,
+    thickness: int = 1,
 ) -> None:
     if not text:
         return
     font = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 0.52
-    thickness = 1
     (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
     x = max(0, min(origin[0], frame.shape[1] - text_width - 4))
     y = max(text_height + 4, min(origin[1], frame.shape[0] - baseline - 2))
@@ -479,6 +489,41 @@ def _draw_label(
         thickness,
         cv2.LINE_AA,
     )
+
+
+def _draw_dotted_rectangle(
+    frame: np.ndarray,
+    top_left: tuple[int, int],
+    bottom_right: tuple[int, int],
+    color: tuple[int, int, int],
+    thickness: int,
+) -> None:
+    left, top = top_left
+    right, bottom = bottom_right
+    length = 10
+    gap = 7
+    for start in range(left, right + 1, length + gap):
+        end = min(right, start + length)
+        cv2.line(frame, (start, top), (end, top), color, thickness, cv2.LINE_AA)
+        cv2.line(
+            frame,
+            (start, bottom),
+            (end, bottom),
+            color,
+            thickness,
+            cv2.LINE_AA,
+        )
+    for start in range(top, bottom + 1, length + gap):
+        end = min(bottom, start + length)
+        cv2.line(frame, (left, start), (left, end), color, thickness, cv2.LINE_AA)
+        cv2.line(
+            frame,
+            (right, start),
+            (right, end),
+            color,
+            thickness,
+            cv2.LINE_AA,
+        )
 
 
 def _draw_dotted_face_mask(
@@ -504,10 +549,13 @@ def _draw_dotted_face_mask(
         (right - left, bottom - top),
         interpolation=cv2.INTER_LINEAR,
     )
-    binary = np.asarray(
-        resized >= round(threshold * 255.0),
-        dtype=np.uint8,
-    ) * 255
+    binary = (
+        np.asarray(
+            resized >= round(threshold * 255.0),
+            dtype=np.uint8,
+        )
+        * 255
+    )
     contours, _ = cv2.findContours(
         binary,
         cv2.RETR_EXTERNAL,
@@ -526,9 +574,7 @@ def _draw_dotted_face_mask(
         closed = np.concatenate((points, points[:1]), axis=0)
         segments = closed[1:] - closed[:-1]
         lengths = np.linalg.norm(segments, axis=1)
-        cumulative = np.concatenate(
-            (np.zeros(1, dtype=np.float32), np.cumsum(lengths))
-        )
+        cumulative = np.concatenate((np.zeros(1, dtype=np.float32), np.cumsum(lengths)))
         total = float(cumulative[-1])
         if total <= 0.0:
             continue
@@ -650,11 +696,7 @@ def _draw_items(
                     privacy_color,
                 )
 
-    if (
-        face_items
-        and options.mask_alpha > 0.0
-        and options.display_style == "legacy"
-    ):
+    if face_items and options.mask_alpha > 0.0 and options.display_style == "legacy":
         for item in face_items:
             mask = item.face_mask
             if mask is None:
@@ -737,19 +779,26 @@ def _draw_items(
         ellipse_color = (255, 70, 255)
 
     for item in face_items:
+        interpolated = item.provenance == "INTERPOLATED"
+        removed = item.provenance == "REMOVED_SHORT_TRACK"
         if options.display_style == "detailed" and item.face_mask is not None:
             _draw_dotted_face_mask(
                 frame,
                 item.face_mask,
                 threshold=options.face_mask_threshold,
             )
-        color = (
-            _color(item.color_key)
-            if face_box_color is None
-            else face_box_color
-            if item.face_present is not False
-            else (80, 80, 255)
-        )
+        if removed:
+            color = (70, 70, 255)
+        elif interpolated:
+            color = (0, 210, 255)
+        else:
+            color = (
+                _color(item.color_key)
+                if face_box_color is None
+                else face_box_color
+                if item.face_present is not False
+                else (80, 80, 255)
+            )
         label_origin: tuple[int, int] | None = None
         if item.box is not None and options.display_style != "simple":
             x1, y1, x2, y2 = item.box
@@ -757,15 +806,37 @@ def _draw_items(
             top = max(0, min(height - 1, round(y1)))
             right = max(0, min(width - 1, round(x2)))
             bottom = max(0, min(height - 1, round(y2)))
-            cv2.rectangle(
-                frame,
-                (left, top),
-                (right, bottom),
-                color,
-                options.box_thickness,
-                cv2.LINE_AA,
+            if interpolated:
+                _draw_dotted_rectangle(
+                    frame,
+                    (left, top),
+                    (right, bottom),
+                    color,
+                    options.box_thickness,
+                )
+            else:
+                cv2.rectangle(
+                    frame,
+                    (left, top),
+                    (right, bottom),
+                    color,
+                    options.box_thickness,
+                    cv2.LINE_AA,
+                )
+            if removed:
+                cv2.line(
+                    frame,
+                    (left, bottom),
+                    (right, top),
+                    color,
+                    max(3, options.box_thickness + 1),
+                    cv2.LINE_AA,
+                )
+            label_origin = (
+                (left, min(height - 2, bottom + 24))
+                if (removed or interpolated) and top < 25
+                else (left, max(top, 22))
             )
-            label_origin = (left, max(top, 22))
         if item.ellipse is not None and options.draw_face_ellipses:
             cx, cy, major, minor, theta = item.ellipse
             center = (
@@ -780,7 +851,7 @@ def _draw_items(
                 math.degrees(theta),
                 0,
                 360,
-                color if ellipse_color is None else ellipse_color,
+                color if ellipse_color is None or removed else ellipse_color,
                 options.box_thickness,
                 cv2.LINE_AA,
             )
@@ -791,9 +862,7 @@ def _draw_items(
                 )
         point_radius = max(4, round(width / 480))
         font_scale = max(0.48, width / 2400)
-        for point in (
-            item.keypoints if options.draw_face_keypoints else ()
-        ):
+        for point in item.keypoints if options.draw_face_keypoints else ():
             if not point.valid or point.state == 0:
                 continue
             px = max(0, min(width - 1, round(point.x)))
@@ -842,12 +911,29 @@ def _draw_items(
         if options.display_style == "detailed" and label_origin is not None:
             head_score = "--" if item.score is None else f"{item.score:.2f}"
             face_score = "--" if item.face_score is None else f"{item.face_score:.2f}"
-            label = (
-                f"HEAD {head_score} | FACE {face_score}"
-                if item.face_present is not False
-                else f"HEAD {head_score} | NO FACE {face_score}"
+            compact_track = _track_label(item.track_id).replace(" / SCENE ", " / S")
+            if interpolated:
+                label = f"{compact_track} | INTERPOLATED"
+            elif removed:
+                label = f"{compact_track} | REMOVED | HEAD {head_score}"
+            elif item.face_present is not False:
+                label = (
+                    f"{_track_label(item.track_id)} | OBSERVED | "
+                    f"HEAD {head_score} | FACE {face_score}"
+                )
+            else:
+                label = (
+                    f"{_track_label(item.track_id)} | OBSERVED | "
+                    f"HEAD {head_score} | NO FACE {face_score}"
+                )
+            _draw_label(
+                frame,
+                label,
+                label_origin,
+                color,
+                scale=0.52,
+                thickness=1,
             )
-            _draw_label(frame, label, label_origin, color)
         elif (
             options.display_style == "legacy"
             and options.show_labels
@@ -855,6 +941,7 @@ def _draw_items(
         ):
             _draw_label(frame, _ascii_label(item), label_origin, color)
     return len(mask_items), len(face_items)
+
 
 def _validate_source_video(
     source: SourceInfo,
@@ -1037,9 +1124,7 @@ def render_video(
         os.replace(temporary, output_path)
 
     elapsed_seconds = time.perf_counter() - started
-    accounted_seconds = (
-        decode_seconds + source_seconds + draw_seconds + write_seconds
-    )
+    accounted_seconds = decode_seconds + source_seconds + draw_seconds + write_seconds
     return RenderSummary(
         mode=options.mode,
         output=output_path,

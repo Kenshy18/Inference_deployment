@@ -263,6 +263,18 @@ raw、tracked、final、faces、final＋facesも実入力のPTS gapを跨ぐ4 fr
 
 ## 現在の制限
 
+### rich face presetの実効速度（2026-07-29）
+
+1280x720、24 fps、10分、14,400 frames、face-detailed、NVENC 6、p1、
+8 Mbpsでは、native描画・encode・concatが9.419秒（1,529 fps）、顔primitive
+cacheを含む全体が10.980秒（1,311 fps）だった。cacheは19.1 MBで、旧行形式の
+121.9 MBから84.3%縮小した。確率mask境界点のベクトル化により、同じ
+2,490,446点を維持したままcache生成は5.96秒から1.30秒へ短縮した。
+
+出力は14,400/14,400 frames、600.000秒、PTS 0始まり・単調・24 fps一定である。
+worker境界の前後10 framesはすべて元入力の同じordinalが最小画像差となり、
+重複・欠損・1 frameずれを検出しなかった。
+
 - H.264 yuv420p/NV12入力のみ
 - OpenCVのアンチエイリアスとpixel完全一致ではない
 - CUDA labelは組み込みASCII fontで、日本語labelはproduction版同様に省略
@@ -272,6 +284,6 @@ raw、tracked、final、faces、final＋facesも実入力のPTS gapを跨ぐ4 fr
 - GPU経路はNVIDIA CUDA/NVDEC/NVENC専用
 - build scriptのCUDA runtime pathは現在この環境のproduction runtime固定
 
-標準Python/OpenCV経路の完全置換ではなく、統合CLIから明示選択する高速modeとして
-本番化している。任意pixel format/container、OpenCV fontとの表示方針、
-GPU非搭載時fallbackは今後の対応範囲である。
+高速modeを統合CLIとorchestrationの既定として本番化している。任意pixel
+format/container、OpenCV fontとのpixel完全一致、GPU非搭載時の自動fallbackは
+今後の対応範囲である。

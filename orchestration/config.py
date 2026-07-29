@@ -207,6 +207,12 @@ class PostprocessConfig:
     face_mask_target: str = "none"
     eye_mask_shape: str = "ellipse"
     minimum_eye_confidence: float = 0.35
+    face_tracking_max_gap_frames: int = 5
+    face_tracking_high_score_threshold: float = 0.50
+    face_tracking_low_score_threshold: float = 0.05
+    face_short_track_max_hits: int = 2
+    face_short_track_keep_score: float = 0.90
+    face_interpolation_max_gap: int = 3
 
     @property
     def uses_gpu(self) -> bool:
@@ -235,26 +241,34 @@ class PostprocessConfig:
 @dataclass(frozen=True)
 class OverlayConfig:
     enabled: bool = True
-    execution_mode: str = "cpu"
-    backend: str = "python_opencv"
+    execution_mode: str = "fast"
+    backend: str = "native"
     raw: bool = True
     tracked: bool = True
     final: bool = True
     faces: bool = False
     final_include_faces: bool = False
+    presets: tuple[str, ...] = ()
+    genital_source: str = "final"
+    face_mask_target: str = "none"
+    eye_mask_shape: str = "ellipse"
+    minimum_eye_confidence: float = 0.35
+    face_probability_masks: bool = True
+    face_keypoints: bool = True
+    face_ellipses: bool = True
     mask_alpha: float = 0.32
     outline_thickness: int = 2
     box_thickness: int = 2
     show_labels: bool = True
-    codec: str = "mp4v"
+    codec: str = "h264_nvenc"
     h264_crf: int = 18
     h264_preset: str = "veryfast"
     nvenc_cq: int = 18
     workers: int = 6
     cpu_workers: int = 0
     copy_audio: bool = False
-    target_bitrate_mbps: float | None = None
-    nvenc_preset: str = "p5"
+    target_bitrate_mbps: float | None = 8.0
+    nvenc_preset: str = "p1"
     nvenc_gpu: int = 0
     faststart: bool = False
     start_frame: int = 0
@@ -427,6 +441,12 @@ class OrchestrationConfig:
             "face_mask_target",
             "eye_mask_shape",
             "minimum_eye_confidence",
+            "face_tracking_max_gap_frames",
+            "face_tracking_high_score_threshold",
+            "face_tracking_low_score_threshold",
+            "face_short_track_max_hits",
+            "face_short_track_keep_score",
+            "face_interpolation_max_gap",
         }
         _reject_unknown(postprocess_raw, postprocess_allowed, "postprocess")
         postprocess_enabled = bool(
@@ -511,6 +531,30 @@ class OrchestrationConfig:
             minimum_eye_confidence=float(
                 postprocess_raw.get("minimum_eye_confidence", 0.35)
             ),
+            face_tracking_max_gap_frames=int(
+                postprocess_raw.get("face_tracking_max_gap_frames", 5)
+            ),
+            face_tracking_high_score_threshold=float(
+                postprocess_raw.get(
+                    "face_tracking_high_score_threshold",
+                    0.50,
+                )
+            ),
+            face_tracking_low_score_threshold=float(
+                postprocess_raw.get(
+                    "face_tracking_low_score_threshold",
+                    0.05,
+                )
+            ),
+            face_short_track_max_hits=int(
+                postprocess_raw.get("face_short_track_max_hits", 2)
+            ),
+            face_short_track_keep_score=float(
+                postprocess_raw.get("face_short_track_keep_score", 0.90)
+            ),
+            face_interpolation_max_gap=int(
+                postprocess_raw.get("face_interpolation_max_gap", 3)
+            ),
         )
 
         overlay_raw = _object(raw.get("overlay"), "overlay")
@@ -523,6 +567,14 @@ class OrchestrationConfig:
             "final",
             "faces",
             "final_include_faces",
+            "presets",
+            "genital_source",
+            "face_mask_target",
+            "eye_mask_shape",
+            "minimum_eye_confidence",
+            "face_probability_masks",
+            "face_keypoints",
+            "face_ellipses",
             "mask_alpha",
             "outline_thickness",
             "box_thickness",
@@ -545,8 +597,14 @@ class OrchestrationConfig:
         }
         _reject_unknown(overlay_raw, overlay_allowed, "overlay")
         configured_execution_mode = overlay_raw.get("execution_mode")
-        configured_backend = str(overlay_raw.get("backend", "python_opencv"))
-        configured_codec = str(overlay_raw.get("codec", "mp4v"))
+        configured_backend = str(overlay_raw.get("backend", "native"))
+        configured_codec = str(overlay_raw.get("codec", "h264_nvenc"))
+        if (
+            configured_execution_mode is None
+            and "backend" not in overlay_raw
+            and "codec" in overlay_raw
+        ):
+            configured_backend = "python_opencv"
         if configured_execution_mode is None:
             if configured_backend in {"experimental_cpp", "native"}:
                 overlay_execution_mode = "fast"
@@ -608,6 +666,21 @@ class OrchestrationConfig:
                 )
             ),
             final_include_faces=bool(overlay_raw.get("final_include_faces", False)),
+            presets=_string_tuple(
+                overlay_raw.get("presets"),
+                "overlay.presets",
+            ),
+            genital_source=str(overlay_raw.get("genital_source", "final")),
+            face_mask_target=str(overlay_raw.get("face_mask_target", "none")),
+            eye_mask_shape=str(overlay_raw.get("eye_mask_shape", "ellipse")),
+            minimum_eye_confidence=float(
+                overlay_raw.get("minimum_eye_confidence", 0.35)
+            ),
+            face_probability_masks=bool(
+                overlay_raw.get("face_probability_masks", True)
+            ),
+            face_keypoints=bool(overlay_raw.get("face_keypoints", True)),
+            face_ellipses=bool(overlay_raw.get("face_ellipses", True)),
             mask_alpha=float(overlay_raw.get("mask_alpha", 0.32)),
             outline_thickness=int(overlay_raw.get("outline_thickness", 2)),
             box_thickness=int(overlay_raw.get("box_thickness", 2)),
@@ -619,9 +692,14 @@ class OrchestrationConfig:
             workers=int(overlay_raw.get("workers", 6)),
             cpu_workers=int(overlay_raw.get("cpu_workers", 0)),
             copy_audio=bool(overlay_raw.get("copy_audio", False)),
-            target_bitrate_mbps=_optional_float(
-                overlay_raw.get("target_bitrate_mbps"),
-                "overlay.target_bitrate_mbps",
+            target_bitrate_mbps=(
+                8.0
+                if overlay_execution_mode == "fast"
+                and overlay_raw.get("target_bitrate_mbps") is None
+                else _optional_float(
+                    overlay_raw.get("target_bitrate_mbps"),
+                    "overlay.target_bitrate_mbps",
+                )
             ),
             nvenc_preset=str(
                 overlay_raw.get(
@@ -761,10 +839,17 @@ class OrchestrationConfig:
                 "postprocess requires segmentation or segmentation-face inference"
             )
         if self.postprocess.precompute_cuts_during_inference:
-            if not self.inference.enabled or not self.postprocess.enabled:
+            face_only_cut_consumer = (
+                self.inference.uses_faces
+                and self.postprocess.face_mask_target != "none"
+            )
+            if not self.inference.enabled or not (
+                self.postprocess.enabled or face_only_cut_consumer
+            ):
                 raise OrchestrationConfigError(
                     "postprocess.precompute_cuts_during_inference requires "
-                    "inference.enabled=true and postprocess.enabled=true"
+                    "inference.enabled=true and either segmentation "
+                    "postprocess or face mask postprocess"
                 )
             if not self.postprocess.cut_detect:
                 raise OrchestrationConfigError(
@@ -821,6 +906,31 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "postprocess.minimum_eye_confidence must be between 0 and 1"
             )
+        if self.postprocess.face_tracking_max_gap_frames < 0:
+            raise OrchestrationConfigError(
+                "postprocess.face_tracking_max_gap_frames must be non-negative"
+            )
+        if self.postprocess.face_interpolation_max_gap < 0:
+            raise OrchestrationConfigError(
+                "postprocess.face_interpolation_max_gap must be non-negative"
+            )
+        if self.postprocess.face_short_track_max_hits < 0:
+            raise OrchestrationConfigError(
+                "postprocess.face_short_track_max_hits must be non-negative"
+            )
+        if not (
+            0.0
+            <= self.postprocess.face_tracking_low_score_threshold
+            <= self.postprocess.face_tracking_high_score_threshold
+            <= 1.0
+        ):
+            raise OrchestrationConfigError(
+                "face tracking scores must satisfy 0 <= low <= high <= 1"
+            )
+        if not 0.0 <= self.postprocess.face_short_track_keep_score <= 1.0:
+            raise OrchestrationConfigError(
+                "postprocess.face_short_track_keep_score must be between 0 and 1"
+            )
         if self.postprocess.face_mask_target != "none":
             if not self.inference.uses_faces:
                 raise OrchestrationConfigError(
@@ -867,6 +977,12 @@ class OrchestrationConfig:
                 "--face-mask-target",
                 "--eye-mask-shape",
                 "--minimum-eye-confidence",
+                "--face-tracking-max-gap-frames",
+                "--face-tracking-high-score-threshold",
+                "--face-tracking-low-score-threshold",
+                "--face-short-track-max-hits",
+                "--face-short-track-keep-score",
+                "--face-interpolation-max-gap",
             },
             "postprocess.extra_args",
         )
@@ -975,6 +1091,59 @@ class OrchestrationConfig:
             )
         if not 0 <= self.overlay.nvenc_cq <= 51:
             raise OrchestrationConfigError("overlay.nvenc_cq must be between 0 and 51")
+        valid_presets = {
+            "genital-detailed",
+            "genital-simple",
+            "face-detailed",
+            "face-simple",
+            "combined-detailed",
+            "combined-simple",
+        }
+        invalid_presets = sorted(set(self.overlay.presets) - valid_presets)
+        if invalid_presets:
+            raise OrchestrationConfigError(
+                f"overlay.presets contains unsupported values: {invalid_presets}"
+            )
+        if len(set(self.overlay.presets)) != len(self.overlay.presets):
+            raise OrchestrationConfigError(
+                "overlay.presets must not contain duplicates"
+            )
+        if self.overlay.genital_source not in {"raw", "final"}:
+            raise OrchestrationConfigError(
+                "overlay.genital_source must be raw or final"
+            )
+        if self.overlay.face_mask_target not in {"none", "face", "eyes"}:
+            raise OrchestrationConfigError(
+                "overlay.face_mask_target must be none, face, or eyes"
+            )
+        if self.overlay.eye_mask_shape not in {"ellipse", "rectangle"}:
+            raise OrchestrationConfigError(
+                "overlay.eye_mask_shape must be ellipse or rectangle"
+            )
+        if not 0.0 <= self.overlay.minimum_eye_confidence <= 1.0:
+            raise OrchestrationConfigError(
+                "overlay.minimum_eye_confidence must be between 0 and 1"
+            )
+        if (
+            any(
+                preset.startswith(("face-", "combined-"))
+                for preset in self.overlay.presets
+            )
+            and not self.inference.uses_faces
+        ):
+            raise OrchestrationConfigError(
+                "face/combined overlay presets require face inference"
+            )
+        if (
+            any(
+                preset.startswith(("genital-", "combined-"))
+                for preset in self.overlay.presets
+            )
+            and not self.inference.uses_segmentation
+        ):
+            raise OrchestrationConfigError(
+                "genital/combined overlay presets require segmentation inference"
+            )
         if self.overlay.nvenc_preset not in {
             "p1",
             "p2",
@@ -1020,10 +1189,18 @@ class OrchestrationConfig:
                 "--manifest",
                 "--include-faces",
                 "--face-sqlite",
+                "--preset",
+                "--genital-source",
                 "--mask-alpha",
                 "--outline-thickness",
                 "--box-thickness",
                 "--no-labels",
+                "--no-face-probability-masks",
+                "--no-face-keypoints",
+                "--no-face-ellipses",
+                "--face-mask-target",
+                "--eye-mask-shape",
+                "--minimum-eye-confidence",
                 "--codec",
                 "--h264-crf",
                 "--h264-preset",

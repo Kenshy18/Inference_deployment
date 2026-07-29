@@ -214,7 +214,8 @@ python run_pipeline.py \
 - `combined_validation_report`: 統合SQLiteの検証結果
 
 性器の`predictions_sqlite`は上書きしません。統合SQLiteでは
-`track_id=face:eyes:<observation_id>`または`face:face:<observation_id>`、
+`track_id=face:eyes:<scene_id>:<track_number>`または
+`face:face:<scene_id>:<track_number>`、
 `label=Eyes`または`Face`となるため、ソフトウェアは性器と同じ`masks`
 readerで読み込めます。`mask_provenance`には元の顔観測ID、直接Eye点か
 fallbackか、confidence、アルゴリズムversionを保存します。
@@ -229,7 +230,7 @@ unified inference SQLiteを入力した標準実行では、これらの内部�
 classwise処理は欠落テーブルではなく空テーブルとなり、利用可否は
 `result_capabilities`に記録されます。
 
-公開SQLiteは`schema_version=3`、`contract_revision=4`で、編集用の
+公開SQLiteは`schema_version=3`、`contract_revision=5`で、編集用の
 `mask_track_segments`、`mask_keyframes`、`keyframe_components`とtyped形状表を
 常設します。ポリゴンは頂点列、楕円は`cx/cy/radius_x/radius_y/theta_radians`、
 目元長方形は中心・half extent・角度として読み込めます。データがないモードでも

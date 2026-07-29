@@ -641,6 +641,88 @@ def import_face_privacy_keyframes(
     if "face_mask_geometries" not in source_tables:
         return {"segments": 0, "keyframes": 0, "components": 0}
     cuts = _cuts(connection)
+    provenance_columns = {
+        str(row[1])
+        for row in connection.execute(
+            f"PRAGMA {source_schema}.table_info(mask_provenance)"
+        )
+    }
+    source_end_expression = (
+        "p.source_observation_id_end"
+        if "source_observation_id_end" in provenance_columns
+        else "p.source_observation_id"
+    )
+    interpolated_expression = (
+        "p.is_interpolated" if "is_interpolated" in provenance_columns else "0"
+    )
+    query = f"""
+        SELECT g.frame, g.track_id, g.geometry_type, g.cx, g.cy,
+               g.half_width, g.half_height, g.theta_radians,
+               COALESCE(t.label, ''),
+               p.confidence, p.source_observation_id, p.derivation,
+               p.algorithm_version, {source_end_expression},
+               {interpolated_expression}
+        FROM {source_schema}.face_mask_geometries g
+        LEFT JOIN {source_schema}.tracks t ON t.track_id=g.track_id
+        JOIN {source_schema}.mask_provenance p
+          ON p.frame=g.frame AND p.track_id=g.track_id
+        ORDER BY g.frame, g.track_id
+        """
+    group_ranges: dict[
+        tuple[str, int, str],
+        tuple[int, int, str, float],
+    ] = {}
+    for row in connection.execute(query):
+        frame_value = int(row[0])
+        track_value = str(row[1])
+        geometry_value = str(row[2])
+        scene_value = _scene_id(cuts, frame_value)
+        key = track_value, scene_value, geometry_value
+        previous = group_ranges.get(key)
+        confidence_value = float(row[9])
+        if previous is None:
+            group_ranges[key] = (
+                frame_value,
+                frame_value,
+                str(row[8]),
+                confidence_value,
+            )
+        else:
+            group_ranges[key] = (
+                min(previous[0], frame_value),
+                max(previous[1], frame_value),
+                previous[2],
+                max(previous[3], confidence_value),
+            )
+    segment_ids: dict[tuple[str, int, str], int] = {}
+    for (track_value, scene_value, geometry_value,), (
+        start_frame,
+        end_frame,
+        label,
+        confidence,
+    ) in group_ranges.items():
+        _upsert_track(
+            connection,
+            track_value,
+            label=label,
+            domain="face_privacy",
+            confidence=confidence,
+        )
+        segment_ids[(track_value, scene_value, geometry_value)] = _insert_segment(
+            connection,
+            track_id=track_value,
+            scene_id=scene_value,
+            start_frame=start_frame,
+            end_frame=end_frame,
+            shape_type=geometry_value,
+            interpolation_method="linear",
+            component_count=1,
+            source_run_key=(
+                f"face_privacy:{track_value}:{scene_value}:{geometry_value}"
+            ),
+            segment_reason="tracked_face_observations",
+        )
+    keyframe_indices = {key: 0 for key in segment_ids}
     count = 0
     for (
         frame,
@@ -651,53 +733,35 @@ def import_face_privacy_keyframes(
         half_width,
         half_height,
         theta_radians,
-        label,
+        _label,
         confidence,
         source_observation_id,
         derivation,
         algorithm_version,
-    ) in connection.execute(
-        f"""
-        SELECT g.frame, g.track_id, g.geometry_type, g.cx, g.cy,
-               g.half_width, g.half_height, g.theta_radians,
-               COALESCE(t.label, ''),
-               p.confidence, p.source_observation_id, p.derivation,
-               p.algorithm_version
-        FROM {source_schema}.face_mask_geometries g
-        LEFT JOIN {source_schema}.tracks t ON t.track_id=g.track_id
-        JOIN {source_schema}.mask_provenance p
-          ON p.frame=g.frame AND p.track_id=g.track_id
-        ORDER BY g.frame, g.track_id
-        """
-    ):
+        source_observation_id_end,
+        is_interpolated,
+    ) in connection.execute(query):
         frame_value = int(frame)
         track_value = str(track_id)
         confidence_value = float(confidence)
-        _upsert_track(
-            connection,
+        group_key = (
             track_value,
-            label=str(label),
-            domain="face_privacy",
-            confidence=confidence_value,
+            _scene_id(cuts, frame_value),
+            str(geometry_type),
         )
-        segment_id = _insert_segment(
-            connection,
-            track_id=track_value,
-            scene_id=_scene_id(cuts, frame_value),
-            start_frame=frame_value,
-            end_frame=frame_value,
-            shape_type=str(geometry_type),
-            interpolation_method="none",
-            component_count=1,
-            source_run_key=f"face_privacy:{track_value}:{frame_value}",
-            segment_reason="single_face_observation",
-        )
+        segment_id = segment_ids[group_key]
+        keyframe_index = keyframe_indices[group_key]
+        keyframe_indices[group_key] += 1
         keyframe_id = _insert_keyframe(
             connection,
             segment_id=segment_id,
             frame=frame_value,
-            keyframe_index=0,
-            selection_reason="derived_face_geometry",
+            keyframe_index=keyframe_index,
+            selection_reason=(
+                "interpolated_face_geometry"
+                if bool(is_interpolated)
+                else "derived_face_geometry"
+            ),
             confidence=confidence_value,
         )
         component_id = _insert_component(
@@ -748,17 +812,29 @@ def import_face_privacy_keyframes(
             """,
             (
                 keyframe_id,
-                int(source_observation_id),
+                (None if source_observation_id is None else int(source_observation_id)),
                 str(algorithm_version),
                 json.dumps(
-                    {"derivation": str(derivation)},
+                    {
+                        "derivation": str(derivation),
+                        "is_interpolated": bool(is_interpolated),
+                        "source_observation_id_end": (
+                            None
+                            if source_observation_id_end is None
+                            else int(source_observation_id_end)
+                        ),
+                    },
                     ensure_ascii=False,
                     sort_keys=True,
                 ),
             ),
         )
         count += 1
-    return {"segments": count, "keyframes": count, "components": count}
+    return {
+        "segments": len(segment_ids),
+        "keyframes": count,
+        "components": count,
+    }
 
 
 def import_editable_geometry(

@@ -78,6 +78,35 @@ class SourceTests(unittest.TestCase):
             self.assertEqual("7", final[0].items[0].track_id)
             self.assertEqual("tracked", tracked[0].items[0].track_id)
 
+    def test_mask_domain_excludes_face_privacy_from_genital_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_mask_sqlite(Path(temporary) / "result.sqlite")
+            with sqlite3.connect(path) as connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE tracks(
+                        track_id TEXT PRIMARY KEY,
+                        label TEXT,
+                        domain TEXT NOT NULL
+                    );
+                    INSERT INTO tracks VALUES
+                        ('7', 'sample', 'genital'),
+                        ('face:eyes:1', 'Eyes', 'face_privacy');
+                    INSERT INTO masks(frame, track_id, polygons, label)
+                    SELECT frame, 'face:eyes:1', polygons, 'Eyes'
+                    FROM masks WHERE track_id='7';
+                    """
+                )
+
+            all_masks = list(iter_mask_frames(path))
+            genital = list(iter_mask_frames(path, mask_domain="genital"))
+
+            self.assertEqual(2, len(all_masks[0].items))
+            self.assertEqual(
+                ["7"],
+                [item.track_id for item in genital[0].items],
+            )
+
     def test_schema_v3_faces_use_exact_ellipse_and_keypoints(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
@@ -118,6 +147,86 @@ class SourceTests(unittest.TestCase):
             self.assertIsNone(face.ellipse)
             self.assertEqual((), face.keypoints)
             self.assertIsNone(face.face_mask)
+
+    def test_detailed_rich_face_overlay_uses_postprocessed_track_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
+            with sqlite3.connect(path) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE face_tracking_assignments(
+                        observation_id INTEGER PRIMARY KEY,
+                        raw_track_id TEXT NOT NULL,
+                        final_track_id TEXT,
+                        removed_by_short_track INTEGER NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO face_tracking_assignments
+                    VALUES (1, 'face:raw:0:7', 'face:0:7', 0)
+                    """
+                )
+
+            frames = list(iter_face_frames(path, display_style="detailed"))
+
+            self.assertEqual(1, len(frames))
+            self.assertEqual("face:0:7", frames[0].items[0].track_id)
+            self.assertEqual("OBSERVED", frames[0].items[0].provenance)
+
+    def test_detailed_face_overlay_marks_removed_and_interpolated_tracks(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
+            with sqlite3.connect(path) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE face_tracking_assignments(
+                        observation_id INTEGER PRIMARY KEY,
+                        raw_track_id TEXT NOT NULL,
+                        final_track_id TEXT,
+                        removed_by_short_track INTEGER NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO face_tracking_assignments
+                    VALUES (1, 'face:raw:0:9', NULL, 1)
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE face_track_interpolations(
+                        frame INTEGER NOT NULL,
+                        final_track_id TEXT NOT NULL,
+                        head_x1 REAL NOT NULL,
+                        head_y1 REAL NOT NULL,
+                        head_x2 REAL NOT NULL,
+                        head_y2 REAL NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO face_track_interpolations
+                    VALUES (2, 'face:0:7', 13, 6, 49, 43)
+                    """
+                )
+
+            frames = list(iter_face_frames(path, display_style="detailed"))
+
+            self.assertEqual([1, 2], [frame.frame_index for frame in frames])
+            removed = frames[0].items[0]
+            interpolated = frames[1].items[0]
+            self.assertEqual("face:raw:0:9", removed.track_id)
+            self.assertEqual("REMOVED_SHORT_TRACK", removed.provenance)
+            self.assertEqual("face:0:7", interpolated.track_id)
+            self.assertEqual("INTERPOLATED", interpolated.provenance)
+            self.assertEqual((13.0, 6.0, 49.0, 43.0), interpolated.box)
+            self.assertEqual([], list(iter_face_frames(path, display_style="simple")))
 
     def test_rich_face_masks_are_decompressed_lazily(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -586,6 +586,9 @@ def validate_result_sqlite(
         "face_keypoint_state_probabilities",
         "annotation_state",
         "tracking_assignments",
+        "face_tracks",
+        "face_tracking_assignments",
+        "face_track_interpolations",
         "tracks",
         "cuts",
         "cut_detection_metadata",
@@ -608,6 +611,7 @@ def validate_result_sqlite(
         "face_detection": "detections",
         "rich_face_geometry": "face_observations",
         "tracking_assignments": "tracking_assignments",
+        "face_tracking": "face_tracking_assignments",
         "final_annotations": "mask_keyframes",
         "cut_detection": "cuts",
         "classwise_postprocess": "mask_postprocess_provenance",
@@ -636,7 +640,7 @@ def validate_result_sqlite(
         if (
             info.get("schema_name") != "video-mask-integrated-result"
             or str(info.get("schema_version")) != "3"
-            or str(info.get("contract_revision")) != "4"
+            or str(info.get("contract_revision")) != "5"
             or info.get("compatibility_profile") != "keyframe-primary-v3"
             or info.get("missing_components") != "capability_rows"
             or info.get("final_data") != "mask_keyframes"
@@ -772,18 +776,24 @@ def validate_result_sqlite(
                 ).fetchone()[0]
             ),
             "mask_keyframes": int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM mask_keyframes"
-                ).fetchone()[0]
+                connection.execute("SELECT COUNT(*) FROM mask_keyframes").fetchone()[0]
             ),
             "tracking_assignments": int(
                 connection.execute(
                     "SELECT COUNT(*) FROM tracking_assignments"
                 ).fetchone()[0]
             ),
-            "cuts": int(
-                connection.execute("SELECT COUNT(*) FROM cuts").fetchone()[0]
+            "face_tracking_assignments": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM face_tracking_assignments"
+                ).fetchone()[0]
             ),
+            "face_track_interpolations": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM face_track_interpolations"
+                ).fetchone()[0]
+            ),
+            "cuts": int(connection.execute("SELECT COUNT(*) FROM cuts").fetchone()[0]),
             "annotation_revision": int(state[0]),
         }
         integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
@@ -793,7 +803,7 @@ def validate_result_sqlite(
         "path": str(source),
         "schema_name": "video-mask-integrated-result",
         "schema_version": 3,
-        "contract_revision": 4,
+        "contract_revision": 5,
         "compatibility_profile": "keyframe-primary-v3",
         "inference": inference,
         "postprocess": postprocess,

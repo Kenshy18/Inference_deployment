@@ -18,7 +18,7 @@ from .editable_geometry import import_editable_geometry, import_polygon_keyframe
 INFERENCE_SCHEMA_NAME = "instance-segmentation-unified-inference"
 RESULT_SCHEMA_NAME = "video-mask-integrated-result"
 RESULT_SCHEMA_VERSION = "3"
-RESULT_CONTRACT_REVISION = "4"
+RESULT_CONTRACT_REVISION = "5"
 RESULT_COMPATIBILITY_PROFILE = "keyframe-primary-v3"
 
 RESULT_OWNED_TABLES = (
@@ -33,6 +33,9 @@ RESULT_OWNED_TABLES = (
     "tracked_tracks",
     "masks",
     "annotation_state",
+    "face_track_interpolations",
+    "face_tracking_assignments",
+    "face_tracks",
     "tracking_assignments",
     "mask_geometry_provenance",
     "keyframe_polygon_points",
@@ -82,6 +85,9 @@ RESULT_REQUIRED_TABLES = frozenset(
         "processing_runs",
         "processing_stage_runs",
         "annotation_state",
+        "face_track_interpolations",
+        "face_tracking_assignments",
+        "face_tracks",
         "tracking_assignments",
         "raw_tracks",
         "class_postprocess_policies",
@@ -334,6 +340,59 @@ CREATE TABLE tracking_assignments(
     UNIQUE(frame, raw_track_id, raw_detection_index),
     FOREIGN KEY(source_detection_id) REFERENCES detections(id)
 );
+CREATE TABLE face_tracks(
+    raw_track_id TEXT PRIMARY KEY,
+    final_track_id TEXT,
+    scene_id INTEGER NOT NULL CHECK(scene_id >= 0),
+    start_frame INTEGER NOT NULL CHECK(start_frame >= 0),
+    end_frame INTEGER NOT NULL CHECK(end_frame >= start_frame),
+    observed_frames INTEGER NOT NULL CHECK(observed_frames >= 1),
+    maximum_score REAL NOT NULL,
+    mean_score REAL NOT NULL,
+    removed_by_short_track INTEGER NOT NULL CHECK(
+        removed_by_short_track IN (0, 1)
+    ),
+    termination_reason TEXT NOT NULL,
+    UNIQUE(final_track_id)
+);
+CREATE TABLE face_tracking_assignments(
+    observation_id INTEGER PRIMARY KEY,
+    anchor_detection_id INTEGER NOT NULL,
+    frame INTEGER NOT NULL CHECK(frame >= 0),
+    raw_track_id TEXT NOT NULL,
+    final_track_id TEXT,
+    removed_by_short_track INTEGER NOT NULL CHECK(
+        removed_by_short_track IN (0, 1)
+    ),
+    association_stage TEXT NOT NULL,
+    association_score REAL,
+    head_score REAL NOT NULL,
+    face_score REAL NOT NULL,
+    head_x1 REAL NOT NULL,
+    head_y1 REAL NOT NULL,
+    head_x2 REAL NOT NULL,
+    head_y2 REAL NOT NULL,
+    scene_id INTEGER NOT NULL CHECK(scene_id >= 0),
+    FOREIGN KEY(observation_id) REFERENCES face_observations(id),
+    FOREIGN KEY(anchor_detection_id) REFERENCES detections(id),
+    FOREIGN KEY(raw_track_id) REFERENCES face_tracks(raw_track_id)
+);
+CREATE TABLE face_track_interpolations(
+    frame INTEGER NOT NULL CHECK(frame >= 0),
+    final_track_id TEXT NOT NULL,
+    scene_id INTEGER NOT NULL CHECK(scene_id >= 0),
+    previous_observation_id INTEGER NOT NULL,
+    next_observation_id INTEGER NOT NULL,
+    head_x1 REAL NOT NULL,
+    head_y1 REAL NOT NULL,
+    head_x2 REAL NOT NULL,
+    head_y2 REAL NOT NULL,
+    interpolation_method TEXT NOT NULL
+        CHECK(interpolation_method = 'linear-two-sided'),
+    PRIMARY KEY(frame, final_track_id),
+    FOREIGN KEY(previous_observation_id) REFERENCES face_observations(id),
+    FOREIGN KEY(next_observation_id) REFERENCES face_observations(id)
+);
 CREATE TABLE raw_tracks(
     raw_track_id TEXT PRIMARY KEY,
     final_track_id TEXT,
@@ -369,7 +428,11 @@ CREATE TABLE mask_provenance(
     frame INTEGER NOT NULL,
     track_id TEXT NOT NULL,
     mask_kind TEXT NOT NULL,
-    source_observation_id INTEGER NOT NULL,
+    source_observation_id INTEGER,
+    source_observation_id_end INTEGER,
+    is_interpolated INTEGER NOT NULL DEFAULT 0 CHECK(
+        is_interpolated IN (0, 1)
+    ),
     derivation TEXT NOT NULL,
     confidence REAL NOT NULL,
     algorithm_version TEXT NOT NULL,
@@ -395,6 +458,12 @@ CREATE INDEX idx_tracking_assignments_final_track_frame
     ON tracking_assignments(final_track_id, frame);
 CREATE INDEX idx_tracking_assignments_raw_track_frame
     ON tracking_assignments(raw_track_id, frame);
+CREATE INDEX idx_face_tracking_assignments_final_track_frame
+    ON face_tracking_assignments(final_track_id, frame);
+CREATE INDEX idx_face_tracking_assignments_raw_track_frame
+    ON face_tracking_assignments(raw_track_id, frame);
+CREATE INDEX idx_face_track_interpolations_frame
+    ON face_track_interpolations(frame, final_track_id);
 CREATE INDEX idx_mask_postprocess_provenance_label_frame
     ON mask_postprocess_provenance(label, frame);
 CREATE INDEX idx_mask_provenance_source
@@ -642,6 +711,47 @@ FINAL_COPY_COLUMNS = {
         "final_label",
         "scene_id",
     ),
+    "face_tracks": (
+        "raw_track_id",
+        "final_track_id",
+        "scene_id",
+        "start_frame",
+        "end_frame",
+        "observed_frames",
+        "maximum_score",
+        "mean_score",
+        "removed_by_short_track",
+        "termination_reason",
+    ),
+    "face_tracking_assignments": (
+        "observation_id",
+        "anchor_detection_id",
+        "frame",
+        "raw_track_id",
+        "final_track_id",
+        "removed_by_short_track",
+        "association_stage",
+        "association_score",
+        "head_score",
+        "face_score",
+        "head_x1",
+        "head_y1",
+        "head_x2",
+        "head_y2",
+        "scene_id",
+    ),
+    "face_track_interpolations": (
+        "frame",
+        "final_track_id",
+        "scene_id",
+        "previous_observation_id",
+        "next_observation_id",
+        "head_x1",
+        "head_y1",
+        "head_x2",
+        "head_y2",
+        "interpolation_method",
+    ),
     "class_postprocess_policies": (
         "label",
         "policy_source",
@@ -664,6 +774,8 @@ FINAL_COPY_COLUMNS = {
         "track_id",
         "mask_kind",
         "source_observation_id",
+        "source_observation_id_end",
+        "is_interpolated",
         "derivation",
         "confidence",
         "algorithm_version",
@@ -914,9 +1026,7 @@ def _compact_to_keyframe_primary(connection: sqlite3.Connection) -> dict[str, in
         (datetime.now(timezone.utc).isoformat(),),
     )
     dense_counts = {
-        "materialized_tracked_masks_removed": _row_count(
-            connection, "tracked_masks"
-        ),
+        "materialized_tracked_masks_removed": _row_count(connection, "tracked_masks"),
         "materialized_final_masks_removed": _row_count(connection, "masks"),
         "duplicated_tracking_polygons_removed": raw_rows,
     }
@@ -995,6 +1105,7 @@ def _write_result_metadata(
             ("cut_semantics", "first_frame_of_new_scene"),
             ("raw_data", "unified-inference-schema"),
             ("tracked_data", "tracking_assignments"),
+            ("face_tracked_data", "face_tracking_assignments"),
             ("final_data", "mask_keyframes"),
             ("editable_data", "mask_keyframes"),
             ("materialized_dense_masks", "none"),
@@ -1071,6 +1182,21 @@ def _write_result_metadata(
             _row_count(connection, "tracking_assignments"),
             "tracking_assignments",
             {"geometry_source": "segmentations"},
+        ),
+        (
+            "face_tracking",
+            bool(_row_count(connection, "face_tracking_assignments")),
+            _row_count(connection, "face_tracking_assignments"),
+            "face_tracking_assignments",
+            {
+                "geometry_source": "head_boxes",
+                "smoothing": False,
+                "assignment": "two_stage_hungarian",
+                "interpolated_boxes": _row_count(
+                    connection,
+                    "face_track_interpolations",
+                ),
+            },
         ),
         (
             "final_annotations",
@@ -1215,6 +1341,7 @@ def validate_integrated_result(path: Path) -> dict[str, Any]:
             "face_detection",
             "rich_face_geometry",
             "tracking_assignments",
+            "face_tracking",
             "final_annotations",
             "cut_detection",
             "classwise_postprocess",
@@ -1347,13 +1474,51 @@ def validate_integrated_result(path: Path) -> dict[str, Any]:
                 f"{source}: invalid tracking source detection "
                 f"{invalid_tracking_link[0]}"
             )
+        invalid_face_tracking_link = connection.execute(
+            """
+            SELECT a.observation_id
+            FROM face_tracking_assignments a
+            LEFT JOIN face_observations fo ON fo.id=a.observation_id
+            LEFT JOIN detections d ON d.id=a.anchor_detection_id
+            LEFT JOIN frames f ON f.id=d.frame_id
+            WHERE fo.id IS NULL OR d.id IS NULL OR f.frame_index<>a.frame
+            LIMIT 1
+            """
+        ).fetchone()
+        if invalid_face_tracking_link is not None:
+            raise ValueError(
+                f"{source}: invalid face tracking observation "
+                f"{invalid_face_tracking_link[0]}"
+            )
+        invalid_face_interpolation = connection.execute(
+            """
+            SELECT i.frame, i.final_track_id
+            FROM face_track_interpolations i
+            LEFT JOIN face_observations previous
+              ON previous.id=i.previous_observation_id
+            LEFT JOIN face_observations following
+              ON following.id=i.next_observation_id
+            WHERE previous.id IS NULL OR following.id IS NULL
+               OR i.head_x2<i.head_x1 OR i.head_y2<i.head_y1
+            LIMIT 1
+            """
+        ).fetchone()
+        if invalid_face_interpolation is not None:
+            raise ValueError(
+                f"{source}: invalid face interpolation "
+                f"{tuple(invalid_face_interpolation)}"
+            )
         counts = {
             "frames": _row_count(connection, "frames"),
             "detections": _row_count(connection, "detections"),
             "segmentations": _row_count(connection, "segmentations"),
             "face_observations": _row_count(connection, "face_observations"),
-            "tracking_assignments": _row_count(
-                connection, "tracking_assignments"
+            "tracking_assignments": _row_count(connection, "tracking_assignments"),
+            "face_tracking_assignments": _row_count(
+                connection, "face_tracking_assignments"
+            ),
+            "face_track_interpolations": _row_count(
+                connection, "face_track_interpolations"
             ),
             "final_annotations": _row_count(connection, "mask_keyframes"),
             "cuts": _row_count(connection, "cuts"),
@@ -1587,6 +1752,46 @@ def build_integrated_result(
                 connection.execute("ATTACH DATABASE ? AS final_db", (str(final),))
                 source_final_tables = _tables(connection, "final_db")
                 for table, columns in FINAL_COPY_COLUMNS.items():
+                    if table == "mask_provenance" and table in source_final_tables:
+                        source_columns = _columns(connection, table, "final_db")
+                        if {
+                            "source_observation_id_end",
+                            "is_interpolated",
+                        } - source_columns:
+                            legacy_columns = (
+                                "frame",
+                                "track_id",
+                                "mask_kind",
+                                "source_observation_id",
+                                "derivation",
+                                "confidence",
+                                "algorithm_version",
+                            )
+                            missing = set(legacy_columns) - source_columns
+                            if missing:
+                                raise ValueError(
+                                    "final_db.mask_provenance columns missing: "
+                                    f"{sorted(missing)}"
+                                )
+                            connection.execute(
+                                """
+                                INSERT INTO mask_provenance(
+                                    frame, track_id, mask_kind,
+                                    source_observation_id,
+                                    source_observation_id_end,
+                                    is_interpolated, derivation,
+                                    confidence, algorithm_version
+                                )
+                                SELECT frame, track_id, mask_kind,
+                                       source_observation_id,
+                                       source_observation_id, 0,
+                                       derivation, confidence,
+                                       algorithm_version
+                                FROM final_db.mask_provenance
+                                """
+                            )
+                            copied_tables.append(table)
+                            continue
                     if _copy_projected_table(
                         connection,
                         source_schema="final_db",
@@ -1713,9 +1918,7 @@ def build_integrated_result(
             compact_summary = _compact_to_keyframe_primary(connection)
             _write_result_metadata(
                 connection,
-                tracked_available=bool(
-                    compact_summary["tracking_assignments"]
-                ),
+                tracked_available=bool(compact_summary["tracking_assignments"]),
                 final_available=editable_requested,
                 cut_available=cut_available,
                 classwise_available=(
