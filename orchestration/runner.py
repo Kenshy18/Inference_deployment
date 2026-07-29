@@ -140,7 +140,14 @@ class OrchestrationRunner:
                 ]
             )
         if settings.uses_faces:
-            command.extend(["--face-model", settings.face_model])
+            command.extend(
+                [
+                    "--face-model",
+                    settings.face_model,
+                    "--face-backend",
+                    settings.face_backend,
+                ]
+            )
             command.append("--face-classes")
             command.extend(settings.face_classes)
             if settings.face_trt_bundle is not None:
@@ -203,12 +210,24 @@ class OrchestrationRunner:
             ("--max-gap", settings.max_gap),
             ("--model-root", settings.model_root),
             ("--k2-run-dir", settings.k2_run_dir),
+            ("--k2-batch-size", settings.k2_batch_size),
+            ("--k2-prep-workers", settings.k2_prep_workers),
+            ("--k2-precision", settings.k2_precision),
+            ("--k2-forward-mode", settings.k2_forward_mode),
+            ("--k2-cudnn-benchmark", settings.k2_cudnn_benchmark),
+            ("--k2-tf32", settings.k2_tf32),
         )
         for flag, value in optional:
             if value is not None:
                 command.extend([flag, str(value)])
         if settings.export_legacy_sqlite:
             command.append("--export-legacy-sqlite")
+        if settings.k2_profile_stages is not None:
+            command.append(
+                "--k2-profile-stages"
+                if settings.k2_profile_stages
+                else "--no-k2-profile-stages"
+            )
         if precomputed_cuts is not None:
             command.extend(["--precomputed-cuts-json", str(precomputed_cuts)])
         if settings.face_mask_target != "none":
@@ -278,6 +297,8 @@ class OrchestrationRunner:
             "--minimum-eye-confidence",
             str(settings.minimum_eye_confidence),
         ]
+        if settings.ffmpeg_bin is not None:
+            command.extend(["--ffmpeg-bin", str(settings.ffmpeg_bin)])
         if preset is None:
             if mode is None:
                 raise OrchestrationError("overlay mode or preset is required")
@@ -308,10 +329,10 @@ class OrchestrationRunner:
                 [
                     "--h264-crf",
                     str(settings.h264_crf),
-                    "--h264-preset",
-                    settings.h264_preset,
                 ]
             )
+        if settings.execution_mode in {"cpu", "fast"}:
+            command.extend(["--h264-preset", settings.h264_preset])
         if settings.target_bitrate_mbps is not None:
             command.extend(
                 [
@@ -484,20 +505,25 @@ class OrchestrationRunner:
                 }
             )
         if self.config.overlay.enabled:
+            overlay_outputs = [
+                preset.replace("-", "_")
+                for preset in self.config.overlay.presets
+            ]
+            overlay_outputs.extend(
+                mode
+                for mode, enabled in (
+                    ("raw", self.config.overlay.raw),
+                    ("tracked", self.config.overlay.tracked),
+                    ("final", self.config.overlay.final),
+                    ("faces", self.config.overlay.faces),
+                )
+                if enabled
+            )
             plan.append(
                 {
                     "stage": "overlay",
                     "uses_gpu": self.config.overlay.uses_nvenc,
-                    "outputs": [
-                        mode
-                        for mode, enabled in (
-                            ("raw", self.config.overlay.raw),
-                            ("tracked", self.config.overlay.tracked),
-                            ("final", self.config.overlay.final),
-                            ("faces", self.config.overlay.faces),
-                        )
-                        if enabled
-                    ],
+                    "outputs": overlay_outputs,
                 }
             )
         return {
@@ -898,7 +924,7 @@ class OrchestrationRunner:
                 )
                 for preset in settings.presets
             )
-        elif settings.raw:
+        if settings.raw:
             requested.append(
                 (
                     "raw",
@@ -908,12 +934,12 @@ class OrchestrationRunner:
                     None,
                 )
             )
-        if not settings.presets and settings.tracked:
+        if settings.tracked:
             tracked_source = artifacts.result_sqlite or artifacts.tracked_sqlite
             if tracked_source is None:
                 raise OrchestrationError("tracked overlay has no tracked SQLite")
             requested.append(("tracked", "tracked", tracked_source, None, None))
-        if not settings.presets and settings.final:
+        if settings.final:
             final_source = artifacts.result_sqlite or artifacts.final_sqlite
             if final_source is None:
                 raise OrchestrationError("final overlay has no final SQLite")
@@ -930,7 +956,7 @@ class OrchestrationRunner:
                     None,
                 )
             )
-        if not settings.presets and settings.faces:
+        if settings.faces:
             requested.append(
                 (
                     "faces",

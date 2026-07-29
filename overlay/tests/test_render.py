@@ -149,6 +149,10 @@ class RenderTests(unittest.TestCase):
             "simple",
             command[command.index("--display-style") + 1],
         )
+        self.assertEqual(
+            "veryfast",
+            command[command.index("--cpu-preset") + 1],
+        )
 
     def test_execution_modes_and_overlay_type_alias_are_resolved(self) -> None:
         parser = build_parser()

@@ -28,7 +28,8 @@ export function SourcePanel({
 }) {
   const artifacts = Object.entries(job.artifacts);
   const reuseInference = !draft.inference.enabled;
-  const reusePost = !draft.postprocess.enabled;
+  const usesSegmentation = draft.inference.mode !== "face";
+  const reusePost = usesSegmentation && !draft.postprocess.enabled;
 
   return (
     <Panel title="Source">
@@ -52,9 +53,9 @@ export function SourcePanel({
           />
         </Row>
 
-        <SubHead>既存データの再利用</SubHead>
+        <SubHead>既存SQLiteの再利用</SubHead>
         <Row
-          label="inference SQLite"
+          label="AI推論SQLite"
           stack
           off={!reuseInference}
           hint={reuseInference ? undefined : "推論を無効にすると使用します"}
@@ -67,29 +68,42 @@ export function SourcePanel({
             onBrowse={() => actions.pickSqlite("inference")}
           />
         </Row>
-        <Row
-          label="tracked SQLite"
-          stack
-          off={!reusePost}
-          hint={reusePost ? undefined : "後処理を無効にすると使用します"}
-        >
-          <PathInput
-            value={draft.postprocess.trackedSqlite}
-            placeholder="tracked.sqlite"
-            disabled={busy || !reusePost}
-            onChange={actions.setTrackedSqlite}
-            onBrowse={() => actions.pickSqlite("tracked")}
-          />
-        </Row>
-        <Row label="final SQLite" stack off={!reusePost}>
-          <PathInput
-            value={draft.postprocess.finalSqlite}
-            placeholder="predictions.sqlite"
-            disabled={busy || !reusePost}
-            onChange={actions.setFinalSqlite}
-            onBrowse={() => actions.pickSqlite("final")}
-          />
-        </Row>
+        {usesSegmentation && (
+          <>
+            <Row
+              label="追跡後SQLite"
+              stack
+              off={!reusePost}
+              hint={reusePost ? undefined : "性器後処理を無効にすると使用します"}
+            >
+              <PathInput
+                value={draft.postprocess.trackedSqlite}
+                placeholder="tracked.sqlite"
+                disabled={busy || !reusePost}
+                onChange={actions.setTrackedSqlite}
+                onBrowse={() => actions.pickSqlite("tracked")}
+              />
+            </Row>
+            <Row
+              label="旧最終SQLite"
+              stack
+              off={!reusePost}
+              hint={
+                reusePost
+                  ? "必要な場合だけ指定"
+                  : "性器後処理を無効にすると使用します"
+              }
+            >
+              <PathInput
+                value={draft.postprocess.finalSqlite}
+                placeholder="predictions.sqlite"
+                disabled={busy || !reusePost}
+                onChange={actions.setFinalSqlite}
+                onBrowse={() => actions.pickSqlite("final")}
+              />
+            </Row>
+          </>
+        )}
 
         <div className="artifacts">
           <div className="subhead" style={{ display: "flex", alignItems: "center" }}>

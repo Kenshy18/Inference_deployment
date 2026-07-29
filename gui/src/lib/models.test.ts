@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  FACE_MODELS,
   SEGMENTATION_MODELS,
   defaultBackend,
+  defaultFaceBackend,
+  faceModelSpec,
   modelSpec,
   normalizeBackend,
+  normalizeFaceBackend,
 } from "./models";
 
 describe("segmentation model catalog", () => {
@@ -17,21 +21,24 @@ describe("segmentation model catalog", () => {
       ["eva02_cascade", ["tensorrt-backbone", "pytorch"]],
       ["dinov3_cascade", ["tensorrt-backbone"]],
       ["dinov3_codino", ["tensorrt-fast", "pytorch"]],
+      ["dinov3_codino_mh0", ["tensorrt-fast", "pytorch"]],
     ]);
   });
 
-  it("names models by pipeline version", () => {
-    expect(modelSpec("eva02_cascade").label).toBe("V1 (EVA)");
-    expect(modelSpec("dinov3_cascade").label).toBe("V2 (DINO)");
-    expect(modelSpec("dinov3_codino").label).toBe("V3-heavy");
+  it("uses model-family names instead of ambiguous pipeline versions", () => {
+    expect(modelSpec("eva02_cascade").label).toBe("EVA-02 + Cascade");
+    expect(modelSpec("dinov3_cascade").label).toBe("DINOv3 + Cascade");
+    expect(modelSpec("dinov3_codino").label).toBe("Co-DINO（巨大）");
+    expect(modelSpec("dinov3_codino_mh0").label).toBe("Co-DINO（高速）");
   });
 
   it("defaults every model to its fast backend", () => {
     expect(defaultBackend("eva02_cascade")).toBe("tensorrt-backbone");
     expect(defaultBackend("dinov3_cascade")).toBe("tensorrt-backbone");
     expect(defaultBackend("dinov3_codino")).toBe("tensorrt-fast");
+    expect(defaultBackend("dinov3_codino_mh0")).toBe("tensorrt-fast");
     for (const model of SEGMENTATION_MODELS) {
-      expect(model.backends[0].label).toBe("Fast (Default)");
+      expect(model.backends[0].label).toBe("TensorRT（高速・推奨）");
     }
   });
 
@@ -50,5 +57,21 @@ describe("segmentation model catalog", () => {
       "tensorrt-backbone",
     );
     expect(normalizeBackend("eva02_cascade", "pytorch")).toBe("pytorch");
+  });
+
+  it("offers both current face detectors", () => {
+    expect(FACE_MODELS.map((model) => model.id)).toEqual([
+      "face_dino_v2",
+      "rtdetr_head_face",
+    ]);
+  });
+
+  it("shows and normalizes the engine supported by each face model", () => {
+    expect(defaultFaceBackend("face_dino_v2")).toBe("tensorrt-fast");
+    expect(defaultFaceBackend("rtdetr_head_face")).toBe("pytorch");
+    expect(faceModelSpec("face_dino_v2").backends).toHaveLength(1);
+    expect(normalizeFaceBackend("rtdetr_head_face", "tensorrt-fast")).toBe(
+      "pytorch",
+    );
   });
 });

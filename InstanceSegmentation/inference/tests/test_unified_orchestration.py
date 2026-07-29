@@ -293,6 +293,29 @@ class UnifiedOrchestrationTest(unittest.TestCase):
             str(bundle.resolve()),
             face.command[face.command.index("--trt-bundle") + 1],
         )
+        self.assertEqual(
+            "tensorrt-fast",
+            face.command[face.command.index("--backend") + 1],
+        )
+
+    def test_unsupported_face_backend_is_rejected_before_model_execution(
+        self,
+    ) -> None:
+        request = OrchestrationRequest(
+            input_path=Path("input.mp4"),
+            output_path=Path("output.sqlite"),
+            mode=InferenceMode.FACE,
+            face_model="face_dino_v2",
+            face_backend="pytorch",
+            runtime_python=Path(sys.executable),
+        )
+        with self.assertRaisesRegex(ValueError, "does not support backend"):
+            build_invocation(
+                get_model("face_dino_v2"),
+                role="face_detection",
+                output_path=Path("face.sqlite"),
+                request=request,
+            )
 
     def test_unsupported_backend_is_rejected_before_model_execution(self) -> None:
         request = OrchestrationRequest(

@@ -99,6 +99,11 @@ def run_orchestrated_inference(
                     "face_model": (
                         request.face_model if request.mode.uses_face_detection else None
                     ),
+                    "face_backend": (
+                        request.face_backend
+                        if request.mode.uses_face_detection
+                        else None
+                    ),
                     "face_classes": request.face_classes,
                     "face_trt_bundle": (
                         str(request.face_trt_bundle.expanduser().resolve())

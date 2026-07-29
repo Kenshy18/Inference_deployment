@@ -68,7 +68,7 @@ def build_invocation(
     elif role == "face_detection":
         if registration.task is not TaskType.OBJECT_DETECTION:
             raise ValueError(f"{registration.model_id} is not a detector")
-        backend = registration.default_backend
+        backend = resolve_backend(registration, request.face_backend)
     else:
         raise ValueError(f"unsupported model role: {role}")
 
@@ -99,6 +99,8 @@ def build_invocation(
                 "0",
             ]
         )
+        if registration.backend_cli_argument is not None:
+            command.extend([registration.backend_cli_argument, backend])
         if request.face_trt_bundle is not None:
             command.extend(
                 [

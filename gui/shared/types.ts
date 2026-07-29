@@ -1,6 +1,37 @@
 export type BackendMode = "native" | "wsl";
 export type InferenceMode = "segmentation" | "segmentation-face" | "face";
 export type ShapeMode = "polygon" | "ellipse";
+export type SettingsView = "simple" | "advanced";
+export type SegmentationModel =
+  | "dinov3_codino"
+  | "dinov3_codino_mh0"
+  | "dinov3_cascade"
+  | "eva02_cascade";
+export type SegmentationBackend =
+  | "auto"
+  | "tensorrt-fast"
+  | "tensorrt-backbone"
+  | "pytorch";
+export type FaceModel = "rtdetr_head_face" | "face_dino_v2";
+export type FaceBackend = "tensorrt-fast" | "pytorch";
+export type FaceMaskTarget = "none" | "face" | "eyes";
+export type EyeMaskShape = "ellipse" | "rectangle";
+export type OverlayExecutionMode = "cpu" | "nvenc" | "fast";
+export type OverlayPreset =
+  | "genital-detailed"
+  | "genital-simple"
+  | "face-detailed"
+  | "face-simple"
+  | "combined-detailed"
+  | "combined-simple";
+export type ClassPostprocessPolicySource = "global" | "editor" | "file";
+
+export interface ClassPostprocessRule {
+  className: string;
+  shapeMode: ShapeMode;
+  keyframeInterval: number;
+  maxGap: number;
+}
 export type JobStatus =
   | "idle"
   | "validating"
@@ -22,22 +53,20 @@ export interface InferenceDraft {
   enabled: boolean;
   inputSqlite: string;
   mode: InferenceMode;
-  segmentationModel:
-    | "dinov3_codino"
-    | "dinov3_cascade"
-    | "eva02_cascade";
-  segmentationBackend:
-    | "auto"
-    | "tensorrt-fast"
-    | "tensorrt-backbone"
-    | "pytorch";
-  faceModel: "rtdetr_head_face";
+  segmentationModel: SegmentationModel;
+  segmentationBackend: SegmentationBackend;
+  faceModel: FaceModel;
+  faceBackend: FaceBackend;
   faceClasses: string[];
+  faceTrtBundle: string;
   device: string;
   maxFrames: number | null;
   warmupFrames: number;
   faceWarmupIterations: number;
+  parallelModels: boolean;
+  parallelModelStaggerSeconds: number;
   fastSqlite: boolean;
+  extraArgs: string[];
 }
 
 export interface PostprocessDraft {
@@ -45,32 +74,94 @@ export interface PostprocessDraft {
   trackedSqlite: string;
   finalSqlite: string;
   shapeMode: ShapeMode;
-  scoreMin: number;
+  pipelineConfig: string;
+  classPolicyJson: string;
+  classPostprocessPolicySource: ClassPostprocessPolicySource;
+  classPostprocessPolicyJson: string;
+  classPostprocessRules: ClassPostprocessRule[];
+  scoreMin: number | null;
   cutDetect: boolean;
   cutMethod: string;
-  removeShortTracksMaxFrames: number;
-  keyframeInterval: number;
-  device: "cpu";
+  precomputeCutsDuringInference: boolean;
+  removeShortTracksMaxFrames: number | null;
+  keyframeInterval: number | null;
+  maxGap: number | null;
+  modelRoot: string;
+  k2RunDir: string;
+  k2BatchSize: number | null;
+  k2PrepWorkers: number | null;
+  k2Precision: "fp32" | "fp16" | null;
+  k2ForwardMode: "states_only" | "full" | null;
+  k2ProfileStages: boolean | null;
+  k2CudnnBenchmark: "on" | "off" | null;
+  k2Tf32: "default" | "on" | "off" | null;
+  device: string;
+  exportLegacySqlite: boolean;
+  faceMaskTarget: FaceMaskTarget;
+  eyeMaskShape: EyeMaskShape;
+  minimumEyeConfidence: number;
+  faceTrackingMaxGapFrames: number;
+  faceTrackingHighScoreThreshold: number;
+  faceTrackingLowScoreThreshold: number;
+  faceShortTrackMaxHits: number;
+  faceShortTrackKeepScore: number;
+  faceInterpolationMaxGap: number;
+  extraArgs: string[];
 }
 
 export interface OverlayDraft {
   enabled: boolean;
+  executionMode: OverlayExecutionMode;
   raw: boolean;
   tracked: boolean;
   final: boolean;
   faces: boolean;
   finalIncludeFaces: boolean;
+  presets: OverlayPreset[];
+  genitalSource: "raw" | "final";
+  faceMaskTarget: FaceMaskTarget;
+  eyeMaskShape: EyeMaskShape;
+  minimumEyeConfidence: number;
+  faceProbabilityMasks: boolean;
+  faceKeypoints: boolean;
+  faceEllipses: boolean;
   maskAlpha: number;
+  outlineThickness: number;
+  boxThickness: number;
   showLabels: boolean;
-  codec: "mp4v" | "h264" | "h264_nvenc";
+  codec: "h264" | "h264_nvenc";
+  h264Crf: number;
+  h264Preset:
+    | "ultrafast"
+    | "superfast"
+    | "veryfast"
+    | "faster"
+    | "fast"
+    | "medium"
+    | "slow"
+    | "slower"
+    | "veryslow";
+  ffmpegBin: string;
+  nvencCq: number;
+  workers: number;
+  cpuWorkers: number;
+  copyAudio: boolean;
+  targetBitrateMbps: number | null;
+  nvencPreset: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7";
+  nvencGpu: number;
+  faststart: boolean;
   startFrame: number;
   endFrame: number | null;
   progressEvery: number;
+  extraArgs: string[];
 }
 
 export interface PipelineDraft {
   inputVideo: string;
   outputRoot: string;
+  execution: {
+    resume: boolean;
+  };
   inference: InferenceDraft;
   postprocess: PostprocessDraft;
   overlay: OverlayDraft;

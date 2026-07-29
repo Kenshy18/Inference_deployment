@@ -388,6 +388,46 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("--precomputed-cuts-json", command)
             self.assertTrue(config.postprocess.precompute_cuts_during_inference)
 
+    def test_face_only_cut_precompute_is_consumed_by_result_packaging(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": True,
+                            "mode": "face",
+                            "face_model": "rtdetr_head_face",
+                        },
+                        "postprocess": {
+                            "enabled": False,
+                            "cut_detect": True,
+                            "cut_method": "high_precision",
+                            "precompute_cuts_during_inference": True,
+                            "face_mask_target": "none",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = OrchestrationConfig.load(config_path)
+            plan = OrchestrationRunner(config, dry_run=True).plan()
+
+            self.assertEqual("cut_precompute", plan["stages"][0]["stage"])
+            packaging = next(
+                stage
+                for stage in plan["stages"]
+                if stage["stage"] == "result_packaging"
+            )
+            self.assertIn("--precomputed-cuts-json", packaging["command"])
+
     def test_face_trt_bundle_is_typed_and_forwarded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -695,6 +735,7 @@ class ConfigTests(unittest.TestCase):
                             "segmentation_model": "dinov3_codino",
                             "segmentation_backend": "tensorrt-fast",
                             "face_model": "face_dino_v2",
+                            "face_backend": "tensorrt-fast",
                             "device": "cuda:0",
                         },
                         "postprocess": {"enabled": True, "device": "cpu"},
@@ -717,6 +758,10 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(
                 "face_dino_v2",
                 command[command.index("--face-model") + 1],
+            )
+            self.assertEqual(
+                "tensorrt-fast",
+                command[command.index("--face-backend") + 1],
             )
             self.assertTrue(inference["uses_gpu"])
             self.assertFalse((root / "output").exists())
@@ -752,6 +797,74 @@ class ConfigTests(unittest.TestCase):
                 "must not override",
             ):
                 OrchestrationConfig.load(config_path)
+
+    def test_typed_k2_and_ffmpeg_options_are_forwarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            ffmpeg = root / "ffmpeg"
+            ffmpeg.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "shape_mode": "ellipse",
+                            "device": "cuda:0",
+                            "k2_batch_size": 128,
+                            "k2_prep_workers": 4,
+                            "k2_precision": "fp16",
+                            "k2_forward_mode": "states_only",
+                            "k2_profile_stages": False,
+                            "k2_cudnn_benchmark": "on",
+                            "k2_tf32": "off",
+                        },
+                        "overlay": {
+                            "enabled": True,
+                            "execution_mode": "fast",
+                            "raw": True,
+                            "tracked": False,
+                            "final": False,
+                            "ffmpeg_bin": str(ffmpeg),
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            postprocess = OrchestrationRunner(config).postprocess_command(sqlite)
+            expected = {
+                "--k2-batch-size": "128",
+                "--k2-prep-workers": "4",
+                "--k2-precision": "fp16",
+                "--k2-forward-mode": "states_only",
+                "--k2-cudnn-benchmark": "on",
+                "--k2-tf32": "off",
+            }
+            for flag, value in expected.items():
+                self.assertEqual(postprocess[postprocess.index(flag) + 1], value)
+            self.assertIn("--no-k2-profile-stages", postprocess)
+
+            overlay = OrchestrationRunner(config).overlay_command(
+                mode="raw",
+                source_sqlite=sqlite,
+                output=root / "output" / "raw.mp4",
+            )
+            self.assertEqual(
+                overlay[overlay.index("--ffmpeg-bin") + 1],
+                str(ffmpeg),
+            )
 
     def test_legacy_sqlite_export_is_typed_and_forwarded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -192,6 +192,45 @@ textarea {
   overflow-x: hidden;
 }
 
+.ctl--area {
+  width: 100%;
+  min-height: 58px;
+  resize: vertical;
+  padding: 4px 6px;
+  line-height: 1.35;
+}
+
+.policy-editor {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+}
+
+.policy-editor__head,
+.policy-editor__rule {
+  display: grid;
+  grid-template-columns: minmax(70px, 1.3fr) minmax(60px, 1fr) 44px 44px 20px;
+  align-items: center;
+  gap: 3px;
+}
+
+.policy-editor__head {
+  padding: 0 2px;
+  font-size: 9px;
+  color: var(--dim);
+}
+
+.policy-editor__rule--default {
+  padding-bottom: 3px;
+  margin-bottom: 1px;
+  border-bottom: 1px solid var(--line);
+}
+
+.policy-editor__add {
+  justify-self: start;
+  margin-top: 2px;
+}
+
 /* ── topbar ──────────────────────────────────────────────────────────── */
 
 .topbar {

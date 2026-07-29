@@ -54,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=face_models,
     )
     parser.add_argument(
+        "--face-backend",
+        default="auto",
+        choices=("auto", "tensorrt-fast", "pytorch"),
+        help="face inference backend; auto selects the model default",
+    )
+    parser.add_argument(
         "--face-classes",
         nargs="*",
         default=("Face", "Head"),
@@ -116,6 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             segmentation_model=args.segmentation_model,
             segmentation_backend=args.segmentation_backend,
             face_model=args.face_model,
+            face_backend=args.face_backend,
             face_classes=tuple(args.face_classes),
             face_trt_bundle=args.face_trt_bundle,
             runtime_python=args.runtime_python,

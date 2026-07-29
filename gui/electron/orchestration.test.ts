@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AppSettings, PipelineDraft } from "../shared/types";
 import {
+  buildClassPostprocessPolicy,
   buildLaunchSpec,
   buildOrchestrationConfig,
   windowsToWslPath,
 } from "./orchestration";
+import { defaultDraft } from "../src/lib/defaults";
 
 const settings: AppSettings = {
   backendMode: "native",
@@ -14,57 +16,47 @@ const settings: AppSettings = {
 };
 
 const draft: PipelineDraft = {
+  ...structuredClone(defaultDraft),
   inputVideo: "/video/input.mp4",
   outputRoot: "/runs/job-1",
-  inference: {
-    enabled: true,
-    inputSqlite: "",
-    mode: "segmentation-face",
-    segmentationModel: "dinov3_codino",
-    segmentationBackend: "tensorrt-fast",
-    faceModel: "rtdetr_head_face",
-    faceClasses: ["Face", "Head"],
-    device: "cuda:0",
-    maxFrames: 300,
-    warmupFrames: 0,
-    faceWarmupIterations: 3,
-    fastSqlite: false,
-  },
-  postprocess: {
-    enabled: true,
-    trackedSqlite: "",
-    finalSqlite: "",
-    shapeMode: "polygon",
-    scoreMin: 0.35,
-    cutDetect: true,
-    cutMethod: "high_precision",
-    removeShortTracksMaxFrames: 10,
-    keyframeInterval: 3,
-    device: "cpu",
-  },
-  overlay: {
-    enabled: true,
-    raw: true,
-    tracked: true,
-    final: true,
-    faces: true,
-    finalIncludeFaces: true,
-    maskAlpha: 0.32,
-    showLabels: true,
-    codec: "mp4v",
-    startFrame: 0,
-    endFrame: null,
-    progressEvery: 300,
-  },
+  inference: { ...defaultDraft.inference, maxFrames: 300 },
 };
 
 describe("orchestration bridge", () => {
   it("builds the repository schema without GUI-only fields", () => {
     const config = buildOrchestrationConfig(draft, settings);
     expect(config.schema_version).toBe(1);
-    expect(config.inference.segmentation_model).toBe("dinov3_codino");
-    expect(config.postprocess.device).toBe("cpu");
-    expect(config.overlay.final_include_faces).toBe(true);
+    expect(config.inference.segmentation_model).toBe("dinov3_codino_mh0");
+    expect(config.inference.face_model).toBe("face_dino_v2");
+    expect(config.inference.face_backend).toBe("tensorrt-fast");
+    expect(config.postprocess.k2_batch_size).toBe(128);
+    expect(config.postprocess.face_tracking_max_gap_frames).toBe(5);
+    expect(config.overlay.execution_mode).toBe("fast");
+    expect(config.overlay.presets).toEqual(["combined-simple"]);
+    expect(config.overlay.workers).toBe(6);
+    expect(config.overlay.face_mask_target).toBe("none");
+  });
+
+  it("omits segmentation fields for a face-only workflow", () => {
+    const config = buildOrchestrationConfig(
+      {
+        ...draft,
+        inference: {
+          ...draft.inference,
+          mode: "face",
+          parallelModels: false,
+        },
+        postprocess: {
+          ...draft.postprocess,
+          enabled: false,
+        },
+      },
+      settings,
+    );
+    expect(config.inference.segmentation_model).toBeUndefined();
+    expect(config.inference.segmentation_backend).toBeUndefined();
+    expect(config.inference.face_model).toBe("face_dino_v2");
+    expect(config.inference.face_backend).toBe("tensorrt-fast");
   });
 
   it("builds a native dry-run command", () => {
@@ -100,5 +92,126 @@ describe("orchestration bridge", () => {
     );
     expect(launch.executable).toBe("wsl.exe");
     expect(launch.args).toContain("/mnt/c/Users/Editor/job.json");
+  });
+
+  it("maps path-bearing advanced settings into WSL", () => {
+    const config = buildOrchestrationConfig(
+      {
+        ...draft,
+        inference: {
+          ...draft.inference,
+          faceTrtBundle: "C:\\models\\face.bundle",
+        },
+        postprocess: {
+          ...draft.postprocess,
+          classPostprocessPolicySource: "file",
+          classPostprocessPolicyJson: "C:\\jobs\\classes.json",
+          modelRoot: "C:\\models\\k2",
+        },
+        overlay: {
+          ...draft.overlay,
+          ffmpegBin: "C:\\tools\\ffmpeg.exe",
+        },
+      },
+      { ...settings, backendMode: "wsl" },
+    );
+    expect(config.inference.face_trt_bundle).toBe(
+      "/mnt/c/models/face.bundle",
+    );
+    expect(config.postprocess.class_postprocess_policy_json).toBe(
+      "/mnt/c/jobs/classes.json",
+    );
+    expect(config.postprocess.model_root).toBe("/mnt/c/models/k2");
+    expect(config.overlay.ffmpeg_bin).toBe("/mnt/c/tools/ffmpeg.exe");
+  });
+
+  it("builds a classwise policy from GUI rows", () => {
+    const policy = buildClassPostprocessPolicy({
+      ...draft,
+      postprocess: {
+        ...draft.postprocess,
+        shapeMode: "polygon",
+        keyframeInterval: 3,
+        maxGap: 0,
+        classPostprocessPolicySource: "editor",
+        classPostprocessRules: [
+          {
+            className: "男性器",
+            shapeMode: "ellipse",
+            keyframeInterval: 2,
+            maxGap: 30,
+          },
+          {
+            className: "女性器",
+            shapeMode: "polygon",
+            keyframeInterval: 3,
+            maxGap: 12,
+          },
+        ],
+      },
+    });
+    expect(policy).toEqual({
+      schema_version: 1,
+      default: {
+        shape_mode: "polygon",
+        keyframe_interval: 3,
+        max_gap: 0,
+      },
+      classes: {
+        男性器: {
+          shape_mode: "ellipse",
+          keyframe_interval: 2,
+          max_gap: 30,
+        },
+        女性器: {
+          shape_mode: "polygon",
+          keyframe_interval: 3,
+          max_gap: 12,
+        },
+      },
+    });
+  });
+
+  it("rejects duplicate GUI class names", () => {
+    expect(() =>
+      buildClassPostprocessPolicy({
+        ...draft,
+        postprocess: {
+          ...draft.postprocess,
+          maxGap: 0,
+          classPostprocessPolicySource: "editor",
+          classPostprocessRules: [
+            {
+              className: "男性器",
+              shapeMode: "ellipse",
+              keyframeInterval: 2,
+              maxGap: 30,
+            },
+            {
+              className: " 男性器 ",
+              shapeMode: "polygon",
+              keyframeInterval: 3,
+              maxGap: 0,
+            },
+          ],
+        },
+      }),
+    ).toThrow("重複");
+  });
+
+  it("requires a path when classwise JSON mode is selected", () => {
+    expect(() =>
+      buildOrchestrationConfig(
+        {
+          ...draft,
+          postprocess: {
+            ...draft.postprocess,
+            classPostprocessPolicySource: "file",
+            classPostprocessPolicyJson: "",
+          },
+        },
+        settings,
+      ),
+    ).toThrow("形状設定JSON");
   });
 });

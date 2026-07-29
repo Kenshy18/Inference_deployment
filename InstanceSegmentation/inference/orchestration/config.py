@@ -30,6 +30,7 @@ class OrchestrationRequest:
     segmentation_model: str | None = None
     segmentation_backend: str = "auto"
     face_model: str = "rtdetr_head_face"
+    face_backend: str = "auto"
     face_classes: tuple[str, ...] = ("Face", "Head")
     face_trt_bundle: Path | None = None
     runtime_python: Path = Path(sys.executable)
@@ -53,6 +54,8 @@ class OrchestrationRequest:
             )
         if not self.face_model.strip():
             raise ValueError("face_model must not be empty")
+        if not self.face_backend.strip():
+            raise ValueError("face_backend must not be empty")
         if self.face_trt_bundle is not None and self.face_model != "face_dino_v2":
             raise ValueError(
                 "face_trt_bundle is currently supported only by face_dino_v2"

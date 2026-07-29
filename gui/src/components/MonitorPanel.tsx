@@ -95,12 +95,14 @@ export function MonitorPanel({
       ? remainingFrames / job.telemetry.fps
       : null;
 
-  const overlayCount = [
-    draft.overlay.raw,
-    draft.overlay.tracked,
-    draft.overlay.final,
-    draft.overlay.faces,
-  ].filter(Boolean).length;
+  const overlayCount =
+    draft.overlay.presets.length +
+    [
+      draft.overlay.raw,
+      draft.overlay.tracked,
+      draft.overlay.final,
+      draft.overlay.faces,
+    ].filter(Boolean).length;
 
   const nodes = [
     {

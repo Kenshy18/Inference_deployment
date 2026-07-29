@@ -40,6 +40,7 @@ python3 -m orchestration --config config.json --dry-run
     "mode": "segmentation-face",
     "segmentation_model": "dinov3_codino_mh0",
     "face_model": "face_dino_v2",
+    "face_backend": "tensorrt-fast",
     "parallel_models": true,
     "parallel_model_stagger_seconds": 0.0,
     "fast_sqlite": true
@@ -55,11 +56,15 @@ python3 -m orchestration --config config.json --dry-run
   `face_dino_v2`の3条件を満たす場合だけ`true`を選択できる。RTX 5090・
   3分の同条件比較では推論を74.69秒から60.55秒へ18.9%短縮した。
   巨大`dinov3_codino`、旧顔検出、片方だけの推論では設定エラーになる
+- `face_backend`: 顔推論エンジン。現行は`face_dino_v2`が
+  `tensorrt-fast`、`rtdetr_head_face`が`pytorch`に対応する。`auto`も
+  モデル既定値として利用可能
 - `parallel_model_stagger_seconds`: モデル起動間隔。`0.0`は完全同時。
   高速`dinov3_codino_mh0`とFace DINO v2のRTX 5090実測では`0.0`が最速
 - `fast_sqlite`: SQLiteの異常終了耐性を速度優先に変更。最終公開はatomicのまま
-- `precompute_cuts_during_inference`: CPUカット検出を推論と重ね、同じ
-  `cuts.json`を後処理へ渡す。現在は`high_precision`方式に対応。3分の同条件比較
+- `precompute_cuts_during_inference`: 独立したFFmpeg縮小decodeによるCPUカット
+  検出をGPU推論と重ね、`cuts.json`を後処理または結果統合へ渡す。現在は
+  `high_precision`方式に対応。3分の同条件比較
   では並列推論を0.88秒遅くした一方、約4.03秒のカット検出を全て隠し、全体を
   77.31秒から71.70秒へ短縮
 
@@ -181,8 +186,9 @@ fallbackです。policy内はクラス指定、`default`、このfallbackの順�
 - `faces`: 顔・頭部。Face DINO v2の通常rendererではbox、楕円、mask、keypoint
 - `final_include_faces`: `final`へ上記の顔情報も追加
 
-対象3種類×詳細度2種類を明示する場合は`presets`を使います。指定時は上記の
-`raw/tracked/final/faces` booleanに代わり、列挙した動画だけを生成します。
+対象3種類×詳細度2種類を明示する場合は`presets`を使います。
+`raw/tracked/final/faces`は互換用のstage別動画であり、`presets`と同時に指定した
+場合は、どちらかを無視せず選択した動画をすべて生成します。
 
 ```json
 {
@@ -283,10 +289,12 @@ overlay/native/build.sh
   `NVIDIA_VISIBLE_DEVICES=none`を設定します。
 
 楕円近似の標準設定は、下流で使わないsoft maskを生成しない
-`states_only`です。調整が必要な場合は`postprocess.extra_args`へ
-`--k2-batch-size 128`、`--k2-prep-workers 4`、
-`--k2-cudnn-benchmark on`などを指定できます。CPU版との数値的一致を
-優先する本番設定は`--k2-tf32 off`、最大速度優先は`--k2-tf32 on`です。
+`states_only`です。`postprocess.k2_batch_size`、`k2_prep_workers`、
+`k2_precision`、`k2_forward_mode`、`k2_profile_stages`、
+`k2_cudnn_benchmark`、`k2_tf32`を型付きで設定できます。以前の
+`postprocess.extra_args`指定も互換性のため受理しますが、同じ項目を型付き設定と
+重複指定することはできません。CPU版との数値的一致を優先する本番設定は
+`k2_tf32: off`、最大速度優先は`k2_tf32: on`です。
 
 ## 成果物
 

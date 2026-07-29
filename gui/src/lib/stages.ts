@@ -16,6 +16,10 @@ export function plannedStages(draft: PipelineDraft): PlannedStage[] {
     stages.push({ id: "postprocess", label: "postprocess" });
   }
   if (draft.overlay.enabled) {
+    for (const preset of draft.overlay.presets) {
+      const name = preset.replaceAll("-", "_");
+      stages.push({ id: `overlay_${name}`, label: `ovl ${name}` });
+    }
     const overlays: Array<[boolean, string]> = [
       [draft.overlay.raw, "raw"],
       [draft.overlay.tracked, "tracked"],

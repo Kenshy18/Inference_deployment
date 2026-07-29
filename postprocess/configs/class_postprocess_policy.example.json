@@ -20,11 +20,6 @@
       "shape_mode": "polygon",
       "keyframe_interval": 2,
       "max_gap": 8
-    },
-    "foreground": {
-      "shape_mode": "ellipse",
-      "keyframe_interval": 3,
-      "max_gap": 30
     }
   }
 }

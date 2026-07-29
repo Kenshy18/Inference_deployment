@@ -12,6 +12,7 @@
     "segmentation_model": "dinov3_codino",
     "segmentation_backend": "tensorrt-fast",
     "face_model": "face_dino_v2",
+    "face_backend": "tensorrt-fast",
     "face_classes": ["Face", "Head"],
     "device": "cuda:0",
     "warmup_frames": 0,
@@ -34,12 +35,11 @@
     "eye_mask_shape": "ellipse",
     "minimum_eye_confidence": 0.35,
     "device": "auto",
-    "extra_args": [
-      "--k2-batch-size", "128",
-      "--k2-prep-workers", "4",
-      "--k2-cudnn-benchmark", "on",
-      "--k2-tf32", "off"
-    ]
+    "k2_batch_size": 128,
+    "k2_prep_workers": 4,
+    "k2_forward_mode": "states_only",
+    "k2_cudnn_benchmark": "on",
+    "k2_tf32": "off"
   },
   "overlay": {
     "enabled": true,

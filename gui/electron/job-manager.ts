@@ -9,6 +9,7 @@ import type {
   PipelineDraft,
 } from "../shared/types";
 import {
+  buildClassPostprocessPolicy,
   buildLaunchSpec,
   buildOrchestrationConfig,
 } from "./orchestration";
@@ -78,7 +79,24 @@ export class JobManager extends EventEmitter {
     const jobDir = path.join(this.jobsRoot, id);
     fs.mkdirSync(jobDir, { recursive: true });
     const configPath = path.join(jobDir, "orchestration.json");
-    const config = buildOrchestrationConfig(draft, settings);
+    const generatedPolicy = buildClassPostprocessPolicy(draft);
+    let effectiveDraft = draft;
+    if (generatedPolicy !== null) {
+      const policyPath = path.join(jobDir, "class_postprocess_policy.json");
+      fs.writeFileSync(
+        policyPath,
+        `${JSON.stringify(generatedPolicy, null, 2)}\n`,
+        "utf8",
+      );
+      effectiveDraft = {
+        ...draft,
+        postprocess: {
+          ...draft.postprocess,
+          classPostprocessPolicyJson: policyPath,
+        },
+      };
+    }
+    const config = buildOrchestrationConfig(effectiveDraft, settings);
     fs.writeFileSync(
       configPath,
       `${JSON.stringify(config, null, 2)}\n`,

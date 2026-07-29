@@ -94,6 +94,30 @@ export function TextInput({
   );
 }
 
+export function TextArea({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <textarea
+      className="ctl ctl--mono ctl--area"
+      value={value}
+      placeholder={placeholder}
+      disabled={disabled}
+      spellCheck={false}
+      rows={4}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
 export function NumberInput({
   value,
   onChange,

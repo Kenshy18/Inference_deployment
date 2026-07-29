@@ -27,7 +27,11 @@ DaVinci Resolve / Premiere Proに倣った固定4ペインのNLE型レイアウ�
 
 - 3本のペイン境界はドラッグで変更でき、幅は`localStorage`に保存します。
 - Inspectorの各セクションは折りたたみ状態を保存します。
+- Inspectorは日常操作向けの「簡単」と、公開設定を網羅する「詳細」を切り替えられます。
 - Runtime設定は変更の500ms後に自動保存し、実行時にも保存します。
+
+全設定とGUI上の配置、意図的に内部管理するCLI引数は
+[ARGUMENT_COVERAGE.md](ARGUMENT_COVERAGE.md)に一覧化しています。
 
 ### ショートカット
 
@@ -42,22 +46,25 @@ DaVinci Resolve / Premiere Proに倣った固定4ペインのNLE型レイアウ�
 表示名と`InstanceSegmentation/inference/registry.py`の対応です。バックエンドは
 各モデルが登録しているものだけを表示し、既定は必ず高速側です。
 
-| 表示名 | model_id | Fast (Default) | Slow (Stable) |
+| 表示名 | model_id | 高速・推奨 | 互換 |
 | --- | --- | --- | --- |
-| V1 (EVA) | `eva02_cascade` | `tensorrt-backbone` | `pytorch` |
-| V2 (DINO) | `dinov3_cascade` | `tensorrt-backbone` | なし |
-| V3-heavy | `dinov3_codino` | `tensorrt-fast` | `pytorch` |
+| EVA-02 + Cascade | `eva02_cascade` | `tensorrt-backbone` | `pytorch` |
+| DINOv3 + Cascade | `dinov3_cascade` | `tensorrt-backbone` | なし |
+| Co-DINO（巨大） | `dinov3_codino` | `tensorrt-fast` | `pytorch` |
+| Co-DINO（高速） | `dinov3_codino_mh0` | `tensorrt-fast` | `pytorch` |
 
-推論デバイスは`cuda:0`固定でUIには出しません。`registry.py`が変わった場合は
-`src/lib/models.ts`と`src/lib/models.test.ts`を更新します。
+顔モデルは旧`rtdetr_head_face`と、頭部box・顔楕円/マスク・キーポイントを持つ
+`face_dino_v2`を選択できます。推論デバイスを含む性能設定は「詳細」にあります。
+`registry.py`が変わった場合は`src/lib/models.ts`と`src/lib/models.test.ts`を更新します。
 
 ## 現在の機能
 
 - 入力動画と出力フォルダの選択
 - 新規推論または既存unified inference SQLiteの再利用
-- 推論モード、モデル、backend、GPU、最大フレーム数、warmup、顔クラスの設定
-- polygon/ellipse後処理、スコア、カット検出、短命track除去、キーフレーム間隔
-- raw、tracked、final、faces確認用overlayとcodec、透明度、範囲、ラベルの設定
+- 推論モード、全モデル/engine、顔モデル、device、warmup、限定並行推論
+- クラス別polygon/ellipse・keyframe・補完のGUI編集、K2 GPU設定、カット検出
+- 顔privacy maskと軽量tracking、短命track除去、補完
+- 6表示preset、CPU/NVENC/分割高速overlay、品質・worker・描画設定
 - orchestration設定のdry-run
 - ジョブ実行、キャンセル、stage timeline、throughput scope、リアルタイムログ
 - `run_manifest.json`から成果物を読み、出力フォルダを開く

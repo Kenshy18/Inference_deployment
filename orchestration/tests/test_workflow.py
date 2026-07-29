@@ -67,10 +67,55 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual("fast", config.overlay.execution_mode)
             self.assertEqual("native", config.overlay.backend)
             self.assertEqual(8.0, config.overlay.target_bitrate_mbps)
+            self.assertFalse(config.overlay.raw)
+            self.assertFalse(config.overlay.tracked)
+            self.assertFalse(config.overlay.final)
+            self.assertFalse(config.overlay.faces)
             self.assertIn("combined-simple", command)
             self.assertIn("--genital-source", command)
             self.assertIn("--face-mask-target", command)
             self.assertIn("rectangle", command)
+
+    def test_overlay_plan_keeps_presets_and_requested_compatibility_outputs(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi", frames=1)
+            inference = create_rich_face_unified_sqlite(root / "inference.sqlite")
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "run"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(inference),
+                            "mode": "face",
+                            "face_model": "face_dino_v2",
+                        },
+                        "postprocess": {"enabled": False},
+                        "overlay": {
+                            "enabled": True,
+                            "execution_mode": "cpu",
+                            "presets": ["face-simple"],
+                            "faces": True,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            plan = OrchestrationRunner(
+                OrchestrationConfig.load(config_path),
+                dry_run=True,
+            ).plan()
+            overlay = next(
+                stage for stage in plan["stages"] if stage["stage"] == "overlay"
+            )
+            self.assertEqual(["face_simple", "faces"], overlay["outputs"])
 
     def test_face_only_privacy_mask_uses_the_same_final_masks_contract(
         self,

@@ -3,7 +3,9 @@ import type {
   AppSettings,
   InferenceMode,
   JobSnapshot,
+  OverlayExecutionMode,
   PipelineDraft,
+  SettingsView,
 } from "../shared/types";
 import { ConsolePanel } from "./components/ConsolePanel";
 import { InspectorPanel } from "./components/InspectorPanel";
@@ -15,8 +17,13 @@ import { StatusBar } from "./components/StatusBar";
 import { TopBar } from "./components/TopBar";
 import { useSplit } from "./hooks/useSplit";
 import { desktopApi, isElectron } from "./lib/api";
-import { browserSettings, emptyJob, loadDraft } from "./lib/defaults";
-import { defaultBackend } from "./lib/models";
+import {
+  browserSettings,
+  DRAFT_STORAGE_VERSION,
+  emptyJob,
+  loadDraft,
+} from "./lib/defaults";
+import { defaultBackend, defaultFaceBackend } from "./lib/models";
 
 const STATUS_LABELS: Record<JobSnapshot["status"], string> = {
   idle: "待機中",
@@ -30,6 +37,13 @@ const STATUS_LABELS: Record<JobSnapshot["status"], string> = {
 };
 
 const SECTIONS_KEY = "mask-studio-sections";
+const SETTINGS_VIEW_KEY = "mask-studio-settings-view";
+
+function loadSettingsView(): SettingsView {
+  return window.localStorage.getItem(SETTINGS_VIEW_KEY) === "advanced"
+    ? "advanced"
+    : "simple";
+}
 
 function loadSections(): Record<string, boolean> {
   const fallback = {
@@ -53,6 +67,8 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(browserSettings);
   const [job, setJob] = useState<JobSnapshot>(emptyJob);
   const [sections, setSections] = useState<Record<string, boolean>>(loadSections);
+  const [settingsView, setSettingsView] =
+    useState<SettingsView>(loadSettingsView);
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(
     null,
   );
@@ -114,11 +130,19 @@ export default function App() {
 
   useEffect(() => {
     window.localStorage.setItem("mask-studio-draft", JSON.stringify(draft));
+    window.localStorage.setItem(
+      "mask-studio-draft-version",
+      DRAFT_STORAGE_VERSION,
+    );
   }, [draft]);
 
   useEffect(() => {
     window.localStorage.setItem(SECTIONS_KEY, JSON.stringify(sections));
   }, [sections]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SETTINGS_VIEW_KEY, settingsView);
+  }, [settingsView]);
 
   /* Runtime settings persist on their own, so a run never uses stale paths. */
   useEffect(() => {
@@ -221,6 +245,15 @@ export default function App() {
     [],
   );
 
+  const patchExecution = useCallback(
+    (values: Partial<PipelineDraft["execution"]>) =>
+      setDraft((current) => ({
+        ...current,
+        execution: { ...current.execution, ...values },
+      })),
+    [],
+  );
+
   const pickInto = useCallback(
     async (
       kind: "video" | "sqlite" | "python",
@@ -280,30 +313,138 @@ export default function App() {
       inference: patchInference,
       postprocess: patchPostprocess,
       overlay: patchOverlay,
+      execution: patchExecution,
       settings: (values: Partial<AppSettings>) =>
         setSettings((current) => ({ ...current, ...values })),
       changeMode: (mode: InferenceMode) => {
-        patchInference({ mode });
+        patchInference({
+          mode,
+          parallelModels:
+            mode === "segmentation-face"
+              ? draft.inference.parallelModels
+              : false,
+          parallelModelStaggerSeconds:
+            mode === "segmentation-face"
+              ? draft.inference.parallelModelStaggerSeconds
+              : 0,
+        });
         if (mode === "face") {
-          patchPostprocess({ enabled: false });
+          patchPostprocess({
+            enabled: false,
+            faceMaskTarget:
+              draft.inference.faceModel === "face_dino_v2" ? "eyes" : "none",
+            precomputeCutsDuringInference: draft.postprocess.cutDetect,
+          });
           patchOverlay({
             raw: false,
             tracked: false,
             final: false,
             faces: true,
             finalIncludeFaces: false,
+            presets: ["face-simple"],
+            faceMaskTarget: "none",
           });
         } else if (mode === "segmentation") {
-          patchOverlay({ faces: false, finalIncludeFaces: false });
+          patchPostprocess({
+            enabled: true,
+            faceMaskTarget: "none",
+            precomputeCutsDuringInference: draft.postprocess.cutDetect,
+          });
+          patchOverlay({
+            faces: false,
+            finalIncludeFaces: false,
+            presets: ["genital-simple"],
+            faceMaskTarget: "none",
+          });
         } else {
-          patchOverlay({ faces: true, finalIncludeFaces: true });
+          patchPostprocess({
+            enabled: true,
+            faceMaskTarget:
+              draft.inference.faceModel === "face_dino_v2" ? "eyes" : "none",
+            precomputeCutsDuringInference: draft.postprocess.cutDetect,
+          });
+          patchOverlay({
+            faces: false,
+            finalIncludeFaces: false,
+            presets: ["combined-simple"],
+            faceMaskTarget: "none",
+          });
         }
       },
       changeModel: (segmentationModel) =>
         patchInference({
           segmentationModel,
           segmentationBackend: defaultBackend(segmentationModel),
+          parallelModels:
+            segmentationModel === "dinov3_codino_mh0"
+              ? draft.inference.parallelModels
+              : false,
+          parallelModelStaggerSeconds:
+            segmentationModel === "dinov3_codino_mh0"
+              ? draft.inference.parallelModelStaggerSeconds
+              : 0,
         }),
+      changeFaceModel: (faceModel) => {
+        patchInference({
+          faceModel,
+          faceBackend: defaultFaceBackend(faceModel),
+          faceTrtBundle:
+            faceModel === "face_dino_v2"
+              ? draft.inference.faceTrtBundle
+              : "",
+          parallelModels:
+            faceModel === "face_dino_v2"
+              ? draft.inference.parallelModels
+              : false,
+          parallelModelStaggerSeconds:
+            faceModel === "face_dino_v2"
+              ? draft.inference.parallelModelStaggerSeconds
+              : 0,
+        });
+        if (faceModel !== "face_dino_v2") {
+          patchPostprocess({
+            faceMaskTarget: "none",
+            precomputeCutsDuringInference:
+              draft.postprocess.cutDetect,
+          });
+          patchOverlay({ faceMaskTarget: "none" });
+        } else if (draft.inference.mode !== "segmentation") {
+          patchPostprocess({
+            faceMaskTarget: "eyes",
+            precomputeCutsDuringInference: draft.postprocess.cutDetect,
+          });
+          patchOverlay({ faceMaskTarget: "none" });
+        }
+      },
+      changeOverlayExecution: (executionMode: OverlayExecutionMode) => {
+        if (executionMode === "cpu") {
+          patchOverlay({
+            executionMode,
+            codec: "h264",
+            targetBitrateMbps: null,
+            copyAudio: false,
+            faststart: false,
+            cpuWorkers: 0,
+          });
+        } else if (executionMode === "nvenc") {
+          patchOverlay({
+            executionMode,
+            codec: "h264_nvenc",
+            targetBitrateMbps: null,
+            nvencPreset: "p5",
+            copyAudio: false,
+            faststart: false,
+            cpuWorkers: 0,
+          });
+        } else {
+          patchOverlay({
+            executionMode,
+            codec: "h264_nvenc",
+            targetBitrateMbps: draft.overlay.targetBitrateMbps ?? 8,
+            nvencPreset: "p1",
+          });
+        }
+      },
       pickBackendRoot: () =>
         void desktopApi.pickDirectory().then((backendRoot) => {
           if (backendRoot) {
@@ -315,7 +456,20 @@ export default function App() {
           setSettings((current) => ({ ...current, runtimePython })),
         ),
     }),
-    [patchInference, patchOverlay, patchPostprocess, pickInto],
+    [
+      draft.inference.parallelModelStaggerSeconds,
+      draft.inference.parallelModels,
+      draft.inference.faceModel,
+      draft.inference.faceTrtBundle,
+      draft.inference.mode,
+      draft.overlay.targetBitrateMbps,
+      draft.postprocess.cutDetect,
+      patchExecution,
+      patchInference,
+      patchOverlay,
+      patchPostprocess,
+      pickInto,
+    ],
   );
 
   /* ── derived ──────────────────────────────────────────────────────── */
@@ -393,6 +547,8 @@ export default function App() {
           settings={settings}
           busy={busy}
           open={sections}
+          viewMode={settingsView}
+          onViewModeChange={setSettingsView}
           onToggle={(key) =>
             setSections((current) => ({ ...current, [key]: !current[key] }))
           }

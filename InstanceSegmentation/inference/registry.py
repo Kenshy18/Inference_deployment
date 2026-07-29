@@ -71,6 +71,7 @@ _MODELS = {
             "FaceDinoV2Adapter",
             ("tensorrt-fast",),
             "tensorrt-fast",
+            "--backend",
         ),
     )
 }

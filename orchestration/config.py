@@ -163,6 +163,7 @@ class InferenceConfig:
     segmentation_model: str | None = None
     segmentation_backend: str = "auto"
     face_model: str = "rtdetr_head_face"
+    face_backend: str = "auto"
     face_classes: tuple[str, ...] = ("Face", "Head")
     face_trt_bundle: Path | None = None
     device: str = "cuda:0"
@@ -201,6 +202,13 @@ class PostprocessConfig:
     max_gap: int | None = None
     model_root: Path | None = None
     k2_run_dir: Path | None = None
+    k2_batch_size: int | None = None
+    k2_prep_workers: int | None = None
+    k2_precision: str | None = None
+    k2_forward_mode: str | None = None
+    k2_profile_stages: bool | None = None
+    k2_cudnn_benchmark: str | None = None
+    k2_tf32: str | None = None
     device: str = "auto"
     extra_args: tuple[str, ...] = ()
     export_legacy_sqlite: bool = False
@@ -263,6 +271,7 @@ class OverlayConfig:
     codec: str = "h264_nvenc"
     h264_crf: int = 18
     h264_preset: str = "veryfast"
+    ffmpeg_bin: Path | None = None
     nvenc_cq: int = 18
     workers: int = 6
     cpu_workers: int = 0
@@ -361,6 +370,7 @@ class OrchestrationConfig:
             "segmentation_model",
             "segmentation_backend",
             "face_model",
+            "face_backend",
             "face_classes",
             "face_trt_bundle",
             "device",
@@ -390,6 +400,7 @@ class OrchestrationConfig:
             ),
             segmentation_backend=str(inference_raw.get("segmentation_backend", "auto")),
             face_model=str(inference_raw.get("face_model", "rtdetr_head_face")),
+            face_backend=str(inference_raw.get("face_backend", "auto")),
             face_classes=_string_tuple(
                 face_classes_value,
                 "inference.face_classes",
@@ -436,6 +447,13 @@ class OrchestrationConfig:
             "max_gap",
             "model_root",
             "k2_run_dir",
+            "k2_batch_size",
+            "k2_prep_workers",
+            "k2_precision",
+            "k2_forward_mode",
+            "k2_profile_stages",
+            "k2_cudnn_benchmark",
+            "k2_tf32",
             "device",
             "extra_args",
             "face_mask_target",
@@ -521,6 +539,39 @@ class OrchestrationConfig:
                 base=base,
                 field="postprocess.k2_run_dir",
             ),
+            k2_batch_size=_optional_int(
+                postprocess_raw.get("k2_batch_size"),
+                "postprocess.k2_batch_size",
+            ),
+            k2_prep_workers=_optional_int(
+                postprocess_raw.get("k2_prep_workers"),
+                "postprocess.k2_prep_workers",
+            ),
+            k2_precision=(
+                None
+                if postprocess_raw.get("k2_precision") in (None, "")
+                else str(postprocess_raw["k2_precision"])
+            ),
+            k2_forward_mode=(
+                None
+                if postprocess_raw.get("k2_forward_mode") in (None, "")
+                else str(postprocess_raw["k2_forward_mode"])
+            ),
+            k2_profile_stages=(
+                None
+                if postprocess_raw.get("k2_profile_stages") is None
+                else bool(postprocess_raw["k2_profile_stages"])
+            ),
+            k2_cudnn_benchmark=(
+                None
+                if postprocess_raw.get("k2_cudnn_benchmark") in (None, "")
+                else str(postprocess_raw["k2_cudnn_benchmark"])
+            ),
+            k2_tf32=(
+                None
+                if postprocess_raw.get("k2_tf32") in (None, "")
+                else str(postprocess_raw["k2_tf32"])
+            ),
             device=str(postprocess_raw.get("device", "auto")),
             extra_args=_string_tuple(
                 postprocess_raw.get("extra_args"),
@@ -582,6 +633,7 @@ class OrchestrationConfig:
             "codec",
             "h264_crf",
             "h264_preset",
+            "ffmpeg_bin",
             "nvenc_cq",
             "workers",
             "cpu_workers",
@@ -640,36 +692,52 @@ class OrchestrationConfig:
                 )
             overlay_backend = expected_backend
             overlay_codec = expected_codec
+        overlay_presets = _string_tuple(
+            overlay_raw.get("presets"),
+            "overlay.presets",
+        )
+        uses_legacy_output_selection = not overlay_presets
         overlay = OverlayConfig(
             enabled=bool(overlay_raw.get("enabled", True)),
             execution_mode=overlay_execution_mode,
             backend=overlay_backend,
-            raw=bool(overlay_raw.get("raw", inference.uses_segmentation)),
+            raw=bool(
+                overlay_raw.get(
+                    "raw",
+                    inference.uses_segmentation and uses_legacy_output_selection,
+                )
+            ),
             tracked=bool(
                 overlay_raw.get(
                     "tracked",
-                    postprocess.enabled or postprocess.tracked_sqlite is not None,
+                    uses_legacy_output_selection
+                    and (
+                        postprocess.enabled
+                        or postprocess.tracked_sqlite is not None
+                    ),
                 )
             ),
             final=bool(
                 overlay_raw.get(
                     "final",
-                    postprocess.enabled
-                    or postprocess.final_sqlite is not None
-                    or postprocess.face_mask_target != "none",
+                    uses_legacy_output_selection
+                    and (
+                        postprocess.enabled
+                        or postprocess.final_sqlite is not None
+                        or postprocess.face_mask_target != "none"
+                    ),
                 )
             ),
             faces=bool(
                 overlay_raw.get(
                     "faces",
-                    inference.uses_faces and not inference.uses_segmentation,
+                    uses_legacy_output_selection
+                    and inference.uses_faces
+                    and not inference.uses_segmentation,
                 )
             ),
             final_include_faces=bool(overlay_raw.get("final_include_faces", False)),
-            presets=_string_tuple(
-                overlay_raw.get("presets"),
-                "overlay.presets",
-            ),
+            presets=overlay_presets,
             genital_source=str(overlay_raw.get("genital_source", "final")),
             face_mask_target=str(overlay_raw.get("face_mask_target", "none")),
             eye_mask_shape=str(overlay_raw.get("eye_mask_shape", "ellipse")),
@@ -688,6 +756,11 @@ class OrchestrationConfig:
             codec=overlay_codec,
             h264_crf=int(overlay_raw.get("h264_crf", 18)),
             h264_preset=str(overlay_raw.get("h264_preset", "veryfast")),
+            ffmpeg_bin=_resolve_path(
+                overlay_raw.get("ffmpeg_bin"),
+                base=base,
+                field="overlay.ffmpeg_bin",
+            ),
             nvenc_cq=int(overlay_raw.get("nvenc_cq", 18)),
             workers=int(overlay_raw.get("workers", 6)),
             cpu_workers=int(overlay_raw.get("cpu_workers", 0)),
@@ -757,6 +830,7 @@ class OrchestrationConfig:
                 "--segmentation-model",
                 "--segmentation-backend",
                 "--face-model",
+                "--face-backend",
                 "--face-classes",
                 "--face-trt-bundle",
                 "--runtime-python",
@@ -834,22 +908,28 @@ class OrchestrationConfig:
                 "inference.face_trt_bundle is currently supported only by "
                 "face_dino_v2"
             )
+        face_backends = {
+            "face_dino_v2": {"auto", "tensorrt-fast"},
+            "rtdetr_head_face": {"auto", "pytorch"},
+        }
+        if (
+            self.inference.uses_faces
+            and self.inference.face_backend
+            not in face_backends.get(self.inference.face_model, set())
+        ):
+            raise OrchestrationConfigError(
+                f"face model {self.inference.face_model!r} does not support "
+                f"backend {self.inference.face_backend!r}"
+            )
         if self.postprocess.enabled and not self.inference.uses_segmentation:
             raise OrchestrationConfigError(
                 "postprocess requires segmentation or segmentation-face inference"
             )
         if self.postprocess.precompute_cuts_during_inference:
-            face_only_cut_consumer = (
-                self.inference.uses_faces
-                and self.postprocess.face_mask_target != "none"
-            )
-            if not self.inference.enabled or not (
-                self.postprocess.enabled or face_only_cut_consumer
-            ):
+            if not self.inference.enabled:
                 raise OrchestrationConfigError(
                     "postprocess.precompute_cuts_during_inference requires "
-                    "inference.enabled=true and either segmentation "
-                    "postprocess or face mask postprocess"
+                    "inference.enabled=true"
                 )
             if not self.postprocess.cut_detect:
                 raise OrchestrationConfigError(
@@ -873,6 +953,18 @@ class OrchestrationConfig:
                 "postprocess.pipeline_config and "
                 "postprocess.class_postprocess_policy_json cannot be combined"
             )
+        for field, path in (
+            ("postprocess.pipeline_config", self.postprocess.pipeline_config),
+            ("postprocess.class_policy_json", self.postprocess.class_policy_json),
+        ):
+            if path is not None and not path.is_file():
+                raise FileNotFoundError(f"{field} not found: {path}")
+        for field, path in (
+            ("postprocess.model_root", self.postprocess.model_root),
+            ("postprocess.k2_run_dir", self.postprocess.k2_run_dir),
+        ):
+            if path is not None and not path.is_dir():
+                raise FileNotFoundError(f"{field} directory not found: {path}")
         if (
             self.postprocess.class_postprocess_policy_json is not None
             and not self.postprocess.class_postprocess_policy_json.is_file()
@@ -894,6 +986,36 @@ class OrchestrationConfig:
             )
         if self.postprocess.max_gap is not None and self.postprocess.max_gap < 0:
             raise OrchestrationConfigError("postprocess.max_gap must be non-negative")
+        if (
+            self.postprocess.k2_batch_size is not None
+            and self.postprocess.k2_batch_size < 1
+        ):
+            raise OrchestrationConfigError(
+                "postprocess.k2_batch_size must be at least 1"
+            )
+        if (
+            self.postprocess.k2_prep_workers is not None
+            and self.postprocess.k2_prep_workers < 0
+        ):
+            raise OrchestrationConfigError(
+                "postprocess.k2_prep_workers must be non-negative"
+            )
+        if self.postprocess.k2_precision not in {None, "fp32", "fp16"}:
+            raise OrchestrationConfigError(
+                "postprocess.k2_precision must be fp32 or fp16"
+            )
+        if self.postprocess.k2_forward_mode not in {None, "states_only", "full"}:
+            raise OrchestrationConfigError(
+                "postprocess.k2_forward_mode must be states_only or full"
+            )
+        if self.postprocess.k2_cudnn_benchmark not in {None, "on", "off"}:
+            raise OrchestrationConfigError(
+                "postprocess.k2_cudnn_benchmark must be on or off"
+            )
+        if self.postprocess.k2_tf32 not in {None, "default", "on", "off"}:
+            raise OrchestrationConfigError(
+                "postprocess.k2_tf32 must be default, on, or off"
+            )
         if self.postprocess.face_mask_target not in {"none", "face", "eyes"}:
             raise OrchestrationConfigError(
                 "postprocess.face_mask_target must be none, face, or eyes"
@@ -955,6 +1077,7 @@ class OrchestrationConfig:
                 "--input-sqlite",
                 "--input-video",
                 "--output-dir",
+                "--orchestration-config-json",
                 "--shape-mode",
                 "--pipeline-config",
                 "--class-policy-json",
@@ -986,6 +1109,32 @@ class OrchestrationConfig:
             },
             "postprocess.extra_args",
         )
+        typed_k2_flags = {
+            "--k2-batch-size": self.postprocess.k2_batch_size,
+            "--k2-prep-workers": self.postprocess.k2_prep_workers,
+            "--k2-precision": self.postprocess.k2_precision,
+            "--k2-forward-mode": self.postprocess.k2_forward_mode,
+            "--k2-profile-stages": self.postprocess.k2_profile_stages,
+            "--k2-cudnn-benchmark": self.postprocess.k2_cudnn_benchmark,
+            "--k2-tf32": self.postprocess.k2_tf32,
+        }
+        duplicate_k2_flags = sorted(
+            flag
+            for flag, configured in typed_k2_flags.items()
+            if configured is not None
+            and (
+                flag in self.postprocess.extra_args
+                or (
+                    flag == "--k2-profile-stages"
+                    and "--no-k2-profile-stages" in self.postprocess.extra_args
+                )
+            )
+        )
+        if duplicate_k2_flags:
+            raise OrchestrationConfigError(
+                "postprocess.extra_args duplicates typed K2 option(s): "
+                f"{duplicate_k2_flags}"
+            )
         if not self.postprocess.enabled:
             if self.postprocess.export_legacy_sqlite:
                 raise OrchestrationConfigError(
@@ -1014,6 +1163,10 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "face overlay requires inference.mode=face or segmentation-face"
             )
+        if self.overlay.final_include_faces and not self.overlay.final:
+            raise OrchestrationConfigError(
+                "overlay.final_include_faces requires overlay.final=true"
+            )
         if self.overlay.start_frame < 0:
             raise OrchestrationConfigError("overlay.start_frame must be >= 0")
         if (
@@ -1025,6 +1178,28 @@ class OrchestrationConfig:
             )
         if not 0.0 <= self.overlay.mask_alpha <= 1.0:
             raise OrchestrationConfigError("overlay.mask_alpha must be between 0 and 1")
+        if self.overlay.outline_thickness < 1:
+            raise OrchestrationConfigError(
+                "overlay.outline_thickness must be at least 1"
+            )
+        if self.overlay.box_thickness < 1:
+            raise OrchestrationConfigError(
+                "overlay.box_thickness must be at least 1"
+            )
+        if self.overlay.progress_every < 0:
+            raise OrchestrationConfigError(
+                "overlay.progress_every must be non-negative"
+            )
+        if self.overlay.enabled and not (
+            self.overlay.presets
+            or self.overlay.raw
+            or self.overlay.tracked
+            or self.overlay.final
+            or self.overlay.faces
+        ):
+            raise OrchestrationConfigError(
+                "overlay.enabled=true requires at least one preset or legacy output"
+            )
         if self.overlay.backend not in {
             "python_opencv",
             "native",
@@ -1075,6 +1250,13 @@ class OrchestrationConfig:
             raise OrchestrationConfigError("overlay.nvenc_gpu must be non-negative")
         if not 0 <= self.overlay.h264_crf <= 51:
             raise OrchestrationConfigError("overlay.h264_crf must be between 0 and 51")
+        if (
+            self.overlay.ffmpeg_bin is not None
+            and not self.overlay.ffmpeg_bin.is_file()
+        ):
+            raise FileNotFoundError(
+                f"overlay FFmpeg executable not found: {self.overlay.ffmpeg_bin}"
+            )
         if self.overlay.h264_preset not in {
             "ultrafast",
             "superfast",
@@ -1124,11 +1306,32 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "overlay.minimum_eye_confidence must be between 0 and 1"
             )
+        face_preset_requested = any(
+            preset.startswith(("face-", "combined-"))
+            for preset in self.overlay.presets
+        )
+        if self.overlay.face_mask_target != "none":
+            if not self.inference.uses_faces:
+                raise OrchestrationConfigError(
+                    "overlay face privacy mask requires face inference"
+                )
+            if self.inference.face_model != "face_dino_v2":
+                raise OrchestrationConfigError(
+                    "overlay face privacy mask requires face_dino_v2"
+                )
+            if not (
+                face_preset_requested
+                or self.overlay.faces
+                or (
+                    self.overlay.final
+                    and self.overlay.final_include_faces
+                )
+            ):
+                raise OrchestrationConfigError(
+                    "overlay face privacy mask requires a face or combined output"
+                )
         if (
-            any(
-                preset.startswith(("face-", "combined-"))
-                for preset in self.overlay.presets
-            )
+            face_preset_requested
             and not self.inference.uses_faces
         ):
             raise OrchestrationConfigError(

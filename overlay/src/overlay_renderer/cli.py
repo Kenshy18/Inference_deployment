@@ -377,6 +377,8 @@ def _fast_command(
         str(args.start_frame),
         "--bitrate-mbps",
         str(args.target_bitrate_mbps),
+        "--cpu-preset",
+        args.h264_preset,
         "--nvenc-preset",
         args.nvenc_preset,
         "--nvenc-gpu",
