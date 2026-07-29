@@ -82,8 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "run segmentation and face model subprocesses concurrently; "
-            "each model still writes an isolated SQLite before atomic merge"
+            "run dinov3_codino_mh0 and face_dino_v2 subprocesses concurrently "
+            "in segmentation-face mode; each model still writes an isolated "
+            "SQLite before atomic merge"
         ),
     )
     parser.add_argument(

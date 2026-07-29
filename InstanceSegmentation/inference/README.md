@@ -46,7 +46,9 @@ RT-DETRで`--face-classes`へ値を渡さなければ、`VisibleBody`を含む�
 1つのSQLiteへatomicに公開します。これによりDetectron2、Co-DINO、RT-DETRの
 依存関係とGPU初期化を上位層で混在させません。`segmentation-face`では現在、
 安全なモデル分離を優先して動画をモデルごとに読み込みます。既定は逐次実行です。
-十分なVRAMがある場合は`--parallel-models`で両モデルを同時実行できます。
+`dinov3_codino_mh0`と`face_dino_v2`の組合せに限り、
+`--parallel-models`で両モデルを同時実行できます。巨大`dinov3_codino`、
+旧顔検出、片方だけの推論ではこのオプションを指定できません。
 GPUの電力上限で完全同時実行が遅くなる環境では、
 `--parallel-model-stagger-seconds N`により顔モデルを先に起動してピーク競合を
 調整できます。

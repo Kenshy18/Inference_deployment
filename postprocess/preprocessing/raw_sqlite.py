@@ -128,6 +128,7 @@ def _iter_unified_detections(
             float(row["y2"]),
         )
         detection: dict[str, Any] = {
+            "source_detection_id": detection_id,
             "label": class_name,
             "class_name": class_name,
             "category_id": category_id,

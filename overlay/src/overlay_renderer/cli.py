@@ -363,6 +363,7 @@ def _fast_command(
     args: argparse.Namespace,
     *,
     output_dir: Path,
+    sqlite_path: Path | None = None,
 ) -> list[str]:
     ffmpeg = (
         NATIVE_FFMPEG
@@ -375,7 +376,11 @@ def _fast_command(
         "--video",
         str(Path(args.video).expanduser().resolve()),
         "--sqlite",
-        str(Path(args.sqlite).expanduser().resolve()),
+        str(
+            Path(args.sqlite).expanduser().resolve()
+            if sqlite_path is None
+            else sqlite_path
+        ),
         "--mode",
         args.mode,
         "--output-dir",
@@ -441,7 +446,12 @@ def _run_fast(
         raise FileExistsError(f"output already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
     work_dir = output.parent / f".{output.stem}.fast-{uuid.uuid4().hex}"
-    command = _fast_command(args, output_dir=work_dir)
+    sqlite_path = Path(args.sqlite).expanduser().resolve()
+    command = _fast_command(
+        args,
+        output_dir=work_dir,
+        sqlite_path=sqlite_path,
+    )
     completed = False
     try:
         result = subprocess.run(
@@ -539,6 +549,9 @@ def main(argv: list[str] | None = None) -> None:
                 if args.preset is None
                 else args.preset.rsplit("-", 1)[1]
             ),
+            prefer_tracked=args.mode == "tracked",
+            start_frame=args.start_frame,
+            end_frame=args.end_frame,
         )
     elif args.mode == "faces":
         source = inspect_inference_source(args.sqlite, "face_detection")

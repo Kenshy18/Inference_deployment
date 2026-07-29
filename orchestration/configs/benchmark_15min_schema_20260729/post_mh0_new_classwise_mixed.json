@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "input_video": "/home/kenshin/inference_backend2/orchestration/output/benchmark_15min_schema_20260729/input/heyzo_first_15min.mp4",
+  "output_root": "/home/kenshin/inference_backend2/orchestration/output/benchmark_15min_schema_20260729/postprocess/mh0_new_classwise_mixed",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": false,
+    "input_sqlite": "/home/kenshin/inference_backend2/orchestration/output/benchmark_15min_schema_20260729/inference/mh0_new_face/01_inference/inference.sqlite",
+    "mode": "segmentation-face",
+    "face_model": "face_dino_v2"
+  },
+  "postprocess": {
+    "enabled": true,
+    "shape_mode": "polygon",
+    "class_postprocess_policy_json": "/home/kenshin/inference_backend2/postprocess/configs/benchmarks/classwise_mixed_15min_20260729.json",
+    "score_min": 0.35,
+    "cut_detect": true,
+    "cut_method": "high_precision",
+    "remove_short_tracks_max_frames": 10,
+    "keyframe_interval": 3,
+    "max_gap": 0,
+    "face_mask_target": "eyes",
+    "eye_mask_shape": "ellipse",
+    "minimum_eye_confidence": 0.35,
+    "device": "cuda:0",
+    "extra_args": [
+      "--k2-batch-size", "128",
+      "--k2-prep-workers", "4",
+      "--k2-forward-mode", "states_only",
+      "--k2-profile-stages",
+      "--k2-cudnn-benchmark", "on",
+      "--k2-tf32", "off"
+    ]
+  },
+  "overlay": {
+    "enabled": false
+  }
+}

@@ -23,6 +23,7 @@ dev = ["black>=24", "pytest>=8"]
 postprocess = "run_pipeline:main"
 postprocess-export-legacy-sqlite = "tentative.export_legacy_sqlite:main"
 postprocess-precompute-cuts = "precompute_cuts:main"
+postprocess-package-result = "package_result:main"
 
 [tool.hatch.build.targets.wheel]
 packages = [
@@ -39,11 +40,13 @@ packages = [
   "artifacts",
   "visualization",
   "tentative",
+  "classwise",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
 "run_pipeline.py" = "run_pipeline.py"
 "precompute_cuts.py" = "precompute_cuts.py"
+"package_result.py" = "package_result.py"
 "models" = "models"
 "CONTRACT.md" = "mask_postprocess_docs/CONTRACT.md"
 "README.md" = "mask_postprocess_docs/README.md"

@@ -40,6 +40,10 @@ class PrivacyMask:
     target: MaskTarget
     shape: EyeShape
     polygon: Polygon
+    center: Point
+    half_width: float
+    half_height: float
+    theta_radians: float
     derivation: str
     confidence: float
 
@@ -77,9 +81,7 @@ def _ellipse_polygon(
             + half_width * math.cos(phase) * sine
             + half_height * math.sin(phase) * cosine,
         )
-        for phase in (
-            2.0 * math.pi * index / count for index in range(count)
-        )
+        for phase in (2.0 * math.pi * index / count for index in range(count))
     )
 
 
@@ -170,9 +172,7 @@ def _usable_eye_pair(
     for point in (first, second):
         relative_x = point.x - cx
         relative_y = point.y - cy
-        local_x = (
-            relative_x * across[0] + relative_y * across[1]
-        ) / minor
+        local_x = (relative_x * across[0] + relative_y * across[1]) / minor
         local_y = (relative_x * down[0] + relative_y * down[1]) / major
         if local_x * local_x + local_y * local_y > 1.45**2:
             return None
@@ -184,9 +184,11 @@ def _face_mask(ellipse: FaceEllipse) -> PrivacyMask:
     return PrivacyMask(
         target="face",
         shape="ellipse",
-        polygon=_ellipse_polygon(
-            (cx, cy), major, minor, theta, points=96
-        ),
+        polygon=_ellipse_polygon((cx, cy), major, minor, theta, points=96),
+        center=(cx, cy),
+        half_width=major,
+        half_height=minor,
+        theta_radians=theta,
         derivation="face-ellipse",
         confidence=1.0,
     )
@@ -232,12 +234,8 @@ def _eye_mask(
         for point in _candidate_eyes(keypoints, minimum_confidence):
             relative_x = point.x - cx
             relative_y = point.y - cy
-            local_x = (
-                relative_x * across[0] + relative_y * across[1]
-            ) / minor
-            local_y = (
-                relative_x * down[0] + relative_y * down[1]
-            ) / major
+            local_x = (relative_x * across[0] + relative_y * across[1]) / minor
+            local_y = (relative_x * down[0] + relative_y * down[1]) / major
             if local_x * local_x + local_y * local_y <= 1.45**2:
                 local_eyes.append((local_x, local_y))
         center_x = (
@@ -292,9 +290,7 @@ def _eye_mask(
         derivation = "ellipse-fallback"
         confidence = 0.0
     polygon = (
-        _ellipse_polygon(
-            center, half_width, half_height, angle, points=64
-        )
+        _ellipse_polygon(center, half_width, half_height, angle, points=64)
         if shape == "ellipse"
         else _rectangle_polygon(center, half_width, half_height, angle)
     )
@@ -302,6 +298,10 @@ def _eye_mask(
         target="eyes",
         shape=shape,
         polygon=polygon,
+        center=center,
+        half_width=half_width,
+        half_height=half_height,
+        theta_radians=angle,
         derivation=derivation,
         confidence=confidence,
     )

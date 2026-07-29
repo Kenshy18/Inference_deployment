@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 import zlib
 from pathlib import Path
 
@@ -21,6 +22,45 @@ def create_video(path: Path, frames: int = 8) -> Path:
         frame = np.full((48, 64, 3), 30 + frame_index * 8, dtype=np.uint8)
         writer.write(frame)
     writer.release()
+    return path
+
+
+def create_mask_sqlite(path: Path, *, track_id: str = "1") -> Path:
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE masks(
+                frame INTEGER NOT NULL,
+                track_id TEXT NOT NULL,
+                polygons TEXT,
+                shape_type TEXT,
+                dilate_px INTEGER NOT NULL DEFAULT 0,
+                feather_px INTEGER NOT NULL DEFAULT 0,
+                mosaic_block INTEGER NOT NULL DEFAULT 0,
+                mosaic_alias REAL NOT NULL DEFAULT 0,
+                label TEXT,
+                PRIMARY KEY(frame, track_id)
+            );
+            CREATE TABLE tracks(track_id TEXT PRIMARY KEY, label TEXT);
+            CREATE TABLE cuts(frame INTEGER PRIMARY KEY);
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO masks(
+                frame, track_id, polygons, shape_type, label
+            ) VALUES (?, ?, ?, 'polygon', 'target')
+            """,
+            (
+                0,
+                track_id,
+                json.dumps([[[8, 8], [34, 8], [34, 34], [8, 34]]]),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO tracks(track_id, label) VALUES (?, 'target')",
+            (track_id,),
+        )
     return path
 
 
@@ -310,5 +350,80 @@ def create_rich_face_unified_sqlite(path: Path) -> Path:
                 VALUES(1, ?, ?, ?)
                 """,
                 ((point_index, state_index, 0.5) for state_index in (1, 2)),
+            )
+    return path
+
+
+def keep_only_inference_role(path: Path, role: str) -> Path:
+    """Reduce a test unified SQLite to one model role without changing schema."""
+
+    if role not in {"instance_segmentation", "face_detection"}:
+        raise ValueError(role)
+    with sqlite3.connect(path) as connection:
+        removed_ids = [
+            int(row[0])
+            for row in connection.execute(
+                "SELECT id FROM model_executions WHERE role<>?",
+                (role,),
+            )
+        ]
+        if removed_ids:
+            placeholders = ",".join("?" for _value in removed_ids)
+            detection_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    f"""
+                    SELECT id FROM detections
+                    WHERE model_execution_id IN ({placeholders})
+                    """,
+                    removed_ids,
+                )
+            ]
+            if detection_ids:
+                detection_placeholders = ",".join("?" for _value in detection_ids)
+                polygon_ids = [
+                    int(row[0])
+                    for row in connection.execute(
+                        f"""
+                        SELECT id FROM segmentation_polygons
+                        WHERE detection_id IN ({detection_placeholders})
+                        """,
+                        detection_ids,
+                    )
+                ]
+                if polygon_ids:
+                    polygon_placeholders = ",".join("?" for _value in polygon_ids)
+                    connection.execute(
+                        f"""
+                        DELETE FROM segmentation_points
+                        WHERE polygon_id IN ({polygon_placeholders})
+                        """,
+                        polygon_ids,
+                    )
+                for table in (
+                    "segmentation_polygons",
+                    "segmentations",
+                    "classifications",
+                ):
+                    connection.execute(
+                        f"""
+                        DELETE FROM {table}
+                        WHERE detection_id IN ({detection_placeholders})
+                        """,
+                        detection_ids,
+                    )
+                connection.execute(
+                    f"""
+                    DELETE FROM detections
+                    WHERE id IN ({detection_placeholders})
+                    """,
+                    detection_ids,
+                )
+            connection.execute(
+                f"""
+                DELETE FROM model_executions
+                WHERE id IN ({placeholders})
+                """,
+                removed_ids,
             )
     return path

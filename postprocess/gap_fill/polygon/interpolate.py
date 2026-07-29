@@ -107,8 +107,11 @@ def fill_keyframe_gaps_sqlite(
     output_sqlite: Path,
     *,
     interpolator: PolygonInterpolator | None = None,
+    max_gap: int | None = None,
 ) -> Path:
     implementation = interpolator or LinearPolygonInterpolator()
+    if max_gap is not None and max_gap < 0:
+        raise ValueError("max_gap must be non-negative")
     keyframes_by_track: dict[str, list[MaskRow]] = {}
     for row in read_mask_rows(keyframes_sqlite):
         keyframes_by_track.setdefault(row.track_id, []).append(row)
@@ -122,14 +125,15 @@ def fill_keyframe_gaps_sqlite(
         if not keys:
             continue
         key_frames = [row.frame for row in keys]
+        track_output: list[MaskRow] = []
         for target in sorted(targets_by_track[track_id], key=lambda row: row.frame):
             position = bisect_left(key_frames, target.frame)
             if position < len(keys) and keys[position].frame == target.frame:
-                output.append(keys[position])
+                track_output.append(keys[position])
                 continue
             if position == 0 or position == len(keys):
                 nearest = keys[0] if position == 0 else keys[-1]
-                output.append(
+                track_output.append(
                     MaskRow(
                         target.frame,
                         track_id,
@@ -145,7 +149,7 @@ def fill_keyframe_gaps_sqlite(
             polygons = implementation.interpolate(
                 json.loads(left.polygons), json.loads(right.polygons), alpha
             )
-            output.append(
+            track_output.append(
                 MaskRow(
                     frame=target.frame,
                     track_id=track_id,
@@ -156,4 +160,36 @@ def fill_keyframe_gaps_sqlite(
                     shape_type="polygon",
                 )
             )
+        if max_gap:
+            for index, left in enumerate(track_output):
+                output.append(left)
+                if index + 1 >= len(track_output):
+                    continue
+                right = track_output[index + 1]
+                gap = right.frame - left.frame - 1
+                if gap <= 0 or gap > max_gap:
+                    continue
+                left_polygons = json.loads(left.polygons)
+                right_polygons = json.loads(right.polygons)
+                for frame in range(left.frame + 1, right.frame):
+                    alpha = (frame - left.frame) / (right.frame - left.frame)
+                    output.append(
+                        MaskRow(
+                            frame=frame,
+                            track_id=track_id,
+                            polygons=json.dumps(
+                                implementation.interpolate(
+                                    left_polygons,
+                                    right_polygons,
+                                    alpha,
+                                ),
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                            label=left.label if alpha < 0.5 else right.label,
+                            shape_type="polygon",
+                        )
+                    )
+        else:
+            output.extend(track_output)
     return write_mask_sqlite(output_sqlite, output, reference_sqlite=reference_sqlite)

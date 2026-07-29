@@ -133,7 +133,8 @@ class UnifiedOrchestrationTest(unittest.TestCase):
                         input_path=input_path,
                         output_path=output_path,
                         mode=InferenceMode.SEGMENTATION_FACE,
-                        segmentation_model="dinov3_codino",
+                        segmentation_model="dinov3_codino_mh0",
+                        face_model="face_dino_v2",
                         runtime_python=Path(sys.executable),
                         parallel_models=True,
                         parallel_model_stagger_seconds=7.0,
@@ -142,6 +143,34 @@ class UnifiedOrchestrationTest(unittest.TestCase):
             execute.assert_called_once()
             self.assertEqual(1, result.frames)
             self.assertTrue(output_path.is_file())
+
+    def test_parallel_mode_rejects_unapproved_model_combinations(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "input.mp4"
+            input_path.write_bytes(b"test")
+            output_path = root / "output.sqlite"
+            invalid = (
+                ("dinov3_codino", "face_dino_v2"),
+                ("dinov3_codino_mh0", "rtdetr_head_face"),
+            )
+            for segmentation_model, face_model in invalid:
+                with self.subTest(
+                    segmentation_model=segmentation_model,
+                    face_model=face_model,
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "supported only for mode=segmentation-face",
+                    ):
+                        OrchestrationRequest(
+                            input_path=input_path,
+                            output_path=output_path,
+                            mode=InferenceMode.SEGMENTATION_FACE,
+                            segmentation_model=segmentation_model,
+                            face_model=face_model,
+                            parallel_models=True,
+                        )
 
     def test_all_modes_publish_the_identical_schema(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

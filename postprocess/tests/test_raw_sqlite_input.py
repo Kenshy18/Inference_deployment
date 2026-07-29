@@ -174,6 +174,129 @@ class RawSqliteInputTests(unittest.TestCase):
                     5,
                     connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0],
                 )
+            result = Path(manifest["artifacts"]["result_sqlite"])
+            with sqlite3.connect(result) as connection:
+                tables = {
+                    str(row[0])
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                }
+                self.assertIn("detections", tables)
+                self.assertIn("tracking_assignments", tables)
+                self.assertNotIn("tracked_masks", tables)
+                self.assertNotIn("masks", tables)
+                self.assertEqual(
+                    5,
+                    connection.execute(
+                        "SELECT COUNT(*) FROM tracking_assignments"
+                    ).fetchone()[0],
+                )
+                self.assertEqual(
+                    "video-mask-integrated-result",
+                    connection.execute(
+                        """
+                        SELECT value FROM result_schema_info
+                        WHERE key='schema_name'
+                        """
+                    ).fetchone()[0],
+                )
+                self.assertEqual(
+                    "keyframe-primary-v3",
+                    connection.execute(
+                        """
+                        SELECT value FROM result_schema_info
+                        WHERE key='compatibility_profile'
+                        """
+                    ).fetchone()[0],
+                )
+                self.assertEqual(
+                    0,
+                    connection.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM tracking_assignments AS a
+                        LEFT JOIN detections AS d
+                          ON d.id=a.source_detection_id
+                        WHERE d.id IS NULL
+                        """
+                    ).fetchone()[0],
+                )
+                self.assertGreater(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM mask_keyframes"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertGreater(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM editable_polygon_vertices"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    1,
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM processing_runs
+                        WHERE kind='postprocess'
+                        """
+                    ).fetchone()[0],
+                )
+
+    def test_classwise_polygon_keyframes_are_promoted_to_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_unified_inference_sqlite(root / "unified.sqlite", frames=6)
+            policy = root / "classwise.json"
+            policy.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default": {
+                            "shape_mode": "polygon",
+                            "keyframe_interval": 2,
+                            "max_gap": 0,
+                        },
+                        "classes": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "--input-sqlite",
+                    str(source),
+                    "--output-dir",
+                    str(root / "output"),
+                    "--shape-mode",
+                    "polygon",
+                    "--class-postprocess-policy-json",
+                    str(policy),
+                    "--no-cut-detect",
+                    "--remove-short-tracks-max-frames",
+                    "0",
+                ]
+            )
+
+            manifest = run_pipeline(args)
+
+            with sqlite3.connect(manifest["artifacts"]["result_sqlite"]) as connection:
+                self.assertGreater(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM mask_keyframes"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    1,
+                    connection.execute(
+                        """
+                        SELECT available FROM result_capabilities
+                        WHERE name='classwise_postprocess'
+                        """
+                    ).fetchone()[0],
+                )
 
 
 if __name__ == "__main__":

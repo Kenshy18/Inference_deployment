@@ -87,6 +87,68 @@ def _reject_reserved_args(
         )
 
 
+def _validate_class_postprocess_policy(path: Path) -> None:
+    field = "postprocess.class_postprocess_policy_json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestrationConfigError(f"{field} must be valid JSON") from exc
+    if not isinstance(raw, dict):
+        raise OrchestrationConfigError(f"{field} root must be a JSON object")
+    _reject_unknown(
+        raw,
+        {"schema_version", "default", "classes"},
+        field,
+    )
+    try:
+        schema_version = int(raw.get("schema_version", 1))
+    except (TypeError, ValueError) as exc:
+        raise OrchestrationConfigError(f"{field}.schema_version must be 1") from exc
+    if schema_version != 1:
+        raise OrchestrationConfigError(f"{field}.schema_version must be 1")
+    classes = raw.get("classes", {})
+    if not isinstance(classes, dict):
+        raise OrchestrationConfigError(f"{field}.classes must be a JSON object")
+    sections: list[tuple[str, object]] = [(f"{field}.default", raw.get("default"))]
+    sections.extend(
+        (f"{field}.classes.{label}", value) for label, value in classes.items()
+    )
+    for section, value in sections:
+        if value is None:
+            continue
+        if not isinstance(value, dict):
+            raise OrchestrationConfigError(f"{section} must be a JSON object")
+        _reject_unknown(
+            value,
+            {"shape_mode", "keyframe_interval", "max_gap"},
+            section,
+        )
+        if "shape_mode" in value and value["shape_mode"] not in {
+            "polygon",
+            "ellipse",
+        }:
+            raise OrchestrationConfigError(
+                f"{section}.shape_mode must be polygon or ellipse"
+            )
+        if "keyframe_interval" in value:
+            interval = _optional_int(
+                value["keyframe_interval"],
+                f"{section}.keyframe_interval",
+            )
+            if interval is None or interval < 1:
+                raise OrchestrationConfigError(
+                    f"{section}.keyframe_interval must be at least 1"
+                )
+        if "max_gap" in value:
+            max_gap = _optional_int(value["max_gap"], f"{section}.max_gap")
+            if max_gap is None or max_gap < 0:
+                raise OrchestrationConfigError(
+                    f"{section}.max_gap must be non-negative"
+                )
+    if any(not str(label).strip() for label in classes):
+        raise OrchestrationConfigError(f"{field}.classes labels must not be empty")
+
+
 @dataclass(frozen=True)
 class ExecutionConfig:
     runtime_python: Path
@@ -129,12 +191,14 @@ class PostprocessConfig:
     shape_mode: str = "polygon"
     pipeline_config: Path | None = None
     class_policy_json: Path | None = None
+    class_postprocess_policy_json: Path | None = None
     score_min: float | None = None
     cut_detect: bool = True
     cut_method: str | None = None
     precompute_cuts_during_inference: bool = False
     remove_short_tracks_max_frames: int | None = None
     keyframe_interval: int | None = None
+    max_gap: int | None = None
     model_root: Path | None = None
     k2_run_dir: Path | None = None
     device: str = "auto"
@@ -147,10 +211,24 @@ class PostprocessConfig:
     @property
     def uses_gpu(self) -> bool:
         """Whether this configuration may execute the ellipse K2 CUDA path."""
-        return (
-            self.enabled
-            and self.shape_mode == "ellipse"
-            and self.device.lower() != "cpu"
+        if not self.enabled or self.device.lower() == "cpu":
+            return False
+        if self.class_postprocess_policy_json is None:
+            return self.shape_mode == "ellipse"
+        raw = json.loads(self.class_postprocess_policy_json.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return self.shape_mode == "ellipse"
+        default_value = raw.get("default", {})
+        default = default_value if isinstance(default_value, dict) else {}
+        default_shape = str(default.get("shape_mode", self.shape_mode))
+        if default_shape == "ellipse":
+            return True
+        classes_value = raw.get("classes", {})
+        classes = classes_value if isinstance(classes_value, dict) else {}
+        return any(
+            str(value.get("shape_mode", default_shape)) == "ellipse"
+            for value in classes.values()
+            if isinstance(value, dict)
         )
 
 
@@ -334,12 +412,14 @@ class OrchestrationConfig:
             "shape_mode",
             "pipeline_config",
             "class_policy_json",
+            "class_postprocess_policy_json",
             "score_min",
             "cut_detect",
             "cut_method",
             "precompute_cuts_during_inference",
             "remove_short_tracks_max_frames",
             "keyframe_interval",
+            "max_gap",
             "model_root",
             "k2_run_dir",
             "device",
@@ -349,8 +429,11 @@ class OrchestrationConfig:
             "minimum_eye_confidence",
         }
         _reject_unknown(postprocess_raw, postprocess_allowed, "postprocess")
+        postprocess_enabled = bool(
+            postprocess_raw.get("enabled", inference.uses_segmentation)
+        )
         postprocess = PostprocessConfig(
-            enabled=bool(postprocess_raw.get("enabled", True)),
+            enabled=postprocess_enabled,
             tracked_sqlite=_resolve_path(
                 postprocess_raw.get("tracked_sqlite"),
                 base=base,
@@ -374,6 +457,11 @@ class OrchestrationConfig:
                 postprocess_raw.get("class_policy_json"),
                 base=base,
                 field="postprocess.class_policy_json",
+            ),
+            class_postprocess_policy_json=_resolve_path(
+                postprocess_raw.get("class_postprocess_policy_json"),
+                base=base,
+                field="postprocess.class_postprocess_policy_json",
             ),
             score_min=_optional_float(
                 postprocess_raw.get("score_min"),
@@ -399,6 +487,10 @@ class OrchestrationConfig:
                 postprocess_raw.get("keyframe_interval"),
                 "postprocess.keyframe_interval",
             ),
+            max_gap=_optional_int(
+                postprocess_raw.get("max_gap"),
+                "postprocess.max_gap",
+            ),
             model_root=_resolve_path(
                 postprocess_raw.get("model_root"),
                 base=base,
@@ -414,12 +506,8 @@ class OrchestrationConfig:
                 postprocess_raw.get("extra_args"),
                 "postprocess.extra_args",
             ),
-            face_mask_target=str(
-                postprocess_raw.get("face_mask_target", "none")
-            ),
-            eye_mask_shape=str(
-                postprocess_raw.get("eye_mask_shape", "ellipse")
-            ),
+            face_mask_target=str(postprocess_raw.get("face_mask_target", "none")),
+            eye_mask_shape=str(postprocess_raw.get("eye_mask_shape", "ellipse")),
             minimum_eye_confidence=float(
                 postprocess_raw.get("minimum_eye_confidence", 0.35)
             ),
@@ -498,10 +586,27 @@ class OrchestrationConfig:
             enabled=bool(overlay_raw.get("enabled", True)),
             execution_mode=overlay_execution_mode,
             backend=overlay_backend,
-            raw=bool(overlay_raw.get("raw", True)),
-            tracked=bool(overlay_raw.get("tracked", True)),
-            final=bool(overlay_raw.get("final", True)),
-            faces=bool(overlay_raw.get("faces", False)),
+            raw=bool(overlay_raw.get("raw", inference.uses_segmentation)),
+            tracked=bool(
+                overlay_raw.get(
+                    "tracked",
+                    postprocess.enabled or postprocess.tracked_sqlite is not None,
+                )
+            ),
+            final=bool(
+                overlay_raw.get(
+                    "final",
+                    postprocess.enabled
+                    or postprocess.final_sqlite is not None
+                    or postprocess.face_mask_target != "none",
+                )
+            ),
+            faces=bool(
+                overlay_raw.get(
+                    "faces",
+                    inference.uses_faces and not inference.uses_segmentation,
+                )
+            ),
             final_include_faces=bool(overlay_raw.get("final_include_faces", False)),
             mask_alpha=float(overlay_raw.get("mask_alpha", 0.32)),
             outline_thickness=int(overlay_raw.get("outline_thickness", 2)),
@@ -589,6 +694,30 @@ class OrchestrationConfig:
             },
             "inference.extra_args",
         )
+        if self.inference.parallel_model_stagger_seconds < 0:
+            raise OrchestrationConfigError(
+                "inference.parallel_model_stagger_seconds must be >= 0"
+            )
+        if (
+            self.inference.parallel_model_stagger_seconds > 0
+            and not self.inference.parallel_models
+        ):
+            raise OrchestrationConfigError(
+                "inference.parallel_model_stagger_seconds requires "
+                "inference.parallel_models=true"
+            )
+        if self.inference.parallel_models and (
+            not self.inference.enabled
+            or self.inference.mode != "segmentation-face"
+            or self.inference.segmentation_model != "dinov3_codino_mh0"
+            or self.inference.face_model != "face_dino_v2"
+        ):
+            raise OrchestrationConfigError(
+                "inference.parallel_models=true is supported only when "
+                "inference.enabled=true and mode=segmentation-face with "
+                "segmentation_model=dinov3_codino_mh0 and "
+                "face_model=face_dino_v2"
+            )
         if self.inference.enabled:
             if self.inference.input_sqlite is not None:
                 raise OrchestrationConfigError(
@@ -614,18 +743,6 @@ class OrchestrationConfig:
                 raise FileNotFoundError(
                     "face TensorRT bundle not found: "
                     f"{self.inference.face_trt_bundle}"
-                )
-            if self.inference.parallel_model_stagger_seconds < 0:
-                raise OrchestrationConfigError(
-                    "inference.parallel_model_stagger_seconds must be >= 0"
-                )
-            if (
-                self.inference.parallel_model_stagger_seconds > 0
-                and not self.inference.parallel_models
-            ):
-                raise OrchestrationConfigError(
-                    "inference.parallel_model_stagger_seconds requires "
-                    "inference.parallel_models=true"
                 )
         elif self.inference.input_sqlite is None:
             raise OrchestrationConfigError(
@@ -663,6 +780,35 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "postprocess.shape_mode must be polygon or ellipse"
             )
+        if (
+            self.postprocess.pipeline_config is not None
+            and self.postprocess.class_postprocess_policy_json is not None
+        ):
+            raise OrchestrationConfigError(
+                "postprocess.pipeline_config and "
+                "postprocess.class_postprocess_policy_json cannot be combined"
+            )
+        if (
+            self.postprocess.class_postprocess_policy_json is not None
+            and not self.postprocess.class_postprocess_policy_json.is_file()
+        ):
+            raise FileNotFoundError(
+                "class postprocess policy not found: "
+                f"{self.postprocess.class_postprocess_policy_json}"
+            )
+        if self.postprocess.class_postprocess_policy_json is not None:
+            _validate_class_postprocess_policy(
+                self.postprocess.class_postprocess_policy_json
+            )
+        if (
+            self.postprocess.keyframe_interval is not None
+            and self.postprocess.keyframe_interval < 1
+        ):
+            raise OrchestrationConfigError(
+                "postprocess.keyframe_interval must be at least 1"
+            )
+        if self.postprocess.max_gap is not None and self.postprocess.max_gap < 0:
+            raise OrchestrationConfigError("postprocess.max_gap must be non-negative")
         if self.postprocess.face_mask_target not in {"none", "face", "eyes"}:
             raise OrchestrationConfigError(
                 "postprocess.face_mask_target must be none, face, or eyes"
@@ -676,10 +822,6 @@ class OrchestrationConfig:
                 "postprocess.minimum_eye_confidence must be between 0 and 1"
             )
         if self.postprocess.face_mask_target != "none":
-            if not self.postprocess.enabled:
-                raise OrchestrationConfigError(
-                    "face mask postprocess requires postprocess.enabled=true"
-                )
             if not self.inference.uses_faces:
                 raise OrchestrationConfigError(
                     "face mask postprocess requires face inference"
@@ -706,6 +848,7 @@ class OrchestrationConfig:
                 "--shape-mode",
                 "--pipeline-config",
                 "--class-policy-json",
+                "--class-postprocess-policy-json",
                 "--score-min",
                 "--cut-detect",
                 "--no-cut-detect",
@@ -713,6 +856,7 @@ class OrchestrationConfig:
                 "--precomputed-cuts-json",
                 "--remove-short-tracks-max-frames",
                 "--keyframe-interval",
+                "--max-gap",
                 "--model-root",
                 "--k2-run-dir",
                 "--device",
@@ -739,10 +883,13 @@ class OrchestrationConfig:
                         "when postprocess is disabled"
                     )
             if self.overlay.enabled and self.overlay.final:
-                if self.postprocess.final_sqlite is None:
+                if (
+                    self.postprocess.final_sqlite is None
+                    and self.postprocess.face_mask_target == "none"
+                ):
                     raise OrchestrationConfigError(
                         "final overlay requires postprocess.final_sqlite "
-                        "when postprocess is disabled"
+                        "or face_mask_target when postprocess is disabled"
                     )
         faces_requested = self.overlay.enabled and (
             self.overlay.faces or self.overlay.final_include_faces

@@ -112,6 +112,12 @@ def legacy_sqlite(options: dict[str, Any]) -> PostprocessStage:
     return LegacySqliteExportStage(options)
 
 
+def integrated_result_sqlite(options: dict[str, Any]) -> PostprocessStage:
+    from artifacts.stages import IntegratedResultSqliteStage
+
+    return IntegratedResultSqliteStage(options)
+
+
 def face_privacy_masks(options: dict[str, Any]) -> PostprocessStage:
     from face_privacy.stages import FacePrivacyMaskStage
 
@@ -122,6 +128,12 @@ def face_privacy_merge(options: dict[str, Any]) -> PostprocessStage:
     from face_privacy.stages import FacePrivacyMergeStage
 
     return FacePrivacyMergeStage(options)
+
+
+def classwise_postprocess(options: dict[str, Any]) -> PostprocessStage:
+    from classwise.stages import ClasswisePostprocessStage
+
+    return ClasswisePostprocessStage(options)
 
 
 register_stage("preprocessing.normalize", normalization)
@@ -141,5 +153,7 @@ register_stage("evaluation.mask_iou", mask_evaluation)
 register_stage("artifacts.union_sqlite", union_sqlite)
 register_stage("artifacts.validate", validate_output)
 register_stage("artifacts.legacy_sqlite", legacy_sqlite)
+register_stage("artifacts.integrated_sqlite", integrated_result_sqlite)
 register_stage("face_privacy.masks", face_privacy_masks)
 register_stage("face_privacy.merge", face_privacy_merge)
+register_stage("classwise.production", classwise_postprocess)

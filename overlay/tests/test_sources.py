@@ -50,6 +50,34 @@ class SourceTests(unittest.TestCase):
             self.assertEqual("7", frames[0].items[0].track_id)
             self.assertEqual(4, len(frames[0].items[0].polygons[0]))
 
+    def test_integrated_result_selects_tracked_snapshot_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_mask_sqlite(Path(temporary) / "result.sqlite")
+            with sqlite3.connect(path) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE tracked_masks(
+                        frame INTEGER NOT NULL,
+                        track_id TEXT NOT NULL,
+                        polygons TEXT NOT NULL,
+                        label TEXT
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO tracked_masks
+                    SELECT frame, 'tracked', polygons, label
+                    FROM masks
+                    """
+                )
+
+            final = list(iter_mask_frames(path))
+            tracked = list(iter_mask_frames(path, prefer_tracked=True))
+
+            self.assertEqual("7", final[0].items[0].track_id)
+            self.assertEqual("tracked", tracked[0].items[0].track_id)
+
     def test_schema_v3_faces_use_exact_ellipse_and_keypoints(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")

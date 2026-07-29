@@ -82,8 +82,17 @@ python3 segmented.py \
   --gpu-pipeline
 ```
 
-`--cpu-workers 3`ならCPU 3＋NVENC 3です。各workerは担当開始位置へseekし、
-PTSから正確なframe番号を復元します。最後はFFmpeg concat demuxerで連結します。
+`--cpu-workers 3`ならCPU 3＋NVENC 3です。runnerは映像をdecodeせずpacket PTSを
+一度だけ索引化し、各workerを担当範囲直前のkeyframeへseekします。seek後は
+decode順の連番をSQLiteの`frame_index`として扱うため、PTS gapがあっても
+frameを欠落させません。最後はFFmpeg concat demuxerで連結します。
+
+`--end-frame`指定時は、workerの出力数が要求数と1枚でも異なれば処理を失敗させ、
+containerの報告frame数とvideo packet数が異なる場合も開始前に失敗させます。
+不完全な動画を成功結果として返しません。単体binaryへ索引情報を渡さず
+`--start-frame > 0`を指定した場合は、正確性を優先して先頭からdecodeします。
+本番の分割実行ではrunnerが内部引数`--seek-frame-index`と
+`--seek-timestamp`を自動指定するため、この低速fallbackは使われません。
 
 ## Test
 

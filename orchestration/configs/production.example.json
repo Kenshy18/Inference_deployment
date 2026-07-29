@@ -16,6 +16,8 @@
     "device": "cuda:0",
     "warmup_frames": 0,
     "face_warmup_iterations": 3,
+    "parallel_models": false,
+    "parallel_model_stagger_seconds": 0.0,
     "fast_sqlite": false
   },
   "postprocess": {
@@ -25,6 +27,7 @@
     "score_min": 0.35,
     "cut_detect": true,
     "cut_method": "high_precision",
+    "precompute_cuts_during_inference": true,
     "remove_short_tracks_max_frames": 10,
     "keyframe_interval": 3,
     "face_mask_target": "eyes",

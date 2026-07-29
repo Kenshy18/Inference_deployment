@@ -15,10 +15,12 @@ from typing import Any, TextIO
 
 from .config import OrchestrationConfig
 from .contracts import (
+    ArtifactError,
     read_postprocess_artifacts,
     validate_inference_sqlite,
     validate_legacy_mask_sqlite,
     validate_mask_sqlite,
+    validate_result_sqlite,
 )
 
 
@@ -28,6 +30,7 @@ INFERENCE_CLI = (
 )
 POSTPROCESS_CLI = REPOSITORY_ROOT / "postprocess" / "run_pipeline.py"
 PRECOMPUTE_CUTS_CLI = REPOSITORY_ROOT / "postprocess" / "precompute_cuts.py"
+PACKAGE_RESULT_CLI = REPOSITORY_ROOT / "postprocess" / "package_result.py"
 OVERLAY_ROOT = REPOSITORY_ROOT / "overlay"
 
 
@@ -40,6 +43,7 @@ class WorkflowArtifacts:
     inference_sqlite: Path
     tracked_sqlite: Path | None = None
     final_sqlite: Path | None = None
+    result_sqlite: Path | None = None
     legacy_final_sqlite: Path | None = None
 
 
@@ -140,9 +144,7 @@ class OrchestrationRunner:
             command.append("--face-classes")
             command.extend(settings.face_classes)
             if settings.face_trt_bundle is not None:
-                command.extend(
-                    ["--face-trt-bundle", str(settings.face_trt_bundle)]
-                )
+                command.extend(["--face-trt-bundle", str(settings.face_trt_bundle)])
         if settings.max_frames is not None:
             command.extend(["--max-frames", str(settings.max_frames)])
         if settings.parallel_models:
@@ -176,6 +178,8 @@ class OrchestrationRunner:
             str(self.config.input_video),
             "--output-dir",
             str(output),
+            "--orchestration-config-json",
+            str(self.output_root / "resolved_config.json"),
             "--shape-mode",
             settings.shape_mode,
             "--device",
@@ -185,6 +189,10 @@ class OrchestrationRunner:
         optional = (
             ("--pipeline-config", settings.pipeline_config),
             ("--class-policy-json", settings.class_policy_json),
+            (
+                "--class-postprocess-policy-json",
+                settings.class_postprocess_policy_json,
+            ),
             ("--score-min", settings.score_min),
             ("--cut-method", settings.cut_method),
             (
@@ -192,6 +200,7 @@ class OrchestrationRunner:
                 settings.remove_short_tracks_max_frames,
             ),
             ("--keyframe-interval", settings.keyframe_interval),
+            ("--max-gap", settings.max_gap),
             ("--model-root", settings.model_root),
             ("--k2-run-dir", settings.k2_run_dir),
         )
@@ -201,9 +210,7 @@ class OrchestrationRunner:
         if settings.export_legacy_sqlite:
             command.append("--export-legacy-sqlite")
         if precomputed_cuts is not None:
-            command.extend(
-                ["--precomputed-cuts-json", str(precomputed_cuts)]
-            )
+            command.extend(["--precomputed-cuts-json", str(precomputed_cuts)])
         if settings.face_mask_target != "none":
             command.extend(
                 [
@@ -305,6 +312,41 @@ class OrchestrationRunner:
         command.extend(settings.extra_args)
         return command
 
+    def package_result_command(
+        self,
+        *,
+        inference_sqlite: Path,
+        output: Path,
+        tracked_sqlite: Path | None = None,
+        final_sqlite: Path | None = None,
+    ) -> list[str]:
+        command = [
+            str(self.config.execution.runtime_python),
+            str(PACKAGE_RESULT_CLI),
+            "--input-sqlite",
+            str(inference_sqlite),
+            "--output-sqlite",
+            str(output),
+            "--orchestration-config-json",
+            str(self.output_root / "resolved_config.json"),
+        ]
+        if tracked_sqlite is not None:
+            command.extend(["--tracked-sqlite", str(tracked_sqlite)])
+        if final_sqlite is not None:
+            command.extend(["--final-sqlite", str(final_sqlite)])
+        if self.config.postprocess.face_mask_target != "none":
+            command.extend(
+                [
+                    "--face-mask-target",
+                    self.config.postprocess.face_mask_target,
+                    "--eye-mask-shape",
+                    self.config.postprocess.eye_mask_shape,
+                    "--minimum-eye-confidence",
+                    str(self.config.postprocess.minimum_eye_confidence),
+                ]
+            )
+        return command
+
     def plan(self) -> dict[str, object]:
         inference_output = self.output_root / "01_inference" / "inference.sqlite"
         inference_source = (
@@ -371,6 +413,20 @@ class OrchestrationRunner:
                     ),
                 }
             )
+        else:
+            result_output = self.output_root / "02_result" / "result.sqlite"
+            plan.append(
+                {
+                    "stage": "result_packaging",
+                    "uses_gpu": False,
+                    "command": self.package_result_command(
+                        inference_sqlite=inference_source,
+                        tracked_sqlite=self.config.postprocess.tracked_sqlite,
+                        final_sqlite=self.config.postprocess.final_sqlite,
+                        output=result_output,
+                    ),
+                }
+            )
         if self.config.overlay.enabled:
             plan.append(
                 {
@@ -409,15 +465,14 @@ class OrchestrationRunner:
             cut_stage = self._start_cut_precompute()
             artifacts = self._run_inference()
             precomputed_cuts = (
-                self._finish_background(cut_stage)
-                if cut_stage is not None
-                else None
+                self._finish_background(cut_stage) if cut_stage is not None else None
             )
             cut_stage = None
             artifacts = self._run_postprocess(
                 artifacts,
                 precomputed_cuts=precomputed_cuts,
             )
+            artifacts = self._run_result_packaging(artifacts)
             self._run_overlays(artifacts)
         except BaseException as exc:
             if cut_stage is not None:
@@ -533,26 +588,43 @@ class OrchestrationRunner:
                 raise OrchestrationError(
                     "postprocess did not publish legacy_predictions_sqlite"
                 )
-            published = {
-                "postprocess_manifest": manifest_path,
-                "tracked_sqlite": tracked,
-                "final_sqlite": final,
-            }
-            validation = {
-                "tracked_sqlite": validate_mask_sqlite(tracked),
-                "final_sqlite": validate_mask_sqlite(final),
-            }
+            validate_mask_sqlite(tracked)
+            published = {"postprocess_manifest": manifest_path}
+            validation: dict[str, object] = {}
+            integrated = False
+            try:
+                result_validation = validate_result_sqlite(
+                    final,
+                    require_segmentation=self.config.inference.uses_segmentation,
+                    require_faces=self.config.inference.uses_faces,
+                    expected_face_model=(
+                        self.config.inference.face_model
+                        if self.config.inference.uses_faces
+                        else None
+                    ),
+                )
+            except ArtifactError:
+                # Custom and older pipelines can still return a mask-only final
+                # SQLite.  The following result_packaging stage promotes it to
+                # the same stable public contract.
+                pass
+            else:
+                integrated = True
+                published["result_sqlite"] = final
+                validation["result_sqlite"] = result_validation
             if legacy is not None:
                 published["legacy_final_sqlite"] = legacy
                 validation["legacy_final_sqlite"] = validate_legacy_mask_sqlite(legacy)
             self._publish_artifacts(
                 published,
                 validation=validation,
+                replace_sqlite_outputs=integrated,
             )
             return WorkflowArtifacts(
                 inference_sqlite=artifacts.inference_sqlite,
                 tracked_sqlite=tracked,
                 final_sqlite=final,
+                result_sqlite=final if integrated else None,
                 legacy_final_sqlite=legacy,
             )
         tracked = settings.tracked_sqlite
@@ -569,6 +641,68 @@ class OrchestrationRunner:
             final_sqlite=final,
         )
 
+    def _run_result_packaging(
+        self,
+        artifacts: WorkflowArtifacts,
+    ) -> WorkflowArtifacts:
+        """Guarantee one stable public result SQLite for every mode."""
+
+        if artifacts.result_sqlite is not None:
+            validation = validate_result_sqlite(
+                artifacts.result_sqlite,
+                require_segmentation=self.config.inference.uses_segmentation,
+                require_faces=self.config.inference.uses_faces,
+                expected_face_model=(
+                    self.config.inference.face_model
+                    if self.config.inference.uses_faces
+                    else None
+                ),
+            )
+            self._publish_artifacts(
+                {"result_sqlite": artifacts.result_sqlite},
+                validation={"result_sqlite": validation},
+            )
+            return artifacts
+
+        output = self.output_root / "02_result" / "result.sqlite"
+        if not self._can_resume_stage(
+            "result_packaging",
+            {"result_sqlite": output},
+        ):
+            output.parent.mkdir(parents=True, exist_ok=True)
+            self._execute(
+                "result_packaging",
+                self.package_result_command(
+                    inference_sqlite=artifacts.inference_sqlite,
+                    tracked_sqlite=artifacts.tracked_sqlite,
+                    final_sqlite=artifacts.final_sqlite,
+                    output=output,
+                ),
+                cpu_only=True,
+            )
+        validation = validate_result_sqlite(
+            output,
+            require_segmentation=self.config.inference.uses_segmentation,
+            require_faces=self.config.inference.uses_faces,
+            expected_face_model=(
+                self.config.inference.face_model
+                if self.config.inference.uses_faces
+                else None
+            ),
+        )
+        self._publish_artifacts(
+            {"result_sqlite": output},
+            validation={"result_sqlite": validation},
+            replace_sqlite_outputs=True,
+        )
+        return WorkflowArtifacts(
+            inference_sqlite=artifacts.inference_sqlite,
+            tracked_sqlite=artifacts.tracked_sqlite,
+            final_sqlite=artifacts.final_sqlite,
+            result_sqlite=output,
+            legacy_final_sqlite=artifacts.legacy_final_sqlite,
+        )
+
     def _start_cut_precompute(self) -> BackgroundStage | None:
         settings = self.config.postprocess
         if not settings.precompute_cuts_during_inference:
@@ -583,9 +717,7 @@ class OrchestrationRunner:
             str(output),
         ]
         if self.config.inference.max_frames is not None:
-            command.extend(
-                ["--max-frames", str(self.config.inference.max_frames)]
-            )
+            command.extend(["--max-frames", str(self.config.inference.max_frames)])
         output.parent.mkdir(parents=True, exist_ok=True)
         log_path = self.logs_dir / "cut_precompute.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -612,9 +744,7 @@ class OrchestrationRunner:
 
         def wait_for_completion() -> None:
             return_code = process.wait()
-            completion.append(
-                (return_code, time.perf_counter(), _utc_now())
-            )
+            completion.append((return_code, time.perf_counter(), _utc_now()))
 
         waiter = threading.Thread(
             target=wait_for_completion,
@@ -695,27 +825,41 @@ class OrchestrationRunner:
         output_root.mkdir(parents=True, exist_ok=True)
         requested: list[tuple[str, Path, Path | None]] = []
         if settings.raw:
-            requested.append(("raw", artifacts.inference_sqlite, None))
+            requested.append(
+                (
+                    "raw",
+                    artifacts.result_sqlite or artifacts.inference_sqlite,
+                    None,
+                )
+            )
         if settings.tracked:
-            if artifacts.tracked_sqlite is None:
+            tracked_source = artifacts.result_sqlite or artifacts.tracked_sqlite
+            if tracked_source is None:
                 raise OrchestrationError("tracked overlay has no tracked SQLite")
-            requested.append(("tracked", artifacts.tracked_sqlite, None))
+            requested.append(("tracked", tracked_source, None))
         if settings.final:
-            if artifacts.final_sqlite is None:
+            final_source = artifacts.result_sqlite or artifacts.final_sqlite
+            if final_source is None:
                 raise OrchestrationError("final overlay has no final SQLite")
             requested.append(
                 (
                     "final",
-                    artifacts.final_sqlite,
+                    final_source,
                     (
-                        artifacts.inference_sqlite
+                        artifacts.result_sqlite or artifacts.inference_sqlite
                         if settings.final_include_faces
                         else None
                     ),
                 )
             )
         if settings.faces:
-            requested.append(("faces", artifacts.inference_sqlite, None))
+            requested.append(
+                (
+                    "faces",
+                    artifacts.result_sqlite or artifacts.inference_sqlite,
+                    None,
+                )
+            )
         for mode, source, face_source in requested:
             output = output_root / f"{mode}.mp4"
             output_manifest = output.with_suffix(".json")
@@ -854,12 +998,28 @@ class OrchestrationRunner:
         artifacts: dict[str, Path],
         *,
         validation: dict[str, object] | None = None,
+        replace_sqlite_outputs: bool = False,
     ) -> None:
         current = dict(self.manifest.get("artifacts", {}))
+        if replace_sqlite_outputs:
+            for name in (
+                "inference_sqlite",
+                "tracked_sqlite",
+                "final_sqlite",
+            ):
+                current.pop(name, None)
         current.update({name: str(path) for name, path in artifacts.items()})
         self.manifest["artifacts"] = current
         if validation:
             checks = dict(self.manifest.get("validation", {}))
+            if replace_sqlite_outputs:
+                for name in (
+                    "inference_sqlite",
+                    "tracked_sqlite",
+                    "internal_tracked_sqlite",
+                    "final_sqlite",
+                ):
+                    checks.pop(name, None)
             checks.update(validation)
             self.manifest["validation"] = checks
         self._save_manifest()

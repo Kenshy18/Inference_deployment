@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "input_video": "/home/kenshin/inference_backend2/data/codino_trt_3min_simple150_input.mp4",
+  "output_root": "/home/kenshin/inference_backend2/orchestration/output/parallel_value_3min_20260728/01_sequential_inline_cut",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": true,
+    "mode": "segmentation-face",
+    "segmentation_model": "dinov3_codino_mh0",
+    "segmentation_backend": "tensorrt-fast",
+    "face_model": "face_dino_v2",
+    "face_classes": ["Face", "Head"],
+    "device": "cuda:0",
+    "max_frames": 5290,
+    "warmup_frames": 0,
+    "face_warmup_iterations": 3,
+    "parallel_models": false,
+    "fast_sqlite": true
+  },
+  "postprocess": {
+    "enabled": true,
+    "shape_mode": "polygon",
+    "score_min": 0.35,
+    "cut_detect": true,
+    "cut_method": "high_precision",
+    "precompute_cuts_during_inference": false,
+    "remove_short_tracks_max_frames": 10,
+    "keyframe_interval": 3,
+    "max_gap": 0,
+    "face_mask_target": "none",
+    "device": "cpu"
+  },
+  "overlay": {
+    "enabled": false
+  }
+}

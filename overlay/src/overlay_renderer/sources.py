@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import json
 import sqlite3
+import tempfile
 import zlib
 from collections.abc import Iterator
 from pathlib import Path
@@ -17,6 +18,10 @@ from .models import (
     OverlayItem,
     Polygon,
     SourceInfo,
+)
+from .keyframe_cache import (
+    is_keyframe_primary,
+    materialize_overlay_cache,
 )
 
 
@@ -266,6 +271,52 @@ def inspect_mask_source(path: Path) -> SourceInfo:
     resolved = Path(path).expanduser().resolve()
     connection = _connect_read_only(resolved)
     try:
+        if is_keyframe_primary(resolved):
+            _validate_columns(
+                connection,
+                {
+                    "result_schema_info": {"key", "value"},
+                    "mask_track_segments": {
+                        "start_frame",
+                        "end_frame",
+                    },
+                    "mask_keyframes": {"id"},
+                    "annotation_state": {
+                        "revision",
+                        "authoritative_geometry",
+                        "dense_cache_policy",
+                    },
+                },
+                path=resolved,
+            )
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS item_count,
+                       MIN(start_frame) AS first_frame,
+                       MAX(end_frame) AS last_frame
+                FROM mask_track_segments
+                """
+            ).fetchone()
+            width, height, fps = _video_metadata(connection)
+            return SourceInfo(
+                path=resolved,
+                schema="keyframe-primary-v3",
+                role="mask",
+                item_count=int(row["item_count"]),
+                first_frame=(
+                    None
+                    if row["first_frame"] is None
+                    else int(row["first_frame"])
+                ),
+                last_frame=(
+                    None
+                    if row["last_frame"] is None
+                    else int(row["last_frame"])
+                ),
+                width=width,
+                height=height,
+                fps=fps,
+            )
         _validate_columns(connection, MASK_COLUMNS, path=resolved)
         integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
         if integrity != "ok":
@@ -447,18 +498,52 @@ def iter_mask_frames(
     path: Path,
     *,
     display_style: str = "legacy",
+    prefer_tracked: bool = False,
+    start_frame: int = 0,
+    end_frame: int | None = None,
 ) -> Iterator[FrameOverlay]:
     """Stream tracked or final postprocess masks grouped by frame."""
 
     resolved = Path(path).expanduser().resolve()
+    if is_keyframe_primary(resolved):
+        with tempfile.TemporaryDirectory(
+            prefix="overlay-keyframe-cache-"
+        ) as temporary:
+            cache = Path(temporary) / "masks.sqlite"
+            materialize_overlay_cache(
+                resolved,
+                cache,
+                mode="tracked" if prefer_tracked else "final",
+                start_frame=start_frame,
+                end_frame=end_frame,
+            )
+            yield from iter_mask_frames(
+                cache,
+                display_style=display_style,
+                prefer_tracked=False,
+                start_frame=start_frame,
+                end_frame=end_frame,
+            )
+        return
     connection = _connect_read_only(resolved)
     try:
         _validate_columns(connection, MASK_COLUMNS, path=resolved)
-        columns = _columns(connection, "masks")
+        tables = _tables(connection)
+        mask_table = (
+            "tracked_masks"
+            if prefer_tracked and "tracked_masks" in tables
+            else "masks"
+        )
+        if mask_table != "masks":
+            _validate_columns(
+                connection,
+                {mask_table: MASK_COLUMNS["masks"]},
+                path=resolved,
+            )
+        columns = _columns(connection, mask_table)
         label_expression = (
             "COALESCE(label, '') AS label" if "label" in columns else "'' AS label"
         )
-        tables = _tables(connection)
         has_raw_audit = "raw_tracked_masks" in tables
         audit_join = (
             """
@@ -485,7 +570,7 @@ def iter_mask_frames(
             f"""
             SELECT m.frame, m.track_id, m.polygons, {label_expression},
                    {score_expression}
-            FROM masks m
+            FROM {mask_table} m
             {audit_join}
             ORDER BY m.frame, m.track_id
             """

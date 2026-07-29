@@ -37,6 +37,9 @@ python3 -m orchestration --config config.json --dry-run
 ```json
 {
   "inference": {
+    "mode": "segmentation-face",
+    "segmentation_model": "dinov3_codino_mh0",
+    "face_model": "face_dino_v2",
     "parallel_models": true,
     "parallel_model_stagger_seconds": 0.0,
     "fast_sqlite": true
@@ -47,13 +50,23 @@ python3 -m orchestration --config config.json --dry-run
 }
 ```
 
-- `parallel_models`: segmentationと顔検出を隔離プロセスのまま同時実行
-- `parallel_model_stagger_seconds`: モデル起動間隔。RTX 5090での3分実測では`0.0`が最速
+- `parallel_models`: segmentationと顔検出を隔離プロセスのまま同時実行。
+  `mode=segmentation-face`、高速`dinov3_codino_mh0`、新顔検出
+  `face_dino_v2`の3条件を満たす場合だけ`true`を選択できる。RTX 5090・
+  3分の同条件比較では推論を74.69秒から60.55秒へ18.9%短縮した。
+  巨大`dinov3_codino`、旧顔検出、片方だけの推論では設定エラーになる
+- `parallel_model_stagger_seconds`: モデル起動間隔。`0.0`は完全同時。
+  高速`dinov3_codino_mh0`とFace DINO v2のRTX 5090実測では`0.0`が最速
 - `fast_sqlite`: SQLiteの異常終了耐性を速度優先に変更。最終公開はatomicのまま
 - `precompute_cuts_during_inference`: CPUカット検出を推論と重ね、同じ
-  `cuts.json`を後処理へ渡す。現在は`high_precision`方式に対応
+  `cuts.json`を後処理へ渡す。現在は`high_precision`方式に対応。3分の同条件比較
+  では並列推論を0.88秒遅くした一方、約4.03秒のカット検出を全て隠し、全体を
+  77.31秒から71.70秒へ短縮
 
-開始ずらしの最適値はGPUとモデルの組合せに依存します。0で完全同時です。
+開始ずらしの最適値はGPUと実行環境に依存します。
+採用判断の同条件A/Bは
+[`docs/PARALLEL_VALUE_BENCHMARK_20260728.md`](docs/PARALLEL_VALUE_BENCHMARK_20260728.md)
+にあります。
 3分の再現用設定と計測結果は
 [`configs/profile_3min_optimized_20260728.json`](configs/profile_3min_optimized_20260728.json)と
 [`docs/OPTIMIZATION_3MIN_20260728.md`](docs/OPTIMIZATION_3MIN_20260728.md)にあります。
@@ -93,6 +106,38 @@ postprocessも再利用する場合は、tracked/finalを明示します。
 Postprocess実行時に旧`Dinov3_postprocess`互換SQLiteも作る場合は、
 `postprocess.export_legacy_sqlite: true`を設定します。現行成果物はそのまま
 生成され、互換版が追加されます。
+
+### クラス別後処理
+
+性器クラスごとに形状、キーフレーム密度、欠損補完上限を変える場合は、
+postprocess policyを指定します。
+
+```json
+{
+  "postprocess": {
+    "enabled": true,
+    "shape_mode": "polygon",
+    "keyframe_interval": 3,
+    "max_gap": 0,
+    "class_postprocess_policy_json":
+      "../../postprocess/configs/class_postprocess_policy.example.json",
+    "device": "cuda:0"
+  }
+}
+```
+
+`shape_mode`、`keyframe_interval`、`max_gap`はpolicyに値がない場合の共通
+fallbackです。policy内はクラス指定、`default`、このfallbackの順に解決します。
+`max_gap=0`は観測のないフレームを追加せず、正数は両側に同一trackが存在する
+欠損をそのフレーム数まで補完します。
+
+オーケストレーターはpolicyに楕円クラスが1つでもあればpostprocessをGPU stage
+として計画し、CLIへpolicyをそのまま渡します。設定例は
+[`../postprocess/configs/class_postprocess_policy.example.json`](../postprocess/configs/class_postprocess_policy.example.json)
+です。任意グラフの`postprocess.pipeline_config`とは併用できません。10分入力の
+実測値は
+[`docs/CLASSWISE_POSTPROCESS_BENCHMARK_20260728.md`](docs/CLASSWISE_POSTPROCESS_BENCHMARK_20260728.md)
+にあります。
 
 ## Overlay設定
 
@@ -223,10 +268,14 @@ output_root/
 ├── 00_preflight/
 │   └── cuts.json
 ├── 01_inference/
-│   └── inference.sqlite
+│   └── inference.sqlite             # 内部中間成果物
 ├── 02_postprocess/
 │   ├── pipeline_manifest.json
-│   └── ...
+│   ├── ...                          # 内部中間成果物
+│   └── NN_integrated_result_sqlite/
+│       └── result.sqlite            # 後処理ありの公開SQLite
+├── 02_result/
+│   └── result.sqlite                # 後処理なしの場合の公開SQLite
 └── 03_overlay/
     ├── raw.mp4
     ├── raw.json
@@ -235,13 +284,70 @@ output_root/
     └── faces.mp4
 ```
 
-最終SQLiteの場所はstage番号から推測せず、postprocessの
-`pipeline_manifest.json`を使用します。顔後処理が有効なら
-`combined_predictions_sqlite`、無効なら`predictions_sqlite`が最終成果物です。
-orchestrationはこの選択を自動で行います。各overlay JSONには選択した実行方式、
-overlay種別、入力role、encode設定と処理結果が記録されます。
+後処理の有無、性器検出の有無、旧/新顔検出の組み合わせにかかわらず、公開
+SQLiteは`result_sqlite`の1つです。推論の全生出力を保持したまま、
+`tracking_assignments`、最終編集キーフレーム、`tracks`、`cuts`、監査・
+provenanceテーブルを常に同じ列契約で持ちます。実行していない機能は
+テーブル欠落ではなく空テーブルで表現し、`result_capabilities`で利用可否と
+件数を確認できます。
+stage番号から場所を推測せず、
+`run_manifest.json`の`artifacts.result_sqlite`を使用してください。
+raw/tracked/final/facesのoverlayもこの1ファイルだけを読みます。
 
-`postprocess.export_legacy_sqlite: true`では、現行`final_sqlite`とは別に旧
+安定契約は`result_schema_info`の
+`schema_version=3`、`compatibility_profile=keyframe-primary-v3`、
+`contract_revision=4`で識別します。
+`result_capabilities`には`instance_segmentation`、`face_detection`、
+`rich_face_geometry`、`tracking_assignments`、`final_annotations`、
+`cut_detection`、
+`classwise_postprocess`、`face_privacy_masks`などが入り、各行は
+`available`、`row_count`、`source_table`、`details_json`を持ちます。
+
+ソフトウェア編集用には`mask_track_segments`、`mask_keyframes`、
+`keyframe_components`を起点に、`keyframe_ellipses`、
+`keyframe_rectangles`、`keyframe_polygon_rings/points`を読みます。後処理楕円は
+96点polygonではなく中心・半径・radian角度、ポリゴンは選択された実
+keyframe頂点として保存されます。`editable_keyframe_components`と
+`editable_polygon_vertices`は安定reader viewです。
+`annotation_state`はこのキーフレーム層が唯一の編集正本であり、毎フレーム
+形状を永続cacheとして持たないことを明示します。overlayはV3から必要範囲の
+一時cacheを生成して既存の高速rendererへ渡します。
+
+`result_components`は未実行、非対応、実行済み0件を区別します。
+`processing_runs`にはpostprocess CLIとオーケストレーターの解決済み設定、
+`processing_stage_runs`にはstage実装、options、device、所要時間を保存します。
+
+顔だけの`inference.mode=face`では、未指定時のpostprocessは自動的に無効となり、
+overlayは`faces=true`、`raw/tracked/final=false`になります。性器推論で
+postprocessを明示的に無効にした場合も、rawだけが既定で有効です。
+
+新顔検出だけからソフトウェア用の顔／目マスクを作る場合は、性器pipelineを
+起動せず、result packaging内で直接生成できます。
+
+```json
+{
+  "inference": {
+    "mode": "face",
+    "face_model": "face_dino_v2"
+  },
+  "postprocess": {
+    "face_mask_target": "eyes",
+    "eye_mask_shape": "ellipse",
+    "minimum_eye_confidence": 0.35
+  }
+}
+```
+
+この場合も顔／目マスクは通常の`mask_keyframes`、`tracks`、
+`mask_provenance`に入り、`final_annotations`と`face_privacy_masks`
+capabilityが有効になります。
+
+`01_inference`と各postprocess stageのSQLiteは、失敗時の安全性、stage契約、
+resumeのための内部中間成果物です。`run_manifest.json`の公開artifactには出さず、
+下流ソフトウェアへ渡しません。各overlay JSONには選択した実行方式、overlay
+種別、入力role、encode設定と処理結果が記録されます。
+
+`postprocess.export_legacy_sqlite: true`では、現行`result_sqlite`とは別に旧
 `Dinov3_postprocess`互換の`legacy_final_sqlite`もrun manifestへ公開します。
 互換版は旧契約の`masks`、`tracks`、`cuts`のみを持ち、元マスクおよび詳細な
 カット検出メタデータは現行SQLiteにだけ保持されます。

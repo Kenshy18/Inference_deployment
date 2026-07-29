@@ -70,6 +70,7 @@ def _create_staging_schema(connection: sqlite3.Connection) -> None:
             frame INTEGER NOT NULL,
             raw_track_id TEXT NOT NULL,
             raw_detection_index INTEGER NOT NULL,
+            source_detection_id INTEGER,
             candidate_label TEXT NOT NULL,
             raw_label TEXT NOT NULL,
             polygons TEXT NOT NULL,
@@ -105,11 +106,12 @@ def _flush_staging_rows(
         """
         INSERT INTO tracking_row_staging(
             frame, raw_track_id, raw_detection_index,
+            source_detection_id,
             candidate_label, raw_label, polygons,
             score, detector_score, class_score,
             category_id, category_index,
             bbox_xyxy_json, bbox_json, scene_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -236,6 +238,7 @@ def build_tracked_sqlite(
                             frame_index,
                             raw_track_id,
                             detection_index,
+                            _optional_int(detection.get("source_detection_id")),
                             candidate_label,
                             raw_label,
                             polygons_json,
@@ -335,13 +338,15 @@ def build_tracked_sqlite(
             connection.execute(
                 """
                 INSERT OR REPLACE INTO raw_tracked_masks(
-                    frame, raw_track_id, raw_detection_index, final_track_id,
+                    frame, raw_track_id, raw_detection_index,
+                    source_detection_id, final_track_id,
                     removed_by_short_track, raw_track_length, raw_label,
                     final_label, polygons, score, detector_score, class_score,
                     category_id, category_index, bbox_xyxy_json, bbox_json,
                     scene_id
                 )
                 SELECT s.frame, s.raw_track_id, s.raw_detection_index,
+                       s.source_detection_id,
                        r.final_track_id, r.removed_by_short_track,
                        r.raw_track_length, s.raw_label,
                        CASE WHEN r.removed_by_short_track=0

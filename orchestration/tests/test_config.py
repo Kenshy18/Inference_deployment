@@ -14,6 +14,291 @@ from helpers import create_video
 
 
 class ConfigTests(unittest.TestCase):
+    def test_mode_aware_defaults_keep_face_only_and_raw_only_configs_valid(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "face-output"),
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "face",
+                            "face_model": "face_dino_v2",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            face = OrchestrationConfig.load(config_path)
+            self.assertFalse(face.postprocess.enabled)
+            self.assertFalse(face.overlay.raw)
+            self.assertFalse(face.overlay.tracked)
+            self.assertFalse(face.overlay.final)
+            self.assertTrue(face.overlay.faces)
+
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "raw-output"),
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation",
+                        },
+                        "postprocess": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            raw = OrchestrationConfig.load(config_path)
+            self.assertTrue(raw.overlay.raw)
+            self.assertFalse(raw.overlay.tracked)
+            self.assertFalse(raw.overlay.final)
+            self.assertFalse(raw.overlay.faces)
+
+    def test_face_only_privacy_mask_is_packaged_without_segmentation_pipeline(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "face",
+                            "face_model": "face_dino_v2",
+                        },
+                        "postprocess": {
+                            "face_mask_target": "eyes",
+                            "eye_mask_shape": "rectangle",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            self.assertFalse(config.postprocess.enabled)
+            command = OrchestrationRunner(config).package_result_command(
+                inference_sqlite=sqlite,
+                output=root / "result.sqlite",
+            )
+            self.assertEqual(
+                "eyes",
+                command[command.index("--face-mask-target") + 1],
+            )
+            self.assertEqual(
+                "rectangle",
+                command[command.index("--eye-mask-shape") + 1],
+            )
+
+    def test_parallel_models_is_available_only_for_compact_dino_and_new_face(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            config_path = root / "config.json"
+
+            def write_config(
+                *,
+                mode: str,
+                segmentation_model: str,
+                face_model: str,
+            ) -> None:
+                config_path.write_text(
+                    json.dumps(
+                        {
+                            "input_video": str(video),
+                            "output_root": str(root / "output"),
+                            "execution": {"runtime_python": sys.executable},
+                            "inference": {
+                                "enabled": True,
+                                "mode": mode,
+                                "segmentation_model": segmentation_model,
+                                "face_model": face_model,
+                                "parallel_models": True,
+                            },
+                            "postprocess": {"enabled": False},
+                            "overlay": {"enabled": False},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            write_config(
+                mode="segmentation-face",
+                segmentation_model="dinov3_codino_mh0",
+                face_model="face_dino_v2",
+            )
+            approved = OrchestrationConfig.load(config_path)
+            self.assertIn(
+                "--parallel-models",
+                OrchestrationRunner(approved).inference_command(
+                    root / "inference.sqlite"
+                ),
+            )
+
+            invalid = (
+                ("segmentation-face", "dinov3_codino", "face_dino_v2"),
+                (
+                    "segmentation-face",
+                    "dinov3_codino_mh0",
+                    "rtdetr_head_face",
+                ),
+                ("segmentation", "dinov3_codino_mh0", "face_dino_v2"),
+            )
+            for mode, segmentation_model, face_model in invalid:
+                with self.subTest(
+                    mode=mode,
+                    segmentation_model=segmentation_model,
+                    face_model=face_model,
+                ):
+                    write_config(
+                        mode=mode,
+                        segmentation_model=segmentation_model,
+                        face_model=face_model,
+                    )
+                    with self.assertRaisesRegex(
+                        OrchestrationConfigError,
+                        "mode=segmentation-face",
+                    ):
+                        OrchestrationConfig.load(config_path)
+
+    def test_class_postprocess_policy_is_typed_and_forwarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            policy = root / "class-postprocess.json"
+            policy.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default": {
+                            "shape_mode": "polygon",
+                            "keyframe_interval": 3,
+                            "max_gap": 0,
+                        },
+                        "classes": {
+                            "target": {
+                                "shape_mode": "ellipse",
+                                "keyframe_interval": 2,
+                                "max_gap": 12,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": True,
+                            "mode": "segmentation",
+                            "segmentation_model": "dinov3_codino",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "shape_mode": "polygon",
+                            "class_postprocess_policy_json": str(policy),
+                            "keyframe_interval": 4,
+                            "max_gap": 9,
+                            "device": "cuda:0",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            command = OrchestrationRunner(config).postprocess_command(
+                root / "inference.sqlite"
+            )
+
+            self.assertEqual(
+                policy.resolve(),
+                config.postprocess.class_postprocess_policy_json,
+            )
+            self.assertTrue(config.postprocess.uses_gpu)
+            self.assertEqual(
+                str(policy.resolve()),
+                command[command.index("--class-postprocess-policy-json") + 1],
+            )
+            self.assertEqual(
+                "9",
+                command[command.index("--max-gap") + 1],
+            )
+
+    def test_invalid_class_postprocess_policy_is_rejected_early(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            policy = root / "class-postprocess.json"
+            policy.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "classes": {
+                            "target": {
+                                "shape_mode": "spline",
+                                "keyframe_interval": 0,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": True,
+                            "mode": "segmentation",
+                            "segmentation_model": "dinov3_codino",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "class_postprocess_policy_json": str(policy),
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                OrchestrationConfigError,
+                "shape_mode must be polygon or ellipse",
+            ):
+                OrchestrationConfig.load(config_path)
+
     def test_cut_precompute_records_its_own_elapsed_time(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -97,15 +382,11 @@ class ConfigTests(unittest.TestCase):
             runner = OrchestrationRunner(config, dry_run=True)
             plan = runner.plan()
             postprocess = next(
-                stage
-                for stage in plan["stages"]
-                if stage["stage"] == "postprocess"
+                stage for stage in plan["stages"] if stage["stage"] == "postprocess"
             )
             command = postprocess["command"]
             self.assertIn("--precomputed-cuts-json", command)
-            self.assertTrue(
-                config.postprocess.precompute_cuts_during_inference
-            )
+            self.assertTrue(config.postprocess.precompute_cuts_during_inference)
 
     def test_face_trt_bundle_is_typed_and_forwarded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -260,15 +541,12 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(config.postprocess.uses_gpu)
             plan = OrchestrationRunner(config, dry_run=True).plan()
             postprocess = next(
-                stage for stage in plan["stages"]
-                if stage["stage"] == "postprocess"
+                stage for stage in plan["stages"] if stage["stage"] == "postprocess"
             )
             self.assertTrue(postprocess["uses_gpu"])
             self.assertEqual(
                 "cuda:0",
-                postprocess["command"][
-                    postprocess["command"].index("--device") + 1
-                ],
+                postprocess["command"][postprocess["command"].index("--device") + 1],
             )
 
     def test_invalid_postprocess_device_is_rejected(self) -> None:

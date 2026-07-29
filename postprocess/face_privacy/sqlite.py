@@ -43,10 +43,7 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
 
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    return {
-        str(row[1])
-        for row in connection.execute(f'PRAGMA table_info("{table}")')
-    }
+    return {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
 
 
 def _validate_rich_face_input(connection: sqlite3.Connection, path: Path) -> None:
@@ -101,9 +98,7 @@ def _validate_rich_face_input(connection: sqlite3.Connection, path: Path) -> Non
 
 def _iter_observations(
     connection: sqlite3.Connection,
-) -> Iterator[
-    tuple[int, int, float, FaceEllipse | None, tuple[FaceKeypoint, ...]]
-]:
+) -> Iterator[tuple[int, int, float, FaceEllipse | None, tuple[FaceKeypoint, ...]]]:
     points = iter(
         connection.execute(
             """
@@ -134,10 +129,7 @@ def _iter_observations(
         while current is not None and int(current["observation_id"]) < observation_id:
             current = next(points, None)
         keypoints: list[FaceKeypoint] = []
-        while (
-            current is not None
-            and int(current["observation_id"]) == observation_id
-        ):
+        while current is not None and int(current["observation_id"]) == observation_id:
             keypoints.append(
                 FaceKeypoint(
                     x=float(current["x"]),
@@ -235,6 +227,18 @@ def export_face_masks(
                         algorithm_version TEXT NOT NULL,
                         PRIMARY KEY(frame, track_id)
                     );
+                    CREATE TABLE face_mask_geometries(
+                        frame INTEGER NOT NULL,
+                        track_id TEXT NOT NULL,
+                        geometry_type TEXT NOT NULL
+                            CHECK(geometry_type IN ('ellipse', 'rectangle')),
+                        cx REAL NOT NULL,
+                        cy REAL NOT NULL,
+                        half_width REAL NOT NULL CHECK(half_width > 0),
+                        half_height REAL NOT NULL CHECK(half_height > 0),
+                        theta_radians REAL NOT NULL,
+                        PRIMARY KEY(frame, track_id)
+                    );
                     CREATE INDEX idx_face_masks_frame ON masks(frame);
                     """
                 )
@@ -248,14 +252,13 @@ def export_face_masks(
                             "source_sqlite": str(resolved_source),
                             "target": target,
                             "eye_shape": eye_shape if target == "eyes" else "ellipse",
-                            "minimum_eye_confidence": repr(
-                                minimum_eye_confidence
-                            ),
+                            "minimum_eye_confidence": repr(minimum_eye_confidence),
                         }.items()
                     ),
                 )
                 mask_rows: list[tuple[object, ...]] = []
                 provenance_rows: list[tuple[object, ...]] = []
+                geometry_rows: list[tuple[object, ...]] = []
                 track_rows: list[tuple[str, str]] = []
                 for (
                     frame,
@@ -282,12 +285,7 @@ def export_face_masks(
                         else mask.confidence
                     )
                     polygons = json.dumps(
-                        [
-                            [
-                                [float(x), float(y)]
-                                for x, y in mask.polygon
-                            ]
-                        ],
+                        [[[float(x), float(y)] for x, y in mask.polygon]],
                         ensure_ascii=False,
                         separators=(",", ":"),
                         allow_nan=False,
@@ -312,27 +310,41 @@ def export_face_masks(
                             ALGORITHM_VERSION,
                         )
                     )
+                    geometry_rows.append(
+                        (
+                            frame,
+                            track_id,
+                            mask.shape,
+                            float(mask.center[0]),
+                            float(mask.center[1]),
+                            float(mask.half_width),
+                            float(mask.half_height),
+                            float(mask.theta_radians),
+                        )
+                    )
                     track_rows.append((track_id, label))
                     counts[mask.derivation] += 1
-                    first_frame = frame if first_frame is None else min(first_frame, frame)
+                    first_frame = (
+                        frame if first_frame is None else min(first_frame, frame)
+                    )
                     last_frame = frame if last_frame is None else max(last_frame, frame)
                     if len(mask_rows) >= 1000:
                         _insert_rows(
                             output_connection,
                             mask_rows,
                             provenance_rows,
+                            geometry_rows,
                             track_rows,
                         )
                 _insert_rows(
                     output_connection,
                     mask_rows,
                     provenance_rows,
+                    geometry_rows,
                     track_rows,
                 )
                 integrity = str(
-                    output_connection.execute(
-                        "PRAGMA integrity_check"
-                    ).fetchone()[0]
+                    output_connection.execute("PRAGMA integrity_check").fetchone()[0]
                 )
                 if integrity != "ok":
                     raise RuntimeError(
@@ -346,9 +358,7 @@ def export_face_masks(
     return {
         "target": target,
         "shape": eye_shape if target == "eyes" else "ellipse",
-        "rows": sum(
-            count for name, count in counts.items() if name != "not_emitted"
-        ),
+        "rows": sum(count for name, count in counts.items() if name != "not_emitted"),
         "first_frame": first_frame,
         "last_frame": last_frame,
         "derivations": dict(sorted(counts.items())),
@@ -359,6 +369,7 @@ def _insert_rows(
     connection: sqlite3.Connection,
     masks: list[tuple[object, ...]],
     provenance: list[tuple[object, ...]],
+    geometries: list[tuple[object, ...]],
     tracks: list[tuple[str, str]],
 ) -> None:
     if not masks:
@@ -381,11 +392,21 @@ def _insert_rows(
         provenance,
     )
     connection.executemany(
+        """
+        INSERT INTO face_mask_geometries(
+            frame, track_id, geometry_type, cx, cy,
+            half_width, half_height, theta_radians
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        geometries,
+    )
+    connection.executemany(
         "INSERT INTO tracks(track_id, label) VALUES (?, ?)",
         tracks,
     )
     masks.clear()
     provenance.clear()
+    geometries.clear()
     tracks.clear()
 
 
@@ -438,20 +459,18 @@ def merge_face_masks(
             # journal mode.  Keep all merged rows in the main temporary file:
             # only that file is atomically renamed into place below.
             journal_mode = str(
-                output_connection.execute(
-                    "PRAGMA journal_mode=DELETE"
-                ).fetchone()[0]
+                output_connection.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
             )
             if journal_mode.lower() != "delete":
                 raise RuntimeError(
                     "failed to switch merged SQLite journal mode to DELETE: "
                     f"{journal_mode}"
                 )
-            output_connection.execute("ATTACH DATABASE ? AS face_db", (str(resolved_faces),))
+            output_connection.execute(
+                "ATTACH DATABASE ? AS face_db", (str(resolved_faces),)
+            )
             face_info = dict(
-                output_connection.execute(
-                    "SELECT key, value FROM face_db.schema_info"
-                )
+                output_connection.execute("SELECT key, value FROM face_db.schema_info")
             )
             if (
                 face_info.get("schema_name") != SCHEMA_NAME
@@ -508,6 +527,28 @@ def merge_face_masks(
                 """
                 INSERT INTO mask_provenance
                 SELECT * FROM face_db.mask_provenance
+                """
+            )
+            output_connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS face_mask_geometries(
+                    frame INTEGER NOT NULL,
+                    track_id TEXT NOT NULL,
+                    geometry_type TEXT NOT NULL
+                        CHECK(geometry_type IN ('ellipse', 'rectangle')),
+                    cx REAL NOT NULL,
+                    cy REAL NOT NULL,
+                    half_width REAL NOT NULL CHECK(half_width > 0),
+                    half_height REAL NOT NULL CHECK(half_height > 0),
+                    theta_radians REAL NOT NULL,
+                    PRIMARY KEY(frame, track_id)
+                )
+                """
+            )
+            output_connection.execute(
+                """
+                INSERT INTO face_mask_geometries
+                SELECT * FROM face_db.face_mask_geometries
                 """
             )
             genital_count = int(

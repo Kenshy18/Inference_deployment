@@ -27,8 +27,16 @@ class PolygonGapFillStage:
             context.artifacts["approximated_sqlite"],
             output,
             interpolator=implementation,
+            max_gap=(
+                None
+                if self.options.get("max_gap") is None
+                else int(self.options["max_gap"])
+            ),
         )
         return StageResult(
             {"predictions_sqlite": output},
-            {"algorithm": implementation.name},
+            {
+                "algorithm": implementation.name,
+                "max_gap": self.options.get("max_gap"),
+            },
         )

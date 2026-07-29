@@ -4,10 +4,24 @@
 from __future__ import annotations
 
 import argparse
+import bisect
+from collections import Counter
+from dataclasses import dataclass
+import importlib.util
 import json
+import sqlite3
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+
+@dataclass(frozen=True)
+class VideoFrame:
+    """Presentation-order frame information from the container packet index."""
+
+    timestamp: int
+    keyframe: bool
 
 
 def parser() -> argparse.ArgumentParser:
@@ -113,8 +127,8 @@ def weighted_ranges(
     return ranges
 
 
-def probe_total_frames(ffmpeg: Path, video: Path) -> int:
-    """Read the indexed video-frame count without decoding the source."""
+def probe_video_frames(ffmpeg: Path, video: Path) -> list[VideoFrame]:
+    """Build a presentation-order packet index without decoding the video."""
     ffprobe = ffmpeg.with_name("ffprobe")
     command = [
         str(ffprobe),
@@ -122,22 +136,165 @@ def probe_total_frames(ffmpeg: Path, video: Path) -> int:
         "error",
         "-select_streams",
         "v:0",
+        "-show_packets",
         "-show_entries",
-        "stream=nb_frames",
+        "packet=pts,flags",
         "-of",
-        "default=noprint_wrappers=1:nokey=1",
+        "compact=p=0:nk=1",
         str(video),
     ]
-    value = subprocess.check_output(command, text=True).strip()
+    completed = subprocess.run(
+        command,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    packets: list[tuple[int, int, bool]] = []
+    for packet_order, line in enumerate(completed.stdout.splitlines()):
+        fields = line.split("|")
+        if not fields or fields[0] in {"", "N/A"}:
+            raise RuntimeError(
+                "source video packet has no PTS; fast frame-accurate seek "
+                "requires timestamped video packets"
+            )
+        try:
+            timestamp = int(fields[0])
+        except ValueError as exc:
+            raise RuntimeError(
+                f"invalid source video packet PTS: {fields[0]!r}"
+            ) from exc
+        flags = fields[1] if len(fields) > 1 else ""
+        packets.append((timestamp, packet_order, "K" in flags))
+    if not packets:
+        raise RuntimeError("source has no indexed video packets")
+
+    # Demux order follows DTS and is not presentation order when B-frames are
+    # present.  Sorting PTS gives the same ordinal used by decoded frames and
+    # by inference SQLite frame_index.
+    packets.sort(key=lambda item: (item[0], item[1]))
+    frames = [
+        VideoFrame(timestamp=timestamp, keyframe=keyframe)
+        for timestamp, _, keyframe in packets
+    ]
+    if any(
+        second.timestamp <= first.timestamp
+        for first, second in zip(frames, frames[1:])
+    ):
+        raise RuntimeError(
+            "source video PTS is not strictly increasing in presentation "
+            "order; fast frame-accurate seek is unavailable"
+        )
+    return frames
+
+
+def probe_reported_frames(ffmpeg: Path, video: Path) -> int | None:
+    """Read the container-reported frame count when it is available."""
+    ffprobe = ffmpeg.with_name("ffprobe")
+    value = subprocess.check_output(
+        [
+            str(ffprobe),
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_frames",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video),
+        ],
+        text=True,
+    ).strip()
+    if value in {"", "N/A"}:
+        return None
     try:
-        frames = int(value)
+        return int(value)
     except ValueError as exc:
         raise RuntimeError(
-            "source does not expose an indexed frame count; pass --end-frame"
+            f"invalid container-reported video frame count: {value!r}"
         ) from exc
-    if frames < 1:
-        raise RuntimeError(f"invalid source frame count: {frames}")
-    return frames
+
+
+def seek_anchor(
+    frames: list[VideoFrame],
+    frame_index: int,
+) -> tuple[int, VideoFrame]:
+    """Return the nearest keyframe at or before a requested frame."""
+    keyframes = [
+        index for index, frame in enumerate(frames) if frame.keyframe
+    ]
+    position = bisect.bisect_right(keyframes, frame_index) - 1
+    if position < 0:
+        raise RuntimeError(
+            f"no seekable keyframe exists at or before frame {frame_index}"
+        )
+    anchor_index = keyframes[position]
+    return anchor_index, frames[anchor_index]
+
+
+def is_keyframe_primary(path: Path) -> bool:
+    """Detect V3 without importing the optional Python renderer stack."""
+
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as connection:
+        table = connection.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='result_schema_info'
+            """
+        ).fetchone()
+        if table is None:
+            return False
+        profile = connection.execute(
+            """
+            SELECT value FROM result_schema_info
+            WHERE key='compatibility_profile'
+            """
+        ).fetchone()
+        return (
+            profile is not None
+            and str(profile[0]) == "keyframe-primary-v3"
+        )
+
+
+def materialize_keyframe_shards(
+    source: Path,
+    output_directory: Path,
+    *,
+    mode: str,
+    ranges: list[tuple[int, int]],
+    workers: int,
+) -> dict[str, object]:
+    # Loading overlay_renderer as a package imports OpenCV, which adds roughly
+    # three seconds to a short fast run even though cache generation does not
+    # use it.  Load the dependency-free module directly instead.
+    started = time.perf_counter()
+    module_name = "_overlay_keyframe_cache"
+    module_path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "overlay_renderer"
+        / "keyframe_cache.py"
+    )
+    specification = importlib.util.spec_from_file_location(
+        module_name, module_path
+    )
+    if specification is None or specification.loader is None:
+        raise RuntimeError(f"cannot load keyframe cache module: {module_path}")
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[module_name] = module
+    specification.loader.exec_module(module)
+    module_seconds = time.perf_counter() - started
+    summary = module.materialize_overlay_cache_shards(
+        source,
+        output_directory,
+        mode=mode,
+        frame_ranges=ranges,
+        workers=workers,
+    )
+    summary["module_load_seconds"] = module_seconds
+    summary["materialization_seconds"] = float(summary["seconds"])
+    summary["seconds"] = time.perf_counter() - started
+    return summary
 
 
 def main() -> None:
@@ -160,8 +317,27 @@ def main() -> None:
         else args.face_sqlite.expanduser().resolve()
     )
     output_dir = args.output_dir.expanduser().resolve()
+    index_started = time.perf_counter()
+    video_frames = probe_video_frames(ffmpeg, video)
+    reported_frames = probe_reported_frames(ffmpeg, video)
+    index_seconds = time.perf_counter() - index_started
+    if reported_frames is not None and reported_frames != len(video_frames):
+        raise RuntimeError(
+            "video packet/frame count mismatch: "
+            f"packets={len(video_frames)}, reported_frames={reported_frames}"
+        )
     if args.end_frame is None:
-        args.end_frame = probe_total_frames(ffmpeg, video) - 1
+        args.end_frame = len(video_frames) - 1
+    if args.start_frame >= len(video_frames):
+        raise ValueError(
+            f"start-frame {args.start_frame} exceeds the indexed source "
+            f"range 0..{len(video_frames) - 1}"
+        )
+    if args.end_frame >= len(video_frames):
+        raise ValueError(
+            f"end-frame {args.end_frame} exceeds the indexed source "
+            f"range 0..{len(video_frames) - 1}"
+        )
     output_dir.mkdir(parents=True, exist_ok=False)
 
     encoders = worker_encoders(args.workers, args.cpu_workers)
@@ -170,12 +346,32 @@ def main() -> None:
         for encoder in encoders
     ]
     ranges = weighted_ranges(args.start_frame, args.end_frame, weights)
+    cache_summary: dict[str, object] | None = None
+    worker_sqlites = [sqlite] * len(ranges)
+    if (
+        args.mode in {"tracked", "final"}
+        and is_keyframe_primary(sqlite)
+    ):
+        cache_summary = materialize_keyframe_shards(
+            sqlite,
+            output_dir / "keyframe_cache",
+            mode=args.mode,
+            ranges=ranges,
+            workers=args.workers,
+        )
+        worker_sqlites = [
+            Path(str(shard["cache_sqlite"]))
+            for shard in cache_summary["shards"]  # type: ignore[index]
+        ]
     processes: list[
         tuple[subprocess.Popen[str], object, dict[str, object]]
     ] = []
 
     parallel_started = time.perf_counter()
-    for index, ((start, end), encoder) in enumerate(zip(ranges, encoders)):
+    for index, ((start, end), encoder, worker_sqlite) in enumerate(
+        zip(ranges, encoders, worker_sqlites, strict=True)
+    ):
+        anchor_index, anchor = seek_anchor(video_frames, start)
         output = output_dir / f"segment_{index:02d}.mp4"
         summary_path = output_dir / f"segment_{index:02d}.json"
         error_path = output_dir / f"segment_{index:02d}.stderr.log"
@@ -187,7 +383,7 @@ def main() -> None:
             "--video",
             str(video),
             "--sqlite",
-            str(sqlite),
+            str(worker_sqlite),
             "--mode",
             args.mode,
             "--output",
@@ -210,6 +406,10 @@ def main() -> None:
             str(start),
             "--end-frame",
             str(end),
+            "--seek-frame-index",
+            str(anchor_index),
+            "--seek-timestamp",
+            str(anchor.timestamp),
         ]
         if args.hw_decode:
             command.append("--hw-decode")
@@ -237,6 +437,8 @@ def main() -> None:
             "preset": preset,
             "start_frame": start,
             "end_frame": end,
+            "seek_frame_index": anchor_index,
+            "seek_timestamp": anchor.timestamp,
             "output": str(output),
             "summary": str(summary_path),
             "stderr": str(error_path),
@@ -333,6 +535,19 @@ def main() -> None:
         audio_mux_seconds = time.perf_counter() - audio_mux_started
         concat_output.unlink()
     total_seconds = parallel_seconds + concat_seconds + audio_mux_seconds
+    cache_seconds = (
+        0.0
+        if cache_summary is None
+        else float(cache_summary["seconds"])
+    )
+    timestamp_deltas = [
+        second.timestamp - first.timestamp
+        for first, second in zip(video_frames, video_frames[1:])
+    ]
+    delta_counts = Counter(timestamp_deltas)
+    nominal_timestamp_delta = (
+        delta_counts.most_common(1)[0][0] if delta_counts else None
+    )
     summary = {
         "implementation": (
             "cpp-libav-hybrid-cpu-cuda-segmented"
@@ -364,11 +579,30 @@ def main() -> None:
         "start_frame": args.start_frame,
         "end_frame": args.end_frame,
         "frames": frames,
+        "source_frame_index": {
+            "method": "ffprobe-packet-pts",
+            "indexed_frames": len(video_frames),
+            "container_reported_frames": reported_frames,
+            "scan_seconds": index_seconds,
+            "nominal_timestamp_delta": nominal_timestamp_delta,
+            "non_uniform_timestamp_deltas": (
+                sum(
+                    count
+                    for delta, count in delta_counts.items()
+                    if delta != nominal_timestamp_delta
+                )
+                if nominal_timestamp_delta is not None
+                else 0
+            ),
+        },
         "parallel_seconds": parallel_seconds,
         "concat_seconds": concat_seconds,
         "audio_mux_seconds": audio_mux_seconds,
-        "total_seconds": total_seconds,
-        "aggregate_fps": frames / total_seconds,
+        "total_seconds": total_seconds + index_seconds + cache_seconds,
+        "render_seconds": total_seconds,
+        "renderer_total_seconds": total_seconds + index_seconds,
+        "aggregate_fps": frames
+        / (total_seconds + index_seconds + cache_seconds),
         "bitrate_mbps": args.bitrate_mbps,
         "decoder_threads": args.decoder_threads,
         "hw_decode": args.hw_decode or args.gpu_pipeline,
@@ -383,6 +617,8 @@ def main() -> None:
         "concat_command": concat_command,
         "audio_mux_command": audio_mux_command,
     }
+    if cache_summary is not None:
+        summary["keyframe_materialization"] = cache_summary
     (output_dir / "benchmark_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -394,7 +630,9 @@ def main() -> None:
                     "mode": args.mode,
                     "frames": frames,
                     "aggregate_fps": summary["aggregate_fps"],
-                    "total_seconds": total_seconds,
+                    "total_seconds": summary["total_seconds"],
+                    "render_seconds": summary["render_seconds"],
+                    "frame_index_seconds": index_seconds,
                     "final_output": str(final_output),
                 },
                 ensure_ascii=False,

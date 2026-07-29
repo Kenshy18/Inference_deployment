@@ -188,7 +188,7 @@ def normalize_detection(src: Any) -> dict[str, Any]:
             bbox_xyxy[3] - bbox_xyxy[1],
         ]
 
-    for key in ("category_id", "category_index"):
+    for key in ("source_detection_id", "category_id", "category_index"):
         value = _optional_int(src.get(key), key)
         if value is not None:
             out[key] = value

@@ -60,8 +60,9 @@ SQLiteは`immutable=1`のread-only接続で開き、
 outlineはtrack順のCUDA batchとして投入する。同一batch内は同じ色・alphaかつ
 非重複scanlineである。
 
-複数workerでは担当開始frame付近のkeyframeへseekし、decoded frameのPTSから
-元frame番号を復元する。各segmentは独立encode後、FFmpeg concat demuxerで
+複数workerではpacket PTSを一度だけpresentation順へ索引化し、担当開始frame
+直前のkeyframe PTSへseekする。seek後はdecoded frame ordinalをSQLiteの
+`frame_index`へ対応させる。各segmentは独立encode後、FFmpeg concat demuxerで
 再encodeなしに結合する。
 
 ## 最適化の段階
@@ -233,6 +234,32 @@ PSNR-Y 46.734で、追加primitiveを含めても画質劣化は観測されな�
 - 実データ3600-3899の各出力は映像300 frames、AAC 0秒開始、decode error 0
 - 同区間の描画数はraw 68 masks、tracked/final 55 masks、
   final/faces 974 faces
+
+### PTS gap入力のフレーム完全性修正（2026-07-29）
+
+旧実装は`best_effort_timestamp`を平均FPSの格子へ丸めて元frame番号を復元した。
+この方法では、名目上CFRでもstream copyやconcatによりPTS gapを含む入力で
+frame番号が飛ぶ。実データ由来の15分入力には通常3,750 tickに対して
+15,000 tickのgapが1か所、20回反復した5時間入力には15,000／5,640 tickの
+非均一間隔が計38か所あり、旧出力はそれぞれ1／67 frames不足した。
+
+修正後はFFprobe packet indexをPTS順に並べ、workerごとに直前keyframeの
+frame ordinalとPTSを渡す。native rendererはPTSをframe番号へ換算せず、
+decodeごとにordinalを1増やす。要求範囲と出力数が一致しない場合はfailする。
+
+| 条件 | 修正前 | 修正後 |
+|---|---:|---:|
+| 15分全長 | 21,601 / 21,602 frames | 21,602 / 21,602 |
+| 5時間全長 | 431,868 / 431,935 frames | 431,935 / 431,935 |
+| 5時間 renderer合計 | 222.955秒、1,937.32fps | 208.349秒、2,073.14fps |
+| 5時間packet索引 | なし | 2.383秒 |
+
+修正後の5時間出力は、frame/packet数、0秒開始、PTS/DTS単調性と24fps均一性、
+worker範囲、5境界のkeyframe、FFmpeg全stream decodeの全項目に合格した。
+raw、tracked、final、faces、final＋facesも実入力のPTS gapを跨ぐ4 framesで
+各4/4、2 worker各2/2となり、同じvalidatorを全件通過した。
+音声copy付きfinal＋facesも同じgapを跨ぐ12 framesで12/12となり、映像検査に
+加えてAACの0秒開始、preroll、packet／decoded frame連続性をすべて通過した。
 
 ## 現在の制限
 

@@ -92,6 +92,8 @@ struct Options {
     bool faststart{false};
     int start_frame{0};
     std::optional<int> end_frame;
+    std::optional<int> seek_frame_index;
+    std::optional<std::int64_t> seek_timestamp;
     bool overwrite{false};
 };
 
@@ -567,15 +569,80 @@ void validate_inference_schema(
     }
 }
 
+Polygon ellipse_polygon(
+    double cx,
+    double cy,
+    double radius_x,
+    double radius_y,
+    double theta,
+    int point_count
+) {
+    constexpr double pi = 3.141592653589793238462643383279502884;
+    const int count = std::max(12, point_count);
+    const double cosine = std::cos(theta);
+    const double sine = std::sin(theta);
+    Polygon polygon;
+    polygon.reserve(static_cast<std::size_t>(count));
+    for (int index = 0; index < count; ++index) {
+        const double phase =
+            2.0 * pi * static_cast<double>(index) /
+            static_cast<double>(count);
+        const double phase_cosine = std::cos(phase);
+        const double phase_sine = std::sin(phase);
+        polygon.push_back(
+            Point{
+                cx + radius_x * phase_cosine * cosine -
+                    radius_y * phase_sine * sine,
+                cy + radius_x * phase_cosine * sine +
+                    radius_y * phase_sine * cosine,
+            }
+        );
+    }
+    return polygon;
+}
+
+Polygon rectangle_polygon(
+    double cx,
+    double cy,
+    double half_width,
+    double half_height,
+    double theta
+) {
+    const double cosine = std::cos(theta);
+    const double sine = std::sin(theta);
+    Polygon polygon;
+    polygon.reserve(4);
+    for (const auto [x, y] : std::array<std::pair<double, double>, 4>{
+             std::pair{-half_width, -half_height},
+             std::pair{half_width, -half_height},
+             std::pair{half_width, half_height},
+             std::pair{-half_width, half_height},
+         }) {
+        polygon.push_back(
+            Point{
+                cx + x * cosine - y * sine,
+                cy + x * sine + y * cosine,
+            }
+        );
+    }
+    return polygon;
+}
+
 FrameMasks load_postprocess_masks(
     const fs::path& path,
     int start_frame,
-    const std::optional<int>& end_frame
+    const std::optional<int>& end_frame,
+    bool prefer_tracked
 ) {
     SqliteConnection connection(path);
+    const std::string table =
+        prefer_tracked &&
+        sqlite_table_exists(connection.get(), "tracked_masks")
+        ? "tracked_masks"
+        : "masks";
     const bool has_label = sqlite_column_exists(
         connection.get(),
-        "masks",
+        table,
         "label"
     );
     const std::string query =
@@ -583,7 +650,7 @@ FrameMasks load_postprocess_masks(
         std::string(
             has_label ? "COALESCE(label, '')" : "''"
         ) +
-        " FROM masks WHERE frame >= ?1 "
+        " FROM " + table + " WHERE frame >= ?1 "
         "AND (?2 IS NULL OR frame <= ?2) ORDER BY frame, track_id";
     SqliteStatement statement(
         connection.get(),
@@ -623,6 +690,123 @@ FrameMasks load_postprocess_masks(
                 }
             );
         }
+    }
+
+    std::map<int, std::map<std::string, Mask>> typed_masks;
+    auto append_typed = [&](
+        int frame,
+        std::string track_id,
+        std::string label,
+        Polygon polygon
+    ) {
+        auto& by_track = typed_masks[frame];
+        auto [iterator, inserted] = by_track.try_emplace(
+            track_id,
+            Mask{
+                ItemKind::mask,
+                track_id,
+                label,
+                std::nullopt,
+                {},
+                std::nullopt,
+                item_color("track:" + track_id),
+            }
+        );
+        if (!inserted && iterator->second.label != label) {
+            throw std::runtime_error(
+                "typed cache has inconsistent labels for one track/frame"
+            );
+        }
+        iterator->second.polygons.push_back(std::move(polygon));
+    };
+
+    if (sqlite_table_exists(connection.get(), "mask_ellipses")) {
+        SqliteStatement ellipses(
+            connection.get(),
+            "SELECT frame, CAST(track_id AS TEXT), COALESCE(label, ''), "
+            "cx, cy, radius_x, radius_y, theta_radians, point_count "
+            "FROM mask_ellipses WHERE frame >= ?1 "
+            "AND (?2 IS NULL OR frame <= ?2) "
+            "ORDER BY frame, track_id, slot_index"
+        );
+        bind_frame_range(ellipses.get(), start_frame, end_frame);
+        while (true) {
+            const int result = sqlite3_step(ellipses.get());
+            if (result == SQLITE_DONE) {
+                break;
+            }
+            if (result != SQLITE_ROW) {
+                throw std::runtime_error(
+                    std::string("ellipse cache read failed: ") +
+                    sqlite3_errmsg(connection.get())
+                );
+            }
+            append_typed(
+                sqlite3_column_int(ellipses.get(), 0),
+                sqlite_text(ellipses.get(), 1),
+                sqlite_text(ellipses.get(), 2),
+                ellipse_polygon(
+                    sqlite3_column_double(ellipses.get(), 3),
+                    sqlite3_column_double(ellipses.get(), 4),
+                    sqlite3_column_double(ellipses.get(), 5),
+                    sqlite3_column_double(ellipses.get(), 6),
+                    sqlite3_column_double(ellipses.get(), 7),
+                    sqlite3_column_int(ellipses.get(), 8)
+                )
+            );
+        }
+    }
+    if (sqlite_table_exists(connection.get(), "mask_rectangles")) {
+        SqliteStatement rectangles(
+            connection.get(),
+            "SELECT frame, CAST(track_id AS TEXT), COALESCE(label, ''), "
+            "cx, cy, half_width, half_height, theta_radians "
+            "FROM mask_rectangles WHERE frame >= ?1 "
+            "AND (?2 IS NULL OR frame <= ?2) "
+            "ORDER BY frame, track_id, slot_index"
+        );
+        bind_frame_range(rectangles.get(), start_frame, end_frame);
+        while (true) {
+            const int result = sqlite3_step(rectangles.get());
+            if (result == SQLITE_DONE) {
+                break;
+            }
+            if (result != SQLITE_ROW) {
+                throw std::runtime_error(
+                    std::string("rectangle cache read failed: ") +
+                    sqlite3_errmsg(connection.get())
+                );
+            }
+            append_typed(
+                sqlite3_column_int(rectangles.get(), 0),
+                sqlite_text(rectangles.get(), 1),
+                sqlite_text(rectangles.get(), 2),
+                rectangle_polygon(
+                    sqlite3_column_double(rectangles.get(), 3),
+                    sqlite3_column_double(rectangles.get(), 4),
+                    sqlite3_column_double(rectangles.get(), 5),
+                    sqlite3_column_double(rectangles.get(), 6),
+                    sqlite3_column_double(rectangles.get(), 7)
+                )
+            );
+        }
+    }
+    for (auto& [frame, by_track] : typed_masks) {
+        auto& output = frames[frame];
+        for (auto& [track_id, mask] : by_track) {
+            static_cast<void>(track_id);
+            output.push_back(std::move(mask));
+        }
+    }
+    for (auto& [frame, items] : frames) {
+        static_cast<void>(frame);
+        std::sort(
+            items.begin(),
+            items.end(),
+            [](const Mask& left, const Mask& right) {
+                return left.track_id < right.track_id;
+            }
+        );
     }
     return frames;
 }
@@ -2159,6 +2343,12 @@ Options parse_options(int argc, char** argv) {
         } else if (argument == "--end-frame") {
             options.end_frame =
                 std::stoi(require_value(index, argument));
+        } else if (argument == "--seek-frame-index") {
+            options.seek_frame_index =
+                std::stoi(require_value(index, argument));
+        } else if (argument == "--seek-timestamp") {
+            options.seek_timestamp =
+                std::stoll(require_value(index, argument));
         } else if (argument == "--overwrite") {
             options.overwrite = true;
         } else if (argument == "--help" || argument == "-h") {
@@ -2176,7 +2366,9 @@ Options parse_options(int argc, char** argv) {
                 << "[--gpu-pipeline] "
                 << "[--faststart] "
                 << "[--start-frame N] "
-                << "[--end-frame N] [--overwrite]\n";
+                << "[--end-frame N] "
+                << "[--seek-frame-index N --seek-timestamp N] "
+                << "[--overwrite]\n";
             std::exit(0);
         } else {
             throw std::runtime_error("unknown argument: " + argument);
@@ -2256,6 +2448,25 @@ Options parse_options(int argc, char** argv) {
     }
     if (options.end_frame && *options.end_frame < options.start_frame) {
         throw std::runtime_error("end frame must be >= start frame");
+    }
+    if (
+        options.seek_frame_index.has_value() !=
+        options.seek_timestamp.has_value()
+    ) {
+        throw std::runtime_error(
+            "--seek-frame-index and --seek-timestamp must be provided together"
+        );
+    }
+    if (
+        options.seek_frame_index &&
+        (
+            *options.seek_frame_index < 0 ||
+            *options.seek_frame_index > options.start_frame
+        )
+    ) {
+        throw std::runtime_error(
+            "seek frame index must be between zero and start frame"
+        );
     }
     return options;
 }
@@ -2691,7 +2902,7 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
         );
     }
 
-    int fallback_source_frame = 0;
+    int next_source_frame = 0;
     int encoded_frames = 0;
     int mask_rows = 0;
     int face_rows = 0;
@@ -2769,30 +2980,20 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
         }
     };
 
-    if (options.start_frame > 0) {
-        const std::int64_t start_timestamp =
-            av_rescale_q(
-                options.start_frame,
-                av_inv_q(frame_rate),
-                input_stream->time_base
-            ) +
-            (
-                input_stream->start_time == AV_NOPTS_VALUE
-                    ? 0
-                    : input_stream->start_time
-            );
+    if (options.seek_timestamp) {
         check_av(
             av_seek_frame(
                 input.get(),
                 video_stream_index,
-                start_timestamp,
+                *options.seek_timestamp,
                 AVSEEK_FLAG_BACKWARD
             ),
             "seek input"
         );
         avcodec_flush_buffers(decoder_context.get());
-        fallback_source_frame = options.start_frame;
+        next_source_frame = *options.seek_frame_index;
     }
+    bool first_decoded_frame = true;
 
     auto drain_encoder = [&]() {
         while (true) {
@@ -2856,27 +3057,20 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
                     "native renderer requires yuv420p, NV12 or CUDA input"
                 );
             }
-            int source_frame = fallback_source_frame;
-            if (frame->best_effort_timestamp != AV_NOPTS_VALUE) {
-                const std::int64_t relative_timestamp =
-                    frame->best_effort_timestamp -
-                    (
-                        input_stream->start_time == AV_NOPTS_VALUE
-                            ? 0
-                            : input_stream->start_time
-                    );
-                source_frame = static_cast<int>(
-                    av_rescale_q_rnd(
-                        relative_timestamp,
-                        input_stream->time_base,
-                        av_inv_q(frame_rate),
-                        static_cast<AVRounding>(
-                            AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX
-                        )
-                    )
+            if (
+                first_decoded_frame &&
+                options.seek_timestamp &&
+                frame->best_effort_timestamp != *options.seek_timestamp
+            ) {
+                throw std::runtime_error(
+                    "seek landed on timestamp " +
+                    std::to_string(frame->best_effort_timestamp) +
+                    ", expected indexed keyframe timestamp " +
+                    std::to_string(*options.seek_timestamp)
                 );
             }
-            fallback_source_frame = source_frame + 1;
+            first_decoded_frame = false;
+            const int source_frame = next_source_frame++;
             if (options.end_frame && source_frame > *options.end_frame) {
                 reached_end = true;
                 av_frame_unref(frame.get());
@@ -2974,6 +3168,17 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
             "flush decoder"
         );
         process_decoded_frames();
+    }
+    if (options.end_frame) {
+        const int expected_frames =
+            *options.end_frame - options.start_frame + 1;
+        if (encoded_frames != expected_frames) {
+            throw std::runtime_error(
+                "selected frame range produced " +
+                std::to_string(encoded_frames) + " frames, expected " +
+                std::to_string(expected_frames)
+            );
+        }
     }
     if (output_started) {
         check_av(
@@ -3088,7 +3293,8 @@ int main(int argc, char** argv) {
             masks = load_postprocess_masks(
                 options.sqlite,
                 options.start_frame,
-                options.end_frame
+                options.end_frame,
+                options.mode == "tracked"
             );
         } else {
             masks = load_faces(
@@ -3172,6 +3378,28 @@ int main(int argc, char** argv) {
                   << (options.gpu_pipeline ? "true" : "false") << ",\n"
                   << "  \"faststart\": "
                   << (options.faststart ? "true" : "false") << ",\n"
+                  << "  \"start_frame\": " << options.start_frame << ",\n"
+                  << "  \"end_frame\": ";
+        if (options.end_frame) {
+            json << *options.end_frame;
+        } else {
+            json << "null";
+        }
+        json << ",\n"
+                  << "  \"seek_frame_index\": ";
+        if (options.seek_frame_index) {
+            json << *options.seek_frame_index;
+        } else {
+            json << "null";
+        }
+        json << ",\n"
+                  << "  \"seek_timestamp\": ";
+        if (options.seek_timestamp) {
+            json << *options.seek_timestamp;
+        } else {
+            json << "null";
+        }
+        json << ",\n"
                   << "  \"width\": " << summary.width << ",\n"
                   << "  \"height\": " << summary.height << ",\n"
                   << "  \"source_fps\": " << summary.fps << ",\n"

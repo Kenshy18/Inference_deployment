@@ -165,6 +165,28 @@ def _validate_face_masks_sqlite(path: Path) -> None:
             or str(info.get("schema_version")) != "1"
         ):
             raise ArtifactContractError(f"{path}: unsupported face mask schema")
+        geometry_columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(face_mask_geometries)"
+            )
+        }
+        required_geometry = {
+            "frame",
+            "track_id",
+            "geometry_type",
+            "cx",
+            "cy",
+            "half_width",
+            "half_height",
+            "theta_radians",
+        }
+        missing_geometry = required_geometry - geometry_columns
+        if missing_geometry:
+            raise ArtifactContractError(
+                f"{path}: face_mask_geometries columns missing: "
+                f"{sorted(missing_geometry)}"
+            )
         provenance_columns = {
             str(row[1])
             for row in connection.execute("PRAGMA table_info(mask_provenance)")
@@ -191,9 +213,15 @@ def _validate_face_masks_sqlite(path: Path) -> None:
                 "SELECT COUNT(*) FROM mask_provenance"
             ).fetchone()[0]
         )
-        if mask_count != provenance_count:
+        geometry_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM face_mask_geometries"
+            ).fetchone()[0]
+        )
+        if mask_count != provenance_count or mask_count != geometry_count:
             raise ArtifactContractError(
-                f"{path}: every face mask must have one provenance row"
+                f"{path}: every face mask must have one native geometry "
+                "and provenance row"
             )
         for (
             frame,
@@ -239,6 +267,10 @@ def _validate_combined_mask_sqlite(path: Path) -> None:
             raise ArtifactContractError(
                 f"{path}: combined masks require mask_provenance"
             )
+        if "face_mask_geometries" not in tables:
+            raise ArtifactContractError(
+                f"{path}: combined masks require native face_mask_geometries"
+            )
         missing_face_provenance = connection.execute(
             """
             SELECT 1
@@ -247,6 +279,17 @@ def _validate_combined_mask_sqlite(path: Path) -> None:
               ON p.frame=m.frame AND p.track_id=m.track_id
             WHERE m.track_id LIKE 'face:%'
               AND p.track_id IS NULL
+            LIMIT 1
+            """
+        ).fetchone()
+        missing_face_geometry = connection.execute(
+            """
+            SELECT 1
+            FROM masks m
+            LEFT JOIN face_mask_geometries g
+              ON g.frame=m.frame AND g.track_id=m.track_id
+            WHERE m.track_id LIKE 'face:%'
+              AND g.track_id IS NULL
             LIMIT 1
             """
         ).fetchone()
@@ -261,9 +304,14 @@ def _validate_combined_mask_sqlite(path: Path) -> None:
             LIMIT 1
             """
         ).fetchone()
-        if missing_face_provenance is not None or orphan_provenance is not None:
+        if (
+            missing_face_provenance is not None
+            or missing_face_geometry is not None
+            or orphan_provenance is not None
+        ):
             raise ArtifactContractError(
-                f"{path}: face masks and provenance must have a 1:1 relation"
+                f"{path}: face masks, native geometry, and provenance "
+                "must have a 1:1 relation"
             )
 
 
@@ -364,12 +412,22 @@ def _validate_union_json(path: Path) -> None:
     _validate_ellipse_rows(path, keyframes=False)
 
 
+def _validate_integrated_result_sqlite(path: Path) -> None:
+    from artifacts.unified_sqlite import validate_integrated_result
+
+    validate_integrated_result(path)
+
+
 for _name in ("input_jsonl",):
     register_artifact_contract(_name, _validate_raw_jsonl)
 register_artifact_contract("input_raw_sqlite", validate_detector_input_sqlite)
 for _name in ("normalized_jsonl", "scored_jsonl", "nms_jsonl"):
     register_artifact_contract(_name, _validate_canonical_jsonl)
 register_artifact_contract("class_policy_json", _validate_json_object)
+register_artifact_contract(
+    "class_postprocess_policy_json",
+    _validate_json_object,
+)
 register_artifact_contract("cuts_json", _validate_cuts)
 for _name in (
     "tracked_sqlite",
@@ -391,6 +449,10 @@ register_artifact_contract(
     "combined_legacy_predictions_sqlite",
     _validate_legacy_mask_sqlite,
 )
+register_artifact_contract(
+    "result_sqlite",
+    _validate_integrated_result_sqlite,
+)
 for _name in ("approximation_metrics_csv", "filled_metrics_csv"):
     register_artifact_contract(_name, _validate_metrics_csv)
 register_artifact_contract("keyframes_json", _validate_keyframes_json)
@@ -400,5 +462,6 @@ for _name in (
     "evaluation_summary",
     "validation_report",
     "combined_validation_report",
+    "classwise_manifest",
 ):
     register_artifact_contract(_name, _validate_json_object)

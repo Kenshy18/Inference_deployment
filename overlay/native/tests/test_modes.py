@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "build" / "overlay_native"
 FFMPEG = ROOT.parent / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
 FFPROBE = FFMPEG.with_name("ffprobe")
+SEGMENTED = ROOT / "segmented.py"
 
 
 def create_video(path: Path) -> None:
@@ -35,6 +37,38 @@ def create_video(path: Path) -> None:
             "-c:a",
             "aac",
             "-shortest",
+            "-y",
+            str(path),
+        ],
+        check=True,
+    )
+
+
+def create_pts_gap_video(path: Path) -> None:
+    """Create eight frames with a three-frame timestamp gap before frame 4."""
+    subprocess.run(
+        [
+            str(FFMPEG),
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=s=64x48:r=10:d=0.8",
+            "-vf",
+            "setpts='PTS+if(gte(N,4),3,0)'",
+            "-fps_mode",
+            "vfr",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "4",
+            "-keyint_min",
+            "4",
+            "-sc_threshold",
+            "0",
             "-y",
             str(path),
         ],
@@ -151,6 +185,102 @@ def create_mask_sqlite(path: Path) -> None:
         )
 
 
+def create_typed_mask_pair(
+    expanded_path: Path,
+    compact_path: Path,
+) -> None:
+    values = (28.0, 23.0, 12.0, 7.0, 0.25)
+    cx, cy, radius_x, radius_y, theta = values
+    polygons = [
+        [
+            [
+                cx
+                + radius_x * math.cos(phase) * math.cos(theta)
+                - radius_y * math.sin(phase) * math.sin(theta),
+                cy
+                + radius_x * math.cos(phase) * math.sin(theta)
+                + radius_y * math.sin(phase) * math.cos(theta),
+            ]
+            for phase in (2.0 * math.pi * index / 64 for index in range(64))
+        ]
+    ]
+    rectangle_values = (30.0, 24.0, 14.0, 8.0, -0.2)
+    rect_cx, rect_cy, half_width, half_height, rect_theta = rectangle_values
+    rectangle = [
+        [
+            rect_cx + x * math.cos(rect_theta) - y * math.sin(rect_theta),
+            rect_cy + x * math.sin(rect_theta) + y * math.cos(rect_theta),
+        ]
+        for x, y in (
+            (-half_width, -half_height),
+            (half_width, -half_height),
+            (half_width, half_height),
+            (-half_width, half_height),
+        )
+    ]
+    with sqlite3.connect(expanded_path) as connection:
+        connection.execute(
+            "CREATE TABLE masks("
+            "frame INTEGER, track_id TEXT, polygons TEXT, label TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO masks VALUES (0, 'face:1', ?, 'Eyes')",
+            (json.dumps(polygons, separators=(",", ":")),),
+        )
+        connection.execute(
+            "INSERT INTO masks VALUES (1, 'face:2', ?, 'Eyes')",
+            (json.dumps([rectangle], separators=(",", ":")),),
+        )
+    with sqlite3.connect(compact_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE masks(
+                frame INTEGER,
+                track_id TEXT,
+                polygons TEXT,
+                label TEXT
+            );
+            CREATE TABLE mask_ellipses(
+                frame INTEGER,
+                track_id TEXT,
+                slot_index INTEGER,
+                cx REAL,
+                cy REAL,
+                radius_x REAL,
+                radius_y REAL,
+                theta_radians REAL,
+                point_count INTEGER,
+                label TEXT
+            );
+            CREATE TABLE mask_rectangles(
+                frame INTEGER,
+                track_id TEXT,
+                slot_index INTEGER,
+                cx REAL,
+                cy REAL,
+                half_width REAL,
+                half_height REAL,
+                theta_radians REAL,
+                label TEXT
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO mask_ellipses
+            VALUES (0, 'face:1', 0, ?, ?, ?, ?, ?, 64, 'Eyes')
+            """,
+            values,
+        )
+        connection.execute(
+            """
+            INSERT INTO mask_rectangles
+            VALUES (1, 'face:2', 0, ?, ?, ?, ?, ?, 'Eyes')
+            """,
+            rectangle_values,
+        )
+
+
 def probe(path: Path) -> dict[str, object]:
     result = subprocess.run(
         [
@@ -176,6 +306,66 @@ def probe(path: Path) -> dict[str, object]:
     "build the native renderer and FFmpeg runtime first",
 )
 class LowLevelModeTests(unittest.TestCase):
+    def test_compact_typed_cache_matches_expanded_polygon_pixels(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = root / "input.mp4"
+            expanded = root / "expanded.sqlite"
+            compact = root / "compact.sqlite"
+            create_video(video)
+            create_typed_mask_pair(expanded, compact)
+
+            outputs: list[Path] = []
+            for name, source in (
+                ("expanded", expanded),
+                ("compact", compact),
+            ):
+                output = root / f"{name}.mp4"
+                subprocess.run(
+                    [
+                        str(RENDERER),
+                        "--mode",
+                        "final",
+                        "--video",
+                        str(video),
+                        "--sqlite",
+                        str(source),
+                        "--output",
+                        str(output),
+                        "--encoder",
+                        "libx264",
+                        "--preset",
+                        "ultrafast",
+                        "--crf",
+                        "18",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                outputs.append(output)
+
+            decoded = [
+                subprocess.run(
+                    [
+                        str(FFMPEG),
+                        "-v",
+                        "error",
+                        "-i",
+                        str(output),
+                        "-f",
+                        "rawvideo",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-",
+                    ],
+                    check=True,
+                    capture_output=True,
+                ).stdout
+                for output in outputs
+            ]
+            self.assertEqual(decoded[0], decoded[1])
+
     def test_all_modes_manifest_atomic_output_and_audio(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -242,6 +432,177 @@ class LowLevelModeTests(unittest.TestCase):
                 self.assertFalse(
                     list(root.glob(f".{output.stem}.*.tmp{output.suffix}"))
                 )
+
+    def test_integrated_sqlite_keeps_tracked_and_final_modes_distinct(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = root / "input.mp4"
+            result_sqlite = root / "result.sqlite"
+            create_video(video)
+            create_mask_sqlite(result_sqlite)
+            with sqlite3.connect(result_sqlite) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE tracked_masks(
+                        frame INTEGER,
+                        track_id TEXT,
+                        polygons TEXT,
+                        label TEXT
+                    )
+                    """
+                )
+
+            counts: dict[str, int] = {}
+            for mode in ("tracked", "final"):
+                output = root / f"{mode}.mp4"
+                result = subprocess.run(
+                    [
+                        str(RENDERER),
+                        "--mode",
+                        mode,
+                        "--video",
+                        str(video),
+                        "--sqlite",
+                        str(result_sqlite),
+                        "--output",
+                        str(output),
+                        "--encoder",
+                        "libx264",
+                        "--codec",
+                        "h264",
+                        "--preset",
+                        "ultrafast",
+                        "--crf",
+                        "18",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                counts[mode] = int(json.loads(result.stdout)["mask_rows_drawn"])
+
+            self.assertEqual(0, counts["tracked"])
+            self.assertEqual(1, counts["final"])
+
+    def test_decode_ordinal_is_not_derived_from_gapped_pts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = root / "pts-gap.mp4"
+            masks = root / "masks.sqlite"
+            output = root / "direct.mp4"
+            create_pts_gap_video(video)
+            create_mask_sqlite(masks)
+
+            result = subprocess.run(
+                [
+                    str(RENDERER),
+                    "--mode",
+                    "final",
+                    "--video",
+                    str(video),
+                    "--sqlite",
+                    str(masks),
+                    "--output",
+                    str(output),
+                    "--encoder",
+                    "libx264",
+                    "--preset",
+                    "ultrafast",
+                    "--crf",
+                    "30",
+                    "--start-frame",
+                    "0",
+                    "--end-frame",
+                    "7",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            summary = json.loads(result.stdout)
+            self.assertEqual(8, summary["frames_written"])
+            self.assertEqual(
+                "8",
+                probe(output)["streams"][0]["nb_read_frames"],
+            )
+
+    def test_segmented_runner_seeks_by_packet_index_across_pts_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = root / "pts-gap.mp4"
+            masks = root / "masks.sqlite"
+            output_dir = root / "segments"
+            create_pts_gap_video(video)
+            create_mask_sqlite(masks)
+
+            subprocess.run(
+                [
+                    "python3",
+                    str(SEGMENTED),
+                    "--mode",
+                    "final",
+                    "--video",
+                    str(video),
+                    "--sqlite",
+                    str(masks),
+                    "--output-dir",
+                    str(output_dir),
+                    "--renderer",
+                    str(RENDERER),
+                    "--ffmpeg-bin",
+                    str(FFMPEG),
+                    "--workers",
+                    "2",
+                    "--cpu-workers",
+                    "2",
+                    "--start-frame",
+                    "0",
+                    "--end-frame",
+                    "7",
+                    "--bitrate-mbps",
+                    "1",
+                    "--cpu-preset",
+                    "ultrafast",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            summary = json.loads(
+                (output_dir / "benchmark_summary.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(8, summary["frames"])
+            self.assertEqual(
+                8,
+                summary["source_frame_index"]["indexed_frames"],
+            )
+            self.assertEqual(
+                8,
+                summary["source_frame_index"][
+                    "container_reported_frames"
+                ],
+            )
+            self.assertEqual(
+                1,
+                summary["source_frame_index"][
+                    "non_uniform_timestamp_deltas"
+                ],
+            )
+            self.assertEqual(
+                [4, 4],
+                [
+                    worker["renderer_summary"]["frames_written"]
+                    for worker in summary["workers_detail"]
+                ],
+            )
+            self.assertEqual(
+                "8",
+                probe(output_dir / "final.mp4")["streams"][0][
+                    "nb_read_frames"
+                ],
+            )
 
 
 if __name__ == "__main__":

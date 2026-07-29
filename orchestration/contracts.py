@@ -22,6 +22,15 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
     }
 
 
+def _views(connection: sqlite3.Connection) -> set[str]:
+    return {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='view'"
+        )
+    }
+
+
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
     return {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
 
@@ -497,30 +506,46 @@ def validate_mask_sqlite(path: Path) -> dict[str, object]:
                 FROM cut_detection_metadata
                 """
             ).fetchall()
-            if len(metadata) != 1:
+            stable_empty_cut_metadata = (
+                not metadata
+                and "result_capabilities" in tables
+                and connection.execute(
+                    """
+                    SELECT available FROM result_capabilities
+                    WHERE name='cut_detection'
+                    """
+                ).fetchone()
+                == (0,)
+            )
+            if stable_empty_cut_metadata:
+                metadata = []
+            elif len(metadata) != 1:
                 raise ArtifactError(
                     f"{source}: cut metadata must contain exactly one row"
                 )
-            (
-                metadata_id,
-                schema_version,
-                method,
-                elapsed_seconds,
-                metadata_cut_count,
-                frame_semantics,
-            ) = metadata[0]
-            if int(metadata_id) != 1 or int(schema_version) != 1:
-                raise ArtifactError(f"{source}: unsupported cut metadata contract")
-            cut_method = str(method)
-            elapsed_value = float(elapsed_seconds)
-            if (
-                not cut_method
-                or not math.isfinite(elapsed_value)
-                or elapsed_value < 0
-                or int(metadata_cut_count) != cut_count
-                or str(frame_semantics) != "first_frame_of_new_scene"
-            ):
-                raise ArtifactError(f"{source}: invalid or inconsistent cut metadata")
+            if metadata:
+                (
+                    metadata_id,
+                    schema_version,
+                    method,
+                    elapsed_seconds,
+                    metadata_cut_count,
+                    frame_semantics,
+                ) = metadata[0]
+                if int(metadata_id) != 1 or int(schema_version) != 1:
+                    raise ArtifactError(f"{source}: unsupported cut metadata contract")
+                cut_method = str(method)
+                elapsed_value = float(elapsed_seconds)
+                if (
+                    not cut_method
+                    or not math.isfinite(elapsed_value)
+                    or elapsed_value < 0
+                    or int(metadata_cut_count) != cut_count
+                    or str(frame_semantics) != "first_frame_of_new_scene"
+                ):
+                    raise ArtifactError(
+                        f"{source}: invalid or inconsistent cut metadata"
+                    )
         return {
             "path": str(source),
             "masks": int(row[0]),
@@ -529,6 +554,252 @@ def validate_mask_sqlite(path: Path) -> dict[str, object]:
             "cuts": cut_count,
             "cut_detection_method": cut_method,
         }
+
+
+def validate_result_sqlite(
+    path: Path,
+    *,
+    require_segmentation: bool,
+    require_faces: bool,
+    expected_face_model: str | None = None,
+) -> dict[str, object]:
+    """Validate the stable public result surface used by downstream software."""
+
+    source = Path(path).expanduser().resolve()
+    inference = validate_inference_sqlite(
+        source,
+        require_segmentation=require_segmentation,
+        require_faces=require_faces,
+        expected_face_model=expected_face_model,
+    )
+    required_tables = {
+        "result_schema_info",
+        "result_capabilities",
+        "result_components",
+        "video_streams",
+        "processing_runs",
+        "processing_stage_runs",
+        "face_observations",
+        "face_keypoints",
+        "face_masks",
+        "face_keypoint_class_probabilities",
+        "face_keypoint_state_probabilities",
+        "annotation_state",
+        "tracking_assignments",
+        "tracks",
+        "cuts",
+        "cut_detection_metadata",
+        "raw_tracks",
+        "class_postprocess_policies",
+        "mask_postprocess_provenance",
+        "mask_provenance",
+        "mask_track_segments",
+        "mask_keyframes",
+        "keyframe_components",
+        "keyframe_ellipses",
+        "keyframe_rectangles",
+        "keyframe_polygon_rings",
+        "keyframe_polygon_points",
+        "mask_geometry_provenance",
+    }
+    expected_capabilities = {
+        "raw_inference": "frames",
+        "instance_segmentation": "segmentations",
+        "face_detection": "detections",
+        "rich_face_geometry": "face_observations",
+        "tracking_assignments": "tracking_assignments",
+        "final_annotations": "mask_keyframes",
+        "cut_detection": "cuts",
+        "classwise_postprocess": "mask_postprocess_provenance",
+        "face_privacy_masks": "mask_provenance",
+        "native_polygon_keyframes": "keyframe_polygon_points",
+        "native_ellipse_keyframes": "keyframe_ellipses",
+        "native_rectangle_keyframes": "keyframe_rectangles",
+    }
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as connection:
+        tables = _tables(connection)
+        missing = required_tables - tables
+        if missing:
+            raise ArtifactError(
+                f"{source}: stable result table(s) missing: {sorted(missing)}"
+            )
+        required_views = {
+            "editable_keyframe_components",
+            "editable_polygon_vertices",
+        }
+        missing_views = required_views - _views(connection)
+        if missing_views:
+            raise ArtifactError(
+                f"{source}: stable result view(s) missing: " f"{sorted(missing_views)}"
+            )
+        info = dict(connection.execute("SELECT key, value FROM result_schema_info"))
+        if (
+            info.get("schema_name") != "video-mask-integrated-result"
+            or str(info.get("schema_version")) != "3"
+            or str(info.get("contract_revision")) != "4"
+            or info.get("compatibility_profile") != "keyframe-primary-v3"
+            or info.get("missing_components") != "capability_rows"
+            or info.get("final_data") != "mask_keyframes"
+            or info.get("materialized_dense_masks") != "none"
+        ):
+            raise ArtifactError(f"{source}: unsupported stable result contract")
+        rows = list(
+            connection.execute(
+                """
+                SELECT name, available, row_count, source_table, details_json
+                FROM result_capabilities ORDER BY name
+                """
+            )
+        )
+        names = {str(row[0]) for row in rows}
+        if names != set(expected_capabilities):
+            raise ArtifactError(
+                f"{source}: result capabilities mismatch: {sorted(names)}"
+            )
+        capabilities: dict[str, object] = {}
+        for name, available, row_count, source_table, details_json in rows:
+            capability_name = str(name)
+            expected_source = expected_capabilities[capability_name]
+            if str(source_table) != expected_source:
+                raise ArtifactError(
+                    f"{source}: capability {name!r} source_table mismatch"
+                )
+            if capability_name == "face_detection":
+                actual_count = (
+                    int(
+                        connection.execute(
+                            """
+                            SELECT COUNT(*)
+                            FROM detections AS d
+                            JOIN model_executions AS m
+                              ON m.id=d.model_execution_id
+                            WHERE m.role='face_detection'
+                            """
+                        ).fetchone()[0]
+                    )
+                    if "model_executions" in tables
+                    else 0
+                )
+            else:
+                actual_count = int(
+                    connection.execute(
+                        f'SELECT COUNT(*) FROM "{expected_source}"'
+                    ).fetchone()[0]
+                )
+            if int(row_count) != actual_count:
+                raise ArtifactError(f"{source}: capability {name!r} row_count mismatch")
+            try:
+                details = json.loads(str(details_json))
+            except json.JSONDecodeError as exc:
+                raise ArtifactError(
+                    f"{source}: capability {name!r} has invalid details_json"
+                ) from exc
+            if not isinstance(details, dict):
+                raise ArtifactError(
+                    f"{source}: capability {name!r} details must be an object"
+                )
+            capabilities[str(name)] = {
+                "available": bool(available),
+                "row_count": int(row_count),
+                "source_table": str(source_table),
+                "details": details,
+            }
+        component_rows = list(
+            connection.execute(
+                """
+                SELECT name, status, row_count, source_table, details_json
+                FROM result_components ORDER BY name
+                """
+            )
+        )
+        if {str(row[0]) for row in component_rows} != set(expected_capabilities):
+            raise ArtifactError(f"{source}: result components mismatch")
+        components: dict[str, object] = {}
+        for name, status, row_count, source_table, details_json in component_rows:
+            capability_name = str(name)
+            if str(source_table) != expected_capabilities[capability_name]:
+                raise ArtifactError(
+                    f"{source}: component {name!r} source_table mismatch"
+                )
+            try:
+                details = json.loads(str(details_json))
+            except json.JSONDecodeError as exc:
+                raise ArtifactError(
+                    f"{source}: component {name!r} has invalid details_json"
+                ) from exc
+            if str(status) not in {
+                "complete",
+                "empty",
+                "not_requested",
+                "unsupported",
+                "failed",
+            }:
+                raise ArtifactError(f"{source}: component {name!r} has invalid status")
+            if int(row_count) != int(capabilities[capability_name]["row_count"]):
+                raise ArtifactError(f"{source}: component {name!r} row_count mismatch")
+            components[capability_name] = {
+                "status": str(status),
+                "row_count": int(row_count),
+                "source_table": str(source_table),
+                "details": details,
+            }
+        forbidden_dense = {
+            "masks",
+            "tracked_masks",
+            "raw_tracked_masks",
+            "tracked_tracks",
+        } & tables
+        if forbidden_dense:
+            raise ArtifactError(
+                f"{source}: V3 contains dense/duplicated tables: "
+                f"{sorted(forbidden_dense)}"
+            )
+        state = connection.execute(
+            """
+            SELECT revision, authoritative_geometry, dense_cache_policy
+            FROM annotation_state WHERE id=1
+            """
+        ).fetchone()
+        if state is None or tuple(state[1:]) != (
+            "mask_keyframes",
+            "not_materialized",
+        ):
+            raise ArtifactError(f"{source}: invalid annotation_state")
+        postprocess = {
+            "mask_segments": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM mask_track_segments"
+                ).fetchone()[0]
+            ),
+            "mask_keyframes": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM mask_keyframes"
+                ).fetchone()[0]
+            ),
+            "tracking_assignments": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM tracking_assignments"
+                ).fetchone()[0]
+            ),
+            "cuts": int(
+                connection.execute("SELECT COUNT(*) FROM cuts").fetchone()[0]
+            ),
+            "annotation_revision": int(state[0]),
+        }
+        integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+        if integrity != "ok":
+            raise ArtifactError(f"{source}: integrity check failed: {integrity}")
+    return {
+        "path": str(source),
+        "schema_name": "video-mask-integrated-result",
+        "schema_version": 3,
+        "contract_revision": 4,
+        "compatibility_profile": "keyframe-primary-v3",
+        "inference": inference,
+        "postprocess": postprocess,
+        "capabilities": capabilities,
+        "components": components,
+    }
 
 
 def validate_legacy_mask_sqlite(path: Path) -> dict[str, object]:
@@ -590,7 +861,9 @@ def read_postprocess_artifacts(
         raise ArtifactError(f"{manifest_path}: artifacts object is absent")
     try:
         tracked = Path(str(artifacts["tracked_sqlite"])).expanduser().resolve()
-        final_value = artifacts.get("combined_predictions_sqlite")
+        final_value = artifacts.get("result_sqlite")
+        if final_value in (None, ""):
+            final_value = artifacts.get("combined_predictions_sqlite")
         if final_value in (None, ""):
             final_value = artifacts["predictions_sqlite"]
         final = Path(str(final_value)).expanduser().resolve()
@@ -599,7 +872,14 @@ def read_postprocess_artifacts(
             f"{manifest_path}: required postprocess artifact is absent: {exc}"
         ) from exc
     validate_mask_sqlite(tracked)
-    validate_mask_sqlite(final)
+    if artifacts.get("result_sqlite") not in (None, ""):
+        validate_result_sqlite(
+            final,
+            require_segmentation=False,
+            require_faces=False,
+        )
+    else:
+        validate_mask_sqlite(final)
     legacy_value = artifacts.get(
         "combined_legacy_predictions_sqlite",
         artifacts.get("legacy_predictions_sqlite"),
@@ -628,4 +908,5 @@ __all__ = [
     "validate_inference_sqlite",
     "validate_legacy_mask_sqlite",
     "validate_mask_sqlite",
+    "validate_result_sqlite",
 ]

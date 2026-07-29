@@ -61,6 +61,17 @@ validatorは`contracts.artifacts`へ集約されています。新しい成果�
 `input_video`と`class_policy_json`は任意の補助成果物です。標準cut detectionを
 有効にした場合のみ`input_video`が必要です。
 
+クラス別ポリシーを有効にすると、tracking以降の単一形状グラフを次の
+composite stageへ交換します。
+
+| 機能 | 組み込み実装 | requires | provides |
+| --- | --- | --- | --- |
+| クラス別後処理 | `classwise.production` | `tracked_sqlite`, `class_postprocess_policy_json` | `predictions_sqlite`, `classwise_manifest` |
+
+`classwise.production`はtrackの確定labelで互いに素なグループを作り、同一設定の
+trackを既存のpolygonまたはellipse標準グラフへまとめて渡します。最終統合時に
+track衝突を拒否し、元の監査テーブルを保持します。
+
 Face DINO v2の顔後処理を有効にすると、通常の最終出力検証後に次を追加します。
 
 | 機能 | 組み込み実装 | requires | provides |
@@ -155,6 +166,31 @@ segmentation_points(polygon_id, point_index, x, y)
 共通の読み書きには`contracts.read_mask_rows`と
 `contracts.write_mask_sqlite`を使用します。
 
+クラス別後処理の`predictions_sqlite`には、通常のマスク契約に加えて次を
+持ちます。
+
+```text
+class_postprocess_policies(
+  label TEXT PRIMARY KEY,
+  policy_source TEXT,          -- class / default
+  shape_mode TEXT,             -- polygon / ellipse
+  keyframe_interval INTEGER,
+  max_gap INTEGER
+)
+
+mask_postprocess_provenance(
+  frame INTEGER,
+  track_id TEXT,
+  label TEXT,
+  policy_source TEXT,
+  shape_mode TEXT,
+  keyframe_interval INTEGER,
+  max_gap INTEGER,
+  is_gap_filled INTEGER,
+  PRIMARY KEY(frame, track_id)
+)
+```
+
 `face_masks_sqlite`は同じ`masks`契約に加えて次を持ちます。
 
 ```text
@@ -172,6 +208,105 @@ mask_provenance(
 
 `combined_predictions_sqlite`は性器側SQLiteをbackupしてから、名前空間付き
 `track_id`の顔マスクと`mask_provenance`を追加した成果物です。
+
+### 統合公開SQLite
+
+unified inference SQLiteを入力した標準pipelineは最後に`result_sqlite`を生成
+します。このファイルは推論SQLiteをatomicな別ファイルへbackupしてから、次を
+追加します。
+
+```text
+result_schema_info              統合schema名とversion
+result_capabilities             機能の利用可否・件数・参照テーブル
+result_components               未実行・非対応・空結果を区別する状態
+processing_runs                 解決済みpipeline/orchestration設定
+processing_stage_runs           実装、device、options、stage時間
+annotation_state                編集revisionとキーフレーム正本宣言
+tracking_assignments            生検出IDとraw/final trackの対応
+tracks                          最終track属性
+mask_track_segments             cut・欠損・形状変化で分割した編集区間
+mask_keyframes                  ソフトウェアへ渡す実キーフレーム
+keyframe_components             keyframe内の安定shape slot
+keyframe_ellipses               中心・2半径・radian角度
+keyframe_rectangles             中心・half extent・radian角度
+keyframe_polygon_*              ringと元動画座標の頂点
+mask_geometry_provenance        keyframe形状の導出元
+cuts / cut_detection_metadata   カット位置と検出条件
+raw_tracks                      raw-to-final track単位監査
+class_postprocess_policies      クラス別設定（有効時）
+mask_postprocess_provenance     クラス別mask由来（有効時）
+mask_provenance                 顔・目mask由来
+```
+
+元の`frames`、`detections`、`classifications`、`segmentations`、
+`face_observations`、`face_masks`、`face_keypoints`と全確率テーブルはそのまま
+保持します。したがって、下流readerとoverlayは生出力、tracking後、最終mask、
+顔詳細を同じSQLiteから取得できます。tracking後の形状は
+`tracking_assignments.source_detection_id`から生`segmentations`を参照し、
+最終形状は`mask_keyframes`だけを正本とします。毎フレームの`tracked_masks`と
+`masks`は公開SQLiteへ重複保存しません。`tracked_sqlite`や
+`predictions_sqlite`はpipeline内部の中間成果物であり、公開境界は
+`result_sqlite`です。
+
+`result_schema_info`は`schema_version=3`、`contract_revision=4`および
+`compatibility_profile=keyframe-primary-v3`でこの契約を示します。
+後処理なし、顔なし、
+旧顔検出などでデータが存在しない場合も、上記テーブルは削除せず0行で作成
+します。下流readerはテーブル存在判定を分岐に使わず、次の
+`result_capabilities`を参照できます。
+
+```text
+result_capabilities(
+  name TEXT PRIMARY KEY,
+  available INTEGER,      -- その機能を実行・選択したか
+  row_count INTEGER,      -- 対応データ件数
+  source_table TEXT,
+  details_json TEXT
+)
+```
+
+`result_components.status`は`complete`、`empty`、`not_requested`、
+`unsupported`、`failed`のいずれかです。旧顔モデルはboxを通常の
+`detections`へ保存し、モデルが出力しない楕円・確率mask・keypointは
+`rich_face_geometry=unsupported`と空の固定テーブルで表します。
+
+### 編集可能なネイティブ形状
+
+ソフトウェアは全フレーム展開済み`masks`をキーフレームとして推測せず、
+`mask_track_segments`から`mask_keyframes`、`keyframe_components`の順に
+読みます。`geometry_type`ごとの正本は次です。
+
+- `polygon`: `keyframe_polygon_rings` / `keyframe_polygon_points`
+- `ellipse`: `keyframe_ellipses`
+- `rectangle`: `keyframe_rectangles`
+
+性器楕円は内部の`final_keyframes.json`から直接取り込み、96点へ展開した
+`masks.polygons`から再fitしません。角度は顔と性器の両方でradianへ統一します。
+ポリゴンは内部`keyframes.sqlite`の選択頂点を保持します。クラス別pipelineでも
+各groupの内部manifestをたどり、同じ公開表へ統合します。
+
+`mask_track_segments`はscene、連続frame、shape、component topologyごとに
+分割され、補間方式を`interpolation_method`へ保存します。楕円K1/K2の各shapeは
+`slot_index`で識別します。展開済み`masks`は公開SQLiteへ保持せず、overlay実行時
+だけ破棄可能な一時cacheとして必要範囲を復元します。
+
+reader向けに次の固定viewも作成します。
+
+- `editable_keyframe_components`: track、segment、keyframe、typed scalar geometry
+- `editable_polygon_vertices`: polygonのring、point順、座標
+
+後処理を行わない推論SQLiteも、次のCPU-only CLIで同じ公開契約に包装できます。
+
+```bash
+python package_result.py \
+  --input-sqlite inference.sqlite \
+  --output-sqlite result.sqlite
+```
+
+既存の追跡後・最終SQLiteがある場合は`--tracked-sqlite`と`--final-sqlite`を
+追加します。Face DINO v2だけの入力からソフトウェア用マスクも生成する場合は、
+`--face-mask-target face`または`--face-mask-target eyes`を追加できます。
+派生マスクは通常の`mask_keyframes`、`tracks`、`mask_provenance`へ格納されます。
 
 標準のraw入力パイプラインが生成する`tracked_sqlite`と
 `predictions_sqlite`には、カット検出結果も次の監査テーブルとして保持します。

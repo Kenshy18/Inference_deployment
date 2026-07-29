@@ -56,6 +56,7 @@ def create_schema(connection: sqlite3.Connection) -> None:
             frame INTEGER NOT NULL,
             raw_track_id TEXT NOT NULL,
             raw_detection_index INTEGER NOT NULL,
+            source_detection_id INTEGER,
             final_track_id TEXT,
             removed_by_short_track INTEGER NOT NULL DEFAULT 0,
             raw_track_length INTEGER NOT NULL DEFAULT 0,

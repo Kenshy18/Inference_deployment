@@ -4,6 +4,15 @@
 確認用オーバーレイ動画を作成します。ほかのリポジトリの内部実装はimportせず、
 公開SQLite契約だけに依存します。
 
+後処理済みの標準入力は、推論生出力、`tracking_assignments`、最終編集
+キーフレーム、顔生出力を同居させた単一のV3 `result.sqlite`です。同じ
+ファイルを`raw`、`tracked`、`final`、`faces`の全モードへ渡せます。
+`tracked`は追跡参照と生マスクから、`final`はtyped keyframeから、必要範囲の
+一時的な毎フレームcacheを生成します。`fast`では6つの描画範囲を別processで
+同時復元し、各workerが専用shardを直接読みます。楕円と長方形は点列JSONへ
+展開せずtyped parameterのままC++へ渡します。cacheは公開SQLiteへ書き戻しません。
+従来の推論のみSQLiteおよびmaskのみSQLiteも読み取り互換として残します。
+
 ## 選択できるオーバーレイ
 
 | `--overlay-type` | 入力SQLite | 内容 |
@@ -242,6 +251,13 @@ Face DINO v2の通常rendererで最も重い要素は、フレームごとの顔
 入力SQLite role、フレーム範囲、描画件数、encode設定をJSONに記録します。
 途中ファイルは隠し作業ディレクトリで作成し、完成後に出力へatomicに移動します。
 高速処理が失敗した場合だけ、原因調査用のworkerログを作業ディレクトリに残します。
+高速runnerは入力packet PTSを一度だけ索引化し、各workerを正確なkeyframeへ
+seekします。SQLiteのframe番号はdecode順で付けるため、stream copyやconcat由来の
+PTS gapがあってもframeを飛ばしません。要求範囲と実出力が1枚でも違う場合は
+処理を失敗させます。索引時間と非均一PTS間隔数はmanifestの
+`summary.source_frame_index`に記録されます。
+V3の復元時間、論理mask件数、shard容量は
+`summary.keyframe_materialization`に記録され、合計FPSには復元時間も含まれます。
 
 orchestrationでは4種類を任意の組み合わせで一括生成できます。設定例は
 [`../orchestration/configs/production.example.json`](../orchestration/configs/production.example.json)

@@ -26,6 +26,7 @@ FEATURES = {
     "evaluation",
     "artifacts",
     "face_privacy",
+    "classwise",
     "visualization",
 }
 

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "input_video": "/home/kenshin/inference_backend2/orchestration/output/benchmark_15min_schema_20260729/input/heyzo_first_15min.mp4",
+  "output_root": "/home/kenshin/inference_backend2/orchestration/output/benchmark_15min_schema_20260729/inference/new_face_only",
+  "execution": {
+    "runtime_python": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "resume": false
+  },
+  "inference": {
+    "enabled": true,
+    "mode": "face",
+    "face_model": "face_dino_v2",
+    "face_classes": ["Face", "Head"],
+    "device": "cuda:0",
+    "max_frames": 21600,
+    "face_warmup_iterations": 3,
+    "fast_sqlite": true
+  },
+  "postprocess": {
+    "enabled": false
+  },
+  "overlay": {
+    "enabled": false
+  }
+}
