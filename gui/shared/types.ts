@@ -206,10 +206,36 @@ export interface BootstrapData {
 
 export type FilePickerKind = "video" | "sqlite" | "python";
 
+export interface VideoProbe {
+  durationSeconds: number | null;
+  /** JPEG data URL, ~192px wide. null when ffmpeg is unavailable. */
+  thumbnail: string | null;
+}
+
+export type QueueItemStatus = "pending" | "processing" | "done" | "failed";
+
+export interface QueueItem {
+  id: string;
+  path: string;
+  title: string;
+  durationSeconds: number | null;
+  thumbnail: string | null;
+  status: QueueItemStatus;
+  /** Per-item job folder under the output repository, fixed at run start. */
+  outputDir: string | null;
+  /** Inference-settings summary captured when the run started. */
+  summary: string | null;
+  error: string | null;
+}
+
 export interface MaskStudioApi {
   bootstrap(): Promise<BootstrapData>;
   pickFile(kind: FilePickerKind): Promise<string | null>;
+  pickVideos(): Promise<string[]>;
   pickDirectory(): Promise<string | null>;
+  probeVideo(path: string, settings: AppSettings): Promise<VideoProbe>;
+  /** Resolve the filesystem path of a dropped File (Electron only). */
+  pathForFile(file: File): string | null;
   saveSettings(settings: AppSettings): Promise<AppSettings>;
   validateWorkflow(
     draft: PipelineDraft,

@@ -36,6 +36,12 @@ export function Scope({
         preserveAspectRatio="none"
         aria-hidden="true"
       >
+        <defs>
+          <linearGradient id="scope-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(94, 139, 255, 0.28)" />
+            <stop offset="100%" stopColor="rgba(94, 139, 255, 0.02)" />
+          </linearGradient>
+        </defs>
         {[0.25, 0.5, 0.75].map((line) => (
           <line
             key={line}

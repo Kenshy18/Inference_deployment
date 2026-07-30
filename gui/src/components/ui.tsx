@@ -1,5 +1,13 @@
-import { useId, type ReactNode } from "react";
-import { ChevronIcon, FolderIcon } from "./Icons";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { CheckIcon, ChevronIcon, FolderIcon } from "./Icons";
 
 /** Panel shell: 24px header strip + scrollable body. */
 export function Panel({
@@ -163,6 +171,10 @@ export function NumberInput({
   );
 }
 
+/** Custom dropdown. Chromium's native <select> opens an OS popup (GTK under
+ *  WSLg) that ignores our theme and fails to dismiss on selection, so the
+ *  list is rendered by React instead: it closes on select, outside pointer,
+ *  scroll and Escape, and supports arrow-key navigation. */
 export function Select<T extends string>({
   value,
   options,
@@ -174,19 +186,171 @@ export function Select<T extends string>({
   onChange: (value: T) => void;
   disabled?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [anchor, setAnchor] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    up: boolean;
+  } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const popRef = useRef<HTMLDivElement | null>(null);
+
+  const current = options.find((option) => option.value === value);
+
+  const openList = useCallback(() => {
+    const trigger = buttonRef.current;
+    if (!trigger) {
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const estimated = Math.min(options.length * 26 + 10, 262);
+    const up = rect.bottom + estimated > window.innerHeight - 8;
+    setAnchor({ left: rect.left, top: up ? rect.top : rect.bottom, width: rect.width, up });
+    setActive(
+      Math.max(
+        0,
+        options.findIndex((option) => option.value === value),
+      ),
+    );
+    setOpen(true);
+  }, [options, value]);
+
+  const commit = useCallback(
+    (next: T) => {
+      setOpen(false);
+      if (next !== value) {
+        onChange(next);
+      }
+      buttonRef.current?.focus();
+    },
+    [onChange, value],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onPointerDown = (event: Event) => {
+      const target = event.target as Node;
+      if (
+        popRef.current?.contains(target) ||
+        buttonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
+    };
+    const onScroll = (event: Event) => {
+      if (popRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open]);
+
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (!open) {
+      if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) {
+        event.preventDefault();
+        openList();
+      }
+      return;
+    }
+    if (event.key === "Escape" || event.key === "Tab") {
+      setOpen(false);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActive((index) => Math.min(options.length - 1, index + 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActive((index) => Math.max(0, index - 1));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setActive(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setActive(options.length - 1);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      const option = options[active];
+      if (option) {
+        commit(option.value);
+      }
+    }
+  };
+
   return (
-    <select
-      className="ctl"
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value as T)}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+    <div className="select">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`select__btn ${open ? "is-open" : ""}`}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => (open ? setOpen(false) : openList())}
+        onKeyDown={onKeyDown}
+      >
+        <span>{current?.label ?? ""}</span>
+        <ChevronIcon className="select__chevron" />
+      </button>
+      {open &&
+        anchor &&
+        createPortal(
+          <div
+            ref={popRef}
+            className="select__pop"
+            role="listbox"
+            style={{
+              left: anchor.left,
+              minWidth: anchor.width,
+              top: anchor.up ? undefined : anchor.top + 4,
+              bottom: anchor.up
+                ? window.innerHeight - anchor.top + 4
+                : undefined,
+            }}
+          >
+            {options.map((option, index) => (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={option.value === value}
+                className={[
+                  option.value === value ? "is-selected" : "",
+                  index === active ? "is-active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                ref={(node) => {
+                  if (node && index === active) {
+                    node.scrollIntoView({ block: "nearest" });
+                  }
+                }}
+                onPointerEnter={() => setActive(index)}
+                onClick={() => commit(option.value)}
+              >
+                <span>{option.label}</span>
+                {option.value === value && <CheckIcon />}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </div>
   );
 }
 
@@ -343,7 +507,12 @@ export function Section({
 }) {
   return (
     <div className={`sec ${open ? "is-open" : ""}`}>
-      <button type="button" className="sec__head" onClick={onToggle}>
+      <button
+        type="button"
+        className="sec__head"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
         <ChevronIcon className="sec__chevron" />
         <span className="sec__name">{name}</span>
         {badge && (

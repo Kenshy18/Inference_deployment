@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type {
   AppSettings,
   BootstrapData,
@@ -6,14 +6,26 @@ import type {
   JobSnapshot,
   MaskStudioApi,
   PipelineDraft,
+  VideoProbe,
 } from "../shared/types";
 
 const api: MaskStudioApi = {
   bootstrap: () => ipcRenderer.invoke("app:bootstrap") as Promise<BootstrapData>,
   pickFile: (kind: FilePickerKind) =>
     ipcRenderer.invoke("dialog:pick-file", kind) as Promise<string | null>,
+  pickVideos: () =>
+    ipcRenderer.invoke("dialog:pick-videos") as Promise<string[]>,
   pickDirectory: () =>
     ipcRenderer.invoke("dialog:pick-directory") as Promise<string | null>,
+  probeVideo: (path: string, settings: AppSettings) =>
+    ipcRenderer.invoke("video:probe", path, settings) as Promise<VideoProbe>,
+  pathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file) || null;
+    } catch {
+      return null;
+    }
+  },
   saveSettings: (settings: AppSettings) =>
     ipcRenderer.invoke(
       "settings:save",

@@ -75,6 +75,23 @@ function mockJob(): JobSnapshot {
   return base;
 }
 
+/* Deterministic fake probe so the queue can be exercised without Electron. */
+let mockPickCount = 0;
+
+function mockThumbnail(seed: number): string {
+  const hue = (seed * 47) % 360;
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' width='192' height='108'>` +
+    `<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>` +
+    `<stop offset='0' stop-color='hsl(${hue},45%,30%)'/>` +
+    `<stop offset='1' stop-color='hsl(${(hue + 60) % 360},40%,14%)'/>` +
+    `</linearGradient></defs>` +
+    `<rect width='192' height='108' fill='url(%23g)'/>` +
+    `<circle cx='96' cy='54' r='17' fill='rgba(255,255,255,0.25)'/>` +
+    `<path d='M90 45 106 54 90 63Z' fill='white'/></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${svg}`;
+}
+
 const previewApi: MaskStudioApi = {
   bootstrap: async () => ({
     platform: "linux",
@@ -82,7 +99,19 @@ const previewApi: MaskStudioApi = {
     job: mockJob(),
   }),
   pickFile: async () => null,
+  pickVideos: async () => {
+    mockPickCount += 1;
+    return [`/mock/videos/sample-${String(mockPickCount).padStart(2, "0")}.mp4`];
+  },
   pickDirectory: async () => null,
+  probeVideo: async (path: string) => {
+    const seed = [...path].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return {
+      durationSeconds: 45 + (seed % 600),
+      thumbnail: mockThumbnail(seed),
+    };
+  },
+  pathForFile: () => null,
   saveSettings: async (settings: AppSettings) => settings,
   validateWorkflow: async () => ({
     ...emptyJob,
@@ -93,6 +122,7 @@ const previewApi: MaskStudioApi = {
   }),
   startWorkflow: async () => ({
     ...emptyJob,
+    id: `preview-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     status: "failed",
     error: "ブラウザプレビューではジョブを実行できません。",
   }),

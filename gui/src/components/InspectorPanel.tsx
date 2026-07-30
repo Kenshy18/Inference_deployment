@@ -64,6 +64,7 @@ export interface InspectorActions {
   overlay: (values: Partial<Draft["overlay"]>) => void;
   execution: (values: Partial<Draft["execution"]>) => void;
   settings: (values: Partial<AppSettings>) => void;
+  pickSqlite: (target: "inference" | "tracked" | "final") => void;
   changeMode: (mode: InferenceMode) => void;
   changeModel: (model: Draft["inference"]["segmentationModel"]) => void;
   changeFaceModel: (model: Draft["inference"]["faceModel"]) => void;
@@ -213,6 +214,23 @@ export function InspectorPanel({
               label="新規に実行"
             />
           </Row>
+          {!inference.enabled && (
+            <Row
+              label="AI推論SQLite"
+              stack
+              hint="生成済みunified inference SQLiteをキューの全動画で再利用します"
+            >
+              <PathInput
+                value={inference.inputSqlite}
+                placeholder="inference.sqlite"
+                disabled={busy}
+                onChange={(inputSqlite) =>
+                  actions.inference({ inputSqlite })
+                }
+                onBrowse={() => actions.pickSqlite("inference")}
+              />
+            </Row>
+          )}
           <Row label="処理モード" always>
             <Segment<InferenceMode>
               value={inference.mode}
@@ -521,6 +539,32 @@ export function InspectorPanel({
               label={faceOnly ? "顔のみでは不要" : "追跡・整形を実行"}
             />
           </Row>
+          {!faceOnly && !postprocess.enabled && (
+            <>
+              <Row label="追跡後SQLite" stack>
+                <PathInput
+                  value={postprocess.trackedSqlite}
+                  placeholder="tracked.sqlite"
+                  disabled={busy}
+                  onChange={(trackedSqlite) =>
+                    actions.postprocess({ trackedSqlite })
+                  }
+                  onBrowse={() => actions.pickSqlite("tracked")}
+                />
+              </Row>
+              <Row label="旧最終SQLite" stack hint="必要な場合だけ指定">
+                <PathInput
+                  value={postprocess.finalSqlite}
+                  placeholder="predictions.sqlite"
+                  disabled={busy}
+                  onChange={(finalSqlite) =>
+                    actions.postprocess({ finalSqlite })
+                  }
+                  onBrowse={() => actions.pickSqlite("final")}
+                />
+              </Row>
+            </>
+          )}
           {!faceOnly && (
             <>
               {postprocess.classPostprocessPolicySource !== "editor" && (

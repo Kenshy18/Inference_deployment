@@ -108,6 +108,12 @@ export const FilmIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const PlusIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 3v10M3 8h10" />
+  </Icon>
+);
+
 export const AlertIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M8 2.4 14.6 13H1.4L8 2.4Z" />

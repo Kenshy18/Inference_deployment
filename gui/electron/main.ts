@@ -13,6 +13,7 @@ import type {
   PipelineDraft,
 } from "../shared/types";
 import { JobManager } from "./job-manager";
+import { probeVideo } from "./probe";
 import { readSettings, writeSettings } from "./settings";
 
 let mainWindow: BrowserWindow | null = null;
@@ -99,6 +100,23 @@ function registerIpc(): void {
         : await dialog.showOpenDialog(options);
       return result.canceled ? null : result.filePaths[0] ?? null;
     },
+  );
+
+  ipcMain.handle("dialog:pick-videos", async () => {
+    const options: OpenDialogOptions = {
+      ...filePickerOptions("video"),
+      properties: ["openFile", "multiSelections"],
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled ? [] : result.filePaths;
+  });
+
+  ipcMain.handle(
+    "video:probe",
+    (_event, videoPath: string, settings: AppSettings) =>
+      probeVideo(videoPath, settings),
   );
 
   ipcMain.handle("dialog:pick-directory", async () => {

@@ -56,9 +56,16 @@ function FlowNode({
   );
 }
 
+export interface QueueInfo {
+  total: number;
+  pending: number;
+  activeTitle: string | null;
+}
+
 export function MonitorPanel({
   draft,
   job,
+  queueInfo,
   elapsedSeconds,
   statusLabel,
   summary,
@@ -66,6 +73,7 @@ export function MonitorPanel({
 }: {
   draft: PipelineDraft;
   job: JobSnapshot;
+  queueInfo: QueueInfo;
   elapsedSeconds: number;
   statusLabel: string;
   summary: string;
@@ -107,10 +115,16 @@ export function MonitorPanel({
   const nodes = [
     {
       key: "src",
-      label: "Source",
+      label: "Queue",
       icon: VideoIcon,
-      state: (draft.inputVideo ? "ready" : "waiting") as NodeState,
-      value: draft.inputVideo ? "video" : "未選択",
+      state: (queueInfo.activeTitle
+        ? "active"
+        : queueInfo.total > 0
+          ? "ready"
+          : "waiting") as NodeState,
+      value:
+        queueInfo.activeTitle ??
+        (queueInfo.total > 0 ? `${queueInfo.total}本` : "未選択"),
     },
     {
       key: "inf",

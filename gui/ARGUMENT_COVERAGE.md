@@ -16,7 +16,7 @@ GUIでは次の区別を明示します。
 
 - **簡単**: 普段のジョブで直接操作する項目
 - **詳細**: Inspectorを「詳細」に切り替えると操作できる項目
-- **入力**: Sourceペインで操作する項目
+- **入力**: Sourceペイン（入力キュー・出力リポジトリ）が供給する項目
 - **自動**: 他の選択から整合する値を生成する項目
 - **内部**: オーケストレーターが所有し、GUIからは変更しない項目
 
@@ -25,8 +25,8 @@ GUIでは次の区別を明示します。
 | 設定 | GUI | 説明 |
 | --- | --- | --- |
 | `schema_version` | 内部 | 現在は`1` |
-| `input_video` | 入力 | 元動画 |
-| `output_root` | 入力 | 1ジョブの出力ルート |
+| `input_video` | 入力 | 入力キューの各動画から順次供給 |
+| `output_root` | 入力 | 出力リポジトリ配下に「動画名」フォルダを自動割当 |
 | `execution.runtime_python` | 詳細/Runtime | 実行Python |
 | `execution.resume` | 詳細 | 完了済みstageの再利用 |
 
@@ -35,7 +35,7 @@ GUIでは次の区別を明示します。
 | 設定 | GUI | 説明 |
 | --- | --- | --- |
 | `enabled` | 簡単 | 新規推論または既存SQLite再利用 |
-| `input_sqlite` | 入力 | 推論を省略するときのunified SQLite |
+| `input_sqlite` | 簡単 | 推論を省略するときのunified SQLite（推論セクション内） |
 | `mode` | 簡単 | 性器、顔、両方 |
 | `segmentation_model` | 簡単 | EVA、DINO Cascade、巨大/小型Co-DINO |
 | `segmentation_backend` | 簡単 | モデルが対応する推論エンジン |
@@ -61,7 +61,7 @@ GUIでは次の区別を明示します。
 | 設定 | GUI | 説明 |
 | --- | --- | --- |
 | `enabled` | 簡単 | 性器の追跡・整形。顔後処理とは独立 |
-| `tracked_sqlite` / `final_sqlite` | 入力 | 後処理を省略する場合の既存SQLite |
+| `tracked_sqlite` / `final_sqlite` | 簡単 | 後処理を省略する場合の既存SQLite（後処理セクション内） |
 | `shape_mode` | 簡単 | 既定のpolygon/ellipse |
 | `pipeline_config` | 詳細 | pipeline設定 |
 | `class_policy_json` | 詳細 | クラスpolicy |

@@ -1,4 +1,4 @@
-import type { AppSettings, JobSnapshot, PipelineDraft } from "../../shared/types";
+import type { AppSettings, JobSnapshot } from "../../shared/types";
 import { filename } from "../lib/format";
 import {
   CheckIcon,
@@ -9,7 +9,9 @@ import {
 } from "./Icons";
 
 export function TopBar({
-  draft,
+  queueTotal,
+  queuePending,
+  outputRoot,
   job,
   settings,
   busy,
@@ -18,7 +20,9 @@ export function TopBar({
   onCancel,
   onRuntime,
 }: {
-  draft: PipelineDraft;
+  queueTotal: number;
+  queuePending: number;
+  outputRoot: string;
   job: JobSnapshot;
   settings: AppSettings;
   busy: boolean;
@@ -30,19 +34,27 @@ export function TopBar({
   return (
     <header className="topbar">
       <div className="topbar__mark">
-        <FilmIcon />
+        <span className="topbar__logo">
+          <FilmIcon />
+        </span>
         <span>Mask Pipeline</span>
       </div>
 
       <div className="topbar__file">
-        <i>SRC</i>
-        <b className={draft.inputVideo ? "" : "is-empty"} title={draft.inputVideo}>
-          {draft.inputVideo ? filename(draft.inputVideo) : "動画未選択"}
-        </b>
-        <i>OUT</i>
-        <b className={draft.outputRoot ? "" : "is-empty"} title={draft.outputRoot}>
-          {draft.outputRoot ? filename(draft.outputRoot) : "保存先未選択"}
-        </b>
+        <span className="fchip" title="入力キューの状態">
+          <i>QUEUE</i>
+          <b className={queueTotal === 0 ? "is-empty" : ""}>
+            {queueTotal === 0
+              ? "キューは空"
+              : `${queueTotal}本 · 残り${queuePending}`}
+          </b>
+        </span>
+        <span className="fchip" title={outputRoot}>
+          <i>OUT</i>
+          <b className={outputRoot ? "" : "is-empty"}>
+            {outputRoot ? filename(outputRoot) : "保存先未選択"}
+          </b>
+        </span>
       </div>
 
       <div className="topbar__transport">
@@ -55,7 +67,6 @@ export function TopBar({
           <CpuIcon />
           {settings.backendMode === "wsl" ? `WSL2 · ${settings.wslDistro}` : "Native"}
         </button>
-        <span style={{ width: 8 }} />
         <button
           type="button"
           className="btn"
@@ -65,18 +76,19 @@ export function TopBar({
         >
           <CheckIcon />
           Dry Run
+          <kbd>^D</kbd>
         </button>
-        <span style={{ width: 4 }} />
         {busy ? (
           <button
             type="button"
             className="btn btn--danger"
             disabled={job.status === "cancelling"}
             onClick={onCancel}
-            title="ジョブを停止 (Esc)"
+            title="キューの処理を停止 (Esc)"
           >
             <StopIcon />
             停止
+            <kbd>Esc</kbd>
           </button>
         ) : (
           <button
@@ -84,10 +96,11 @@ export function TopBar({
             className="btn btn--primary"
             disabled={!canRun}
             onClick={() => onRun(false)}
-            title="ジョブを実行 (Ctrl+Enter)"
+            title="キューを順番に処理 (Ctrl+Enter)"
           >
             <PlayIcon />
             実行
+            <kbd>^↵</kbd>
           </button>
         )}
       </div>

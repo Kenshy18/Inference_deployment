@@ -5,6 +5,7 @@ import type {
   JobSnapshot,
   OverlayExecutionMode,
   PipelineDraft,
+  QueueItem,
   SettingsView,
 } from "../shared/types";
 import { ConsolePanel } from "./components/ConsolePanel";
@@ -12,7 +13,7 @@ import { InspectorPanel } from "./components/InspectorPanel";
 import type { InspectorActions } from "./components/InspectorPanel";
 import { MonitorPanel } from "./components/MonitorPanel";
 import { SourcePanel } from "./components/SourcePanel";
-import type { SourceActions } from "./components/SourcePanel";
+import type { QueueActions } from "./components/SourcePanel";
 import { StatusBar } from "./components/StatusBar";
 import { TopBar } from "./components/TopBar";
 import { useSplit } from "./hooks/useSplit";
@@ -24,6 +25,14 @@ import {
   loadDraft,
 } from "./lib/defaults";
 import { defaultBackend, defaultFaceBackend } from "./lib/models";
+import {
+  isVideoPath,
+  loadQueue,
+  newQueueItem,
+  saveQueue,
+  settingsSummary,
+  uniqueOutputDir,
+} from "./lib/queue";
 
 const STATUS_LABELS: Record<JobSnapshot["status"], string> = {
   idle: "待機中",
@@ -35,6 +44,12 @@ const STATUS_LABELS: Record<JobSnapshot["status"], string> = {
   completed: "完了",
   failed: "失敗",
 };
+
+const BUSY_STATUSES: ReadonlyArray<JobSnapshot["status"]> = [
+  "validating",
+  "running",
+  "cancelling",
+];
 
 const SECTIONS_KEY = "mask-studio-sections";
 const SETTINGS_VIEW_KEY = "mask-studio-settings-view";
@@ -66,6 +81,7 @@ export default function App() {
   const [draft, setDraft] = useState<PipelineDraft>(loadDraft);
   const [settings, setSettings] = useState<AppSettings>(browserSettings);
   const [job, setJob] = useState<JobSnapshot>(emptyJob);
+  const [queue, setQueue] = useState<QueueItem[]>(loadQueue);
   const [sections, setSections] = useState<Record<string, boolean>>(loadSections);
   const [settingsView, setSettingsView] =
     useState<SettingsView>(loadSettingsView);
@@ -79,6 +95,26 @@ export default function App() {
     id: null,
     frames: -1,
   });
+
+  /* Queue orchestration lives on refs so the job-update effect and the
+     sequential runner always see current state without re-subscribing. */
+  const draftRef = useRef(draft);
+  const settingsRef = useRef(settings);
+  const queueRef = useRef(queue);
+  const autoRunRef = useRef(false);
+  const removeAfterCancelRef = useRef<string | null>(null);
+  const lastTransitionRef = useRef("");
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+  useEffect(() => {
+    queueRef.current = queue;
+    saveQueue(queue);
+  }, [queue]);
 
   const left = useSplit("mask-studio-split-left", 250, {
     min: 200,
@@ -99,9 +135,156 @@ export default function App() {
     axis: "y",
   });
 
-  const busy = ["validating", "running", "cancelling"].includes(job.status);
+  const busy = BUSY_STATUSES.includes(job.status);
+  const pendingCount = queue.filter(
+    (item) => item.status === "pending",
+  ).length;
   const canRun =
-    Boolean(draft.inputVideo.trim()) && Boolean(draft.outputRoot.trim()) && !busy;
+    pendingCount > 0 && Boolean(draft.outputRoot.trim()) && !busy;
+
+  const patchItem = useCallback(
+    (id: string, values: Partial<QueueItem>) =>
+      setQueue((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, ...values } : item,
+        ),
+      ),
+    [],
+  );
+
+  /* ── sequential queue runner ──────────────────────────────────────── */
+
+  const startItem = useCallback(
+    async (item: QueueItem) => {
+      const currentDraft = draftRef.current;
+      const outputDir = uniqueOutputDir(
+        currentDraft.outputRoot,
+        item.title,
+        queueRef.current.map((entry) =>
+          entry.id === item.id ? null : entry.outputDir,
+        ),
+      );
+      const summary = settingsSummary(currentDraft);
+      patchItem(item.id, {
+        status: "processing",
+        outputDir,
+        summary,
+        error: null,
+      });
+      try {
+        await desktopApi.saveSettings(settingsRef.current);
+        setJob(
+          await desktopApi.startWorkflow(
+            { ...currentDraft, inputVideo: item.path, outputRoot: outputDir },
+            settingsRef.current,
+          ),
+        );
+      } catch (error) {
+        const text =
+          error instanceof Error ? error.message : "実行できませんでした。";
+        patchItem(item.id, { status: "failed", error: text });
+        autoRunRef.current = false;
+        setToast({ text, error: true });
+      }
+    },
+    [patchItem],
+  );
+
+  const startNext = useCallback(() => {
+    const next = queueRef.current.find((item) => item.status === "pending");
+    if (next && autoRunRef.current) {
+      void startItem(next);
+    } else {
+      autoRunRef.current = false;
+    }
+  }, [startItem]);
+
+  const runQueue = useCallback(() => {
+    const next = queueRef.current.find((item) => item.status === "pending");
+    if (!next || !draftRef.current.outputRoot.trim()) {
+      return;
+    }
+    autoRunRef.current = true;
+    void startItem(next);
+  }, [startItem]);
+
+  const dryRun = useCallback(async () => {
+    const next = queueRef.current.find((item) => item.status === "pending");
+    if (!next || !draftRef.current.outputRoot.trim()) {
+      return;
+    }
+    const outputDir = uniqueOutputDir(
+      draftRef.current.outputRoot,
+      next.title,
+      queueRef.current.map((entry) => entry.outputDir),
+    );
+    try {
+      await desktopApi.saveSettings(settingsRef.current);
+      setJob(
+        await desktopApi.validateWorkflow(
+          {
+            ...draftRef.current,
+            inputVideo: next.path,
+            outputRoot: outputDir,
+          },
+          settingsRef.current,
+        ),
+      );
+    } catch (error) {
+      setToast({
+        text: error instanceof Error ? error.message : "検証できませんでした。",
+        error: true,
+      });
+    }
+  }, []);
+
+  const cancelAll = useCallback(() => {
+    autoRunRef.current = false;
+    removeAfterCancelRef.current = null;
+    void desktopApi.cancelWorkflow();
+  }, []);
+
+  /* React to terminal job states: advance, fail, or unwind the queue. */
+  useEffect(() => {
+    if (!job.id || job.dryRun) {
+      return;
+    }
+    const key = `${job.id}:${job.status}`;
+    if (lastTransitionRef.current === key) {
+      return;
+    }
+    if (!["completed", "failed", "cancelled"].includes(job.status)) {
+      return;
+    }
+    lastTransitionRef.current = key;
+    const active = queueRef.current.find(
+      (item) => item.status === "processing",
+    );
+    if (!active) {
+      return;
+    }
+    if (job.status === "completed") {
+      patchItem(active.id, { status: "done", error: null });
+      startNext();
+    } else if (job.status === "failed") {
+      patchItem(active.id, {
+        status: "failed",
+        error: job.error ?? "処理に失敗しました",
+      });
+      startNext();
+    } else if (removeAfterCancelRef.current === active.id) {
+      removeAfterCancelRef.current = null;
+      setQueue((current) => current.filter((item) => item.id !== active.id));
+      startNext();
+    } else {
+      patchItem(active.id, {
+        status: "pending",
+        outputDir: null,
+        summary: null,
+      });
+      autoRunRef.current = false;
+    }
+  }, [job, patchItem, startNext]);
 
   /* ── bootstrap + live job updates ─────────────────────────────────── */
 
@@ -110,6 +293,16 @@ export default function App() {
       setSettings(data.settings);
       setJob(data.job);
       settingsLoaded.current = true;
+      if (!BUSY_STATUSES.includes(data.job.status)) {
+        /* A reload lost the runner loop; re-queue anything left mid-flight. */
+        setQueue((current) =>
+          current.map((item) =>
+            item.status === "processing"
+              ? { ...item, status: "pending", outputDir: null, summary: null }
+              : item,
+          ),
+        );
+      }
     });
     return desktopApi.onJobUpdate(setJob);
   }, []);
@@ -172,35 +365,10 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [busy]);
 
-  /* ── actions ──────────────────────────────────────────────────────── */
-
-  const run = useCallback(
-    async (dryRun: boolean) => {
-      try {
-        await desktopApi.saveSettings(settings);
-        setJob(
-          dryRun
-            ? await desktopApi.validateWorkflow(draft, settings)
-            : await desktopApi.startWorkflow(draft, settings),
-        );
-      } catch (error) {
-        setToast({
-          text: error instanceof Error ? error.message : "実行できませんでした。",
-          error: true,
-        });
-      }
-    },
-    [draft, settings],
-  );
-
-  const cancel = useCallback(() => {
-    void desktopApi.cancelWorkflow();
-  }, []);
-
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape" && busy) {
-        cancel();
+        cancelAll();
         return;
       }
       if (!(event.ctrlKey || event.metaKey)) {
@@ -208,15 +376,112 @@ export default function App() {
       }
       if (event.key === "Enter" && canRun) {
         event.preventDefault();
-        void run(false);
+        runQueue();
       } else if (event.key.toLowerCase() === "d" && canRun) {
         event.preventDefault();
-        void run(true);
+        void dryRun();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [busy, canRun, cancel, run]);
+  }, [busy, canRun, cancelAll, dryRun, runQueue]);
+
+  /* ── queue actions ────────────────────────────────────────────────── */
+
+  const addPaths = useCallback(
+    (paths: string[]) => {
+      const videos = paths.filter(Boolean).filter(isVideoPath);
+      if (videos.length === 0) {
+        if (paths.length > 0) {
+          setToast({ text: "動画ファイルではありません。", error: true });
+        }
+        return;
+      }
+      const active = new Set(
+        queueRef.current
+          .filter(
+            (item) =>
+              item.status === "pending" || item.status === "processing",
+          )
+          .map((item) => item.path),
+      );
+      const fresh = videos.filter((path) => !active.has(path));
+      if (fresh.length === 0) {
+        setToast({ text: "既にキューへ追加済みです。", error: false });
+        return;
+      }
+      const items = fresh.map(newQueueItem);
+      setQueue((current) => [...current, ...items]);
+      for (const item of items) {
+        void desktopApi
+          .probeVideo(item.path, settingsRef.current)
+          .then((probe) =>
+            patchItem(item.id, {
+              durationSeconds: probe.durationSeconds,
+              thumbnail: probe.thumbnail,
+            }),
+          )
+          .catch(() => undefined);
+      }
+    },
+    [patchItem],
+  );
+
+  const queueActions: QueueActions = useMemo(
+    () => ({
+      addFiles: (files) =>
+        addPaths(
+          files.map(
+            (file) => desktopApi.pathForFile(file) ?? file.name,
+          ),
+        ),
+      addByPicker: () =>
+        void desktopApi.pickVideos().then((paths) => addPaths(paths)),
+      remove: (id) =>
+        setQueue((current) =>
+          current.filter(
+            (item) => item.id !== id || item.status === "processing",
+          ),
+        ),
+      stopAndRemove: (id) => {
+        const item = queueRef.current.find((entry) => entry.id === id);
+        if (!item || item.status !== "processing") {
+          return;
+        }
+        removeAfterCancelRef.current = id;
+        void desktopApi.cancelWorkflow();
+      },
+      requeue: (id) =>
+        patchItem(id, {
+          status: "pending",
+          outputDir: null,
+          summary: null,
+          error: null,
+        }),
+      openOutput: (id) => {
+        const item = queueRef.current.find((entry) => entry.id === id);
+        if (!item?.outputDir) {
+          return;
+        }
+        void desktopApi.openOutput(item.outputDir).then((message) => {
+          if (message) {
+            setToast({ text: message, error: true });
+          }
+        });
+      },
+      setOutputRoot: (outputRoot) =>
+        setDraft((current) => ({ ...current, outputRoot })),
+      pickOutput: () =>
+        void desktopApi.pickDirectory().then((outputRoot) => {
+          if (outputRoot) {
+            setDraft((current) => ({ ...current, outputRoot }));
+          }
+        }),
+    }),
+    [addPaths, patchItem],
+  );
+
+  /* ── draft actions ────────────────────────────────────────────────── */
 
   const patchInference = useCallback(
     (values: Partial<PipelineDraft["inference"]>) =>
@@ -267,25 +532,14 @@ export default function App() {
     [],
   );
 
-  const sourceActions: SourceActions = useMemo(
+  const inspectorActions: InspectorActions = useMemo(
     () => ({
-      setInputVideo: (inputVideo) =>
-        setDraft((current) => ({ ...current, inputVideo })),
-      setOutputRoot: (outputRoot) =>
-        setDraft((current) => ({ ...current, outputRoot })),
-      setInferenceSqlite: (inputSqlite) => patchInference({ inputSqlite }),
-      setTrackedSqlite: (trackedSqlite) => patchPostprocess({ trackedSqlite }),
-      setFinalSqlite: (finalSqlite) => patchPostprocess({ finalSqlite }),
-      pickVideo: () =>
-        void pickInto("video", (inputVideo) =>
-          setDraft((current) => ({ ...current, inputVideo })),
-        ),
-      pickOutput: () =>
-        void desktopApi.pickDirectory().then((outputRoot) => {
-          if (outputRoot) {
-            setDraft((current) => ({ ...current, outputRoot }));
-          }
-        }),
+      inference: patchInference,
+      postprocess: patchPostprocess,
+      overlay: patchOverlay,
+      execution: patchExecution,
+      settings: (values: Partial<AppSettings>) =>
+        setSettings((current) => ({ ...current, ...values })),
       pickSqlite: (target) =>
         void pickInto("sqlite", (value) => {
           if (target === "inference") {
@@ -296,26 +550,6 @@ export default function App() {
             patchPostprocess({ finalSqlite: value });
           }
         }),
-      openOutput: () =>
-        void desktopApi
-          .openOutput(job.outputRoot ?? draft.outputRoot)
-          .then((message) => {
-            if (message) {
-              setToast({ text: message, error: true });
-            }
-          }),
-    }),
-    [draft.outputRoot, job.outputRoot, patchInference, patchPostprocess, pickInto],
-  );
-
-  const inspectorActions: InspectorActions = useMemo(
-    () => ({
-      inference: patchInference,
-      postprocess: patchPostprocess,
-      overlay: patchOverlay,
-      execution: patchExecution,
-      settings: (values: Partial<AppSettings>) =>
-        setSettings((current) => ({ ...current, ...values })),
       changeMode: (mode: InferenceMode) => {
         patchInference({
           mode,
@@ -474,6 +708,8 @@ export default function App() {
 
   /* ── derived ──────────────────────────────────────────────────────── */
 
+  const activeItem = queue.find((item) => item.status === "processing") ?? null;
+
   const elapsedSeconds = job.startedAt
     ? Math.max(
         job.telemetry.elapsedSeconds,
@@ -486,13 +722,17 @@ export default function App() {
   const summary = useMemo(() => {
     switch (job.status) {
       case "running":
-        return job.stage ? `${job.stage} を処理中` : "起動しています";
+        return job.stage
+          ? `${activeItem ? `${activeItem.title} — ` : ""}${job.stage} を処理中`
+          : "起動しています";
       case "cancelling":
         return "停止を要求しました";
       case "failed":
         return job.error ?? "処理に失敗しました";
       case "completed":
-        return `${Object.keys(job.artifacts).length} 件の成果物`;
+        return pendingCount > 0
+          ? `完了 — 残り${pendingCount}本`
+          : `${Object.keys(job.artifacts).length} 件の成果物`;
       case "validated":
         return "設定と入力は妥当です";
       case "cancelled":
@@ -500,9 +740,17 @@ export default function App() {
       case "validating":
         return "設定を検証しています";
       default:
-        return canRun ? "実行できます" : "動画と出力先を選択してください";
+        if (queue.length === 0) {
+          return "キューに動画を追加してください";
+        }
+        if (!draft.outputRoot.trim()) {
+          return "出力リポジトリを選択してください";
+        }
+        return pendingCount > 0
+          ? `${pendingCount}本を実行できます`
+          : "キューは全て処理済みです";
     }
-  }, [canRun, job]);
+  }, [activeItem, draft.outputRoot, job, pendingCount, queue.length]);
 
   const shellStyle = {
     "--w-left": `${left.size}px`,
@@ -514,28 +762,41 @@ export default function App() {
       className="app"
       style={{
         ...shellStyle,
-        gridTemplateRows: `34px minmax(0, 1fr) 5px ${bottom.size}px 22px`,
+        gridTemplateRows: `46px minmax(0, 1fr) 6px ${bottom.size}px 26px`,
       }}
     >
       <TopBar
-        draft={draft}
+        queueTotal={queue.length}
+        queuePending={pendingCount}
+        outputRoot={draft.outputRoot}
         job={job}
         settings={settings}
         busy={busy}
         canRun={canRun}
-        onRun={(dryRun) => void run(dryRun)}
-        onCancel={cancel}
+        onRun={(isDryRun) => (isDryRun ? void dryRun() : runQueue())}
+        onCancel={cancelAll}
         onRuntime={() =>
           setSections((current) => ({ ...current, runtime: !current.runtime }))
         }
       />
 
       <div className="main">
-        <SourcePanel draft={draft} job={job} busy={busy} actions={sourceActions} />
+        <SourcePanel
+          queue={queue}
+          outputRoot={draft.outputRoot}
+          busy={busy}
+          activeProgress={job.telemetry.progress}
+          actions={queueActions}
+        />
         <div {...left.handleProps} />
         <MonitorPanel
           draft={draft}
           job={job}
+          queueInfo={{
+            total: queue.length,
+            pending: pendingCount,
+            activeTitle: activeItem?.title ?? null,
+          }}
           elapsedSeconds={elapsedSeconds}
           statusLabel={STATUS_LABELS[job.status]}
           summary={summary}
