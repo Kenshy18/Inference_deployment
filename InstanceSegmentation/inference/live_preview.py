@@ -31,8 +31,7 @@ MAX_FPS_ENVIRONMENT = "MASK_PIPELINE_INFERENCE_PREVIEW_FPS"
 class _PendingPreview:
     frame_index: int
     timestamp_sec: float
-    canvas: np.ndarray
-    transform: _CanvasTransform
+    image: np.ndarray
     result: InferenceFrame
 
 
@@ -284,9 +283,9 @@ class LivePreviewSink:
             None if control_path is None else control_path.expanduser().resolve()
         )
         self._condition = threading.Condition()
-        # At most two already-resized canvases are retained.  Wall-clock
-        # coalescing below prevents fast face inference from feeding the GUI
-        # tens of 960x540 JPEGs per second.
+        # At most two source images are retained. Resizing is deliberately
+        # deferred to this worker so a 24-thread OpenCV resize cannot pause the
+        # inference producer or the GUI progress stream.
         self._pending: deque[_PendingPreview] = deque(maxlen=2)
         self._last_submit = 0.0
         self._closed = False
@@ -341,16 +340,10 @@ class LivePreviewSink:
         if now - self._last_submit < 1.0 / self.max_fps:
             return
         self._last_submit = now
-        canvas, transform = _fit_canvas(
-            frame.image,
-            width=self.width,
-            height=self.height,
-        )
         pending = _PendingPreview(
             frame_index=frame.index,
             timestamp_sec=frame.timestamp_sec,
-            canvas=canvas,
-            transform=transform,
+            image=frame.image,
             result=result,
         )
         with self._condition:
@@ -382,11 +375,15 @@ class LivePreviewSink:
                 print(f"[live-preview-warning] {exc}", flush=True)
 
     def _write(self, pending: _PendingPreview) -> None:
-        canvas = pending.canvas
+        canvas, transform = _fit_canvas(
+            pending.image,
+            width=self.width,
+            height=self.height,
+        )
         if isinstance(pending.result, SegmentationFrame):
-            _draw_segmentation(canvas, pending.transform, pending.result)
+            _draw_segmentation(canvas, transform, pending.result)
         elif isinstance(pending.result, DetectionFrame):
-            _draw_detections(canvas, pending.transform, pending.result)
+            _draw_detections(canvas, transform, pending.result)
         else:
             raise TypeError(
                 f"unsupported preview result: {type(pending.result)!r}"

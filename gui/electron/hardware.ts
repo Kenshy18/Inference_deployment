@@ -1,9 +1,6 @@
-import { execFile } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
-import { promisify } from "node:util";
 import type { HardwareMetrics } from "../shared/types";
-
-const execFileAsync = promisify(execFile);
 
 export interface CpuTicks {
   idle: number;
@@ -71,35 +68,81 @@ export function parseNvidiaSmi(stdout: string): NvidiaMetrics | null {
   };
 }
 
-async function readNvidiaMetrics(): Promise<NvidiaMetrics | null> {
-  try {
-    const { stdout } = await execFileAsync(
-      "nvidia-smi",
-      [
-        "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
-        "--format=csv,noheader,nounits",
-      ],
-      { timeout: 1_500, maxBuffer: 64 * 1_024 },
-    );
-    return parseNvidiaSmi(stdout);
-  } catch {
-    // The GUI also runs on CPU-only machines. Missing GPU telemetry must not
-    // affect workflow execution or turn into repeated console noise.
+export function parseNvidiaDmonLine(line: string): NvidiaMetrics | null {
+  const values = line.trim().split(/\s+/);
+  if (values.length < 16 || values[0] === "#") {
     return null;
   }
+  // dmon -s pucvmt columns: gpu, pwr, gtemp, mtemp, sm, mem, enc,
+  // dec, jpg, ofa, mclk, pclk, pviol, tviol, fb, bar1, ...
+  const gpuPercent = Number(values[4]);
+  const gpuTemperatureC = Number(values[2]);
+  const vramUsedMiB = Number(values[14]);
+  const vramTotalMiB = Number(values[15]);
+  if (
+    ![gpuPercent, gpuTemperatureC, vramUsedMiB, vramTotalMiB].every(
+      Number.isFinite,
+    ) ||
+    vramTotalMiB <= 0
+  ) {
+    return null;
+  }
+  return {
+    gpuPercent: Math.min(100, Math.max(0, gpuPercent)),
+    vramPercent: Math.min(100, Math.max(0, (vramUsedMiB / vramTotalMiB) * 100)),
+    vramUsedMiB,
+    vramTotalMiB,
+    gpuTemperatureC,
+  };
 }
 
 export class HardwareSampler {
   private previousCpu: CpuTicks | null = null;
+  private gpu: NvidiaMetrics | null = null;
+  private dmon: ChildProcess | null = null;
+  private dmonBuffer = "";
+  private retryDmonAfter = 0;
+
+  private ensureDmon(): void {
+    if (this.dmon !== null || Date.now() < this.retryDmonAfter) {
+      return;
+    }
+    const child = spawn("nvidia-smi", ["dmon", "-s", "pucvmt", "-d", "1"], {
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    this.dmon = child;
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      const lines = `${this.dmonBuffer}${chunk}`.split(/\r?\n/);
+      this.dmonBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const parsed = parseNvidiaDmonLine(line);
+        if (parsed !== null) {
+          this.gpu = parsed;
+        }
+      }
+    });
+    const stopped = () => {
+      if (this.dmon === child) {
+        this.dmon = null;
+        this.dmonBuffer = "";
+        this.retryDmonAfter = Date.now() + 10_000;
+      }
+    };
+    child.once("error", stopped);
+    child.once("close", stopped);
+  }
 
   async sample(): Promise<HardwareMetrics> {
+    this.ensureDmon();
     const currentCpu = readCpuTicks();
     const cpuPercent = calculateCpuPercent(this.previousCpu, currentCpu);
     this.previousCpu = currentCpu;
 
     const memoryTotalBytes = os.totalmem();
     const memoryUsedBytes = Math.max(0, memoryTotalBytes - os.freemem());
-    const gpu = await readNvidiaMetrics();
+    const gpu = this.gpu;
 
     return {
       timestamp: Date.now(),
@@ -114,5 +157,13 @@ export class HardwareSampler {
       vramTotalMiB: gpu?.vramTotalMiB ?? null,
       gpuTemperatureC: gpu?.gpuTemperatureC ?? null,
     };
+  }
+
+  close(): void {
+    const child = this.dmon;
+    this.dmon = null;
+    if (child !== null && child.exitCode === null) {
+      child.kill("SIGTERM");
+    }
   }
 }

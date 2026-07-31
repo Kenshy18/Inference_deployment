@@ -17,6 +17,7 @@ extern "C" {
 
 void* cuda_overlay_create(
     int device_index,
+    void* producer_stream,
     char* error,
     std::size_t error_size
 );

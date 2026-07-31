@@ -15,6 +15,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -30,6 +31,7 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/error.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_cuda.h>
 #include <libavutil/opt.h>
 #include <sqlite3.h>
 }
@@ -579,6 +581,41 @@ std::string sqlite_text(sqlite3_stmt* statement, int column) {
     return value
         ? std::string(reinterpret_cast<const char*>(value))
         : std::string();
+}
+
+std::set<int> load_cut_frames(
+    const fs::path& path,
+    int start_frame,
+    const std::optional<int>& end_frame
+) {
+    SqliteConnection connection(path);
+    if (
+        !sqlite_table_exists(connection.get(), "cuts") ||
+        !sqlite_column_exists(connection.get(), "cuts", "frame")
+    ) {
+        return {};
+    }
+    SqliteStatement statement(
+        connection.get(),
+        "SELECT frame FROM cuts WHERE frame >= ?1 "
+        "AND (?2 IS NULL OR frame <= ?2) ORDER BY frame"
+    );
+    bind_frame_range(statement.get(), start_frame, end_frame);
+    std::set<int> cuts;
+    while (true) {
+        const int result = sqlite3_step(statement.get());
+        if (result == SQLITE_DONE) {
+            break;
+        }
+        if (result != SQLITE_ROW) {
+            throw std::runtime_error(
+                std::string("cut read failed: ") +
+                sqlite3_errmsg(connection.get())
+            );
+        }
+        cuts.insert(sqlite3_column_int(statement.get(), 0));
+    }
+    return cuts;
 }
 
 void require_inference_role(
@@ -2140,6 +2177,9 @@ void append_cuda_line_spans(
 }
 
 std::string overlay_label(const Mask& item) {
+    if (item.provenance == "CUT") {
+        return "CUT";
+    }
     if (item.kind == ItemKind::face && item.face_detailed) {
         std::vector<std::string> parts;
         std::stringstream stream(item.track_id);
@@ -2408,6 +2448,11 @@ LabelLayout make_label_layout(
         frame_width,
         static_cast<int>(layout.text.size()) * 8 + 4
     );
+    if (item.provenance == "CUT") {
+        layout.x = std::max(0, frame_width - layout.width - 12);
+        layout.y = std::min(12, std::max(0, frame_height - LabelLayout::height));
+        return layout;
+    }
     const Point anchor = label_anchor(item);
     layout.x = std::clamp(
         static_cast<int>(std::lround(anchor.x)),
@@ -2461,6 +2506,58 @@ void append_cuda_label(
     int width,
     int height
 ) {
+    if (item.provenance == "CUT") {
+        constexpr int scale = 3;
+        constexpr int padding = 5;
+        constexpr int advance = 8 * scale;
+        constexpr int label_width = 3 * advance + 2 * padding;
+        constexpr int label_height = 11 * scale + 2 * padding;
+        const int x = std::max(0, width - label_width - 16);
+        const int y = std::min(16, std::max(0, height - label_height));
+        append_cuda_solid_rectangle(
+            output,
+            x,
+            y,
+            x + label_width - 1,
+            y + label_height - 1,
+            bgr_to_bt709_limited({18, 18, 18}),
+            width,
+            height
+        );
+        batch_ends.push_back(output.size());
+        const YuvColor foreground = bgr_to_bt709_limited(item.bgr);
+        const std::size_t text_start = output.size();
+        constexpr std::string_view text{"CUT"};
+        for (std::size_t index = 0; index < text.size(); ++index) {
+            const int origin_x =
+                x + padding + static_cast<int>(index) * advance;
+            const std::uint8_t segments = glyph_segments(text[index]);
+            for (std::size_t segment = 0; segment < glyph_lines.size(); ++segment) {
+                if ((segments & (1U << segment)) == 0) {
+                    continue;
+                }
+                append_cuda_line_spans(
+                    output,
+                    Point{
+                        origin_x + scale * glyph_lines[segment].first.x,
+                        y + padding + scale * glyph_lines[segment].first.y,
+                    },
+                    Point{
+                        origin_x + scale * glyph_lines[segment].second.x,
+                        y + padding + scale * glyph_lines[segment].second.y,
+                    },
+                    scale,
+                    foreground,
+                    width,
+                    height
+                );
+            }
+        }
+        if (output.size() != text_start) {
+            batch_ends.push_back(output.size());
+        }
+        return;
+    }
     const LabelLayout layout = make_label_layout(item, width, height);
     if (layout.text.empty() || layout.width <= 0) {
         return;
@@ -2566,6 +2663,52 @@ void append_cuda_label(
 }
 
 void draw_cpu_label(AVFrame* frame, const Mask& item) {
+    if (item.provenance == "CUT") {
+        constexpr int scale = 3;
+        constexpr int padding = 5;
+        constexpr int advance = 8 * scale;
+        constexpr int label_width = 3 * advance + 2 * padding;
+        constexpr int label_height = 11 * scale + 2 * padding;
+        const int x = std::max(0, frame->width - label_width - 16);
+        const int y = std::min(16, std::max(0, frame->height - label_height));
+        const YuvColor background = bgr_to_bt709_limited({18, 18, 18});
+        for (int row = y; row < y + label_height; ++row) {
+            blend_span(
+                frame,
+                row,
+                x,
+                x + label_width - 1,
+                background,
+                255
+            );
+        }
+        const YuvColor foreground = bgr_to_bt709_limited(item.bgr);
+        constexpr std::string_view text{"CUT"};
+        for (std::size_t index = 0; index < text.size(); ++index) {
+            const int origin_x =
+                x + padding + static_cast<int>(index) * advance;
+            const std::uint8_t segments = glyph_segments(text[index]);
+            for (std::size_t segment = 0; segment < glyph_lines.size(); ++segment) {
+                if ((segments & (1U << segment)) == 0) {
+                    continue;
+                }
+                draw_line(
+                    frame,
+                    Point{
+                        origin_x + scale * glyph_lines[segment].first.x,
+                        y + padding + scale * glyph_lines[segment].first.y,
+                    },
+                    Point{
+                        origin_x + scale * glyph_lines[segment].second.x,
+                        y + padding + scale * glyph_lines[segment].second.y,
+                    },
+                    scale,
+                    foreground
+                );
+            }
+        }
+        return;
+    }
     const LabelLayout layout = make_label_layout(
         item,
         frame->width,
@@ -2842,10 +2985,11 @@ void append_cuda_face(
 
 class CudaOverlayContext {
 public:
-    explicit CudaOverlayContext(int device_index) {
+    CudaOverlayContext(int device_index, void* producer_stream) {
         std::array<char, 512> error{};
         context_ = cuda_overlay_create(
             device_index,
+            producer_stream,
             error.data(),
             error.size()
         );
@@ -3767,8 +3911,15 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
     }
     std::unique_ptr<CudaOverlayContext> cuda_overlay;
     if (options.gpu_pipeline) {
+        auto* device_context = reinterpret_cast<AVHWDeviceContext*>(
+            hardware_device.get()->data
+        );
+        auto* cuda_device_context = reinterpret_cast<AVCUDADeviceContext*>(
+            device_context->hwctx
+        );
         cuda_overlay = std::make_unique<CudaOverlayContext>(
-            options.gpu_index
+            options.gpu_index,
+            reinterpret_cast<void*>(cuda_device_context->stream)
         );
     }
 
@@ -3985,6 +4136,9 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
                         mask_completed - mask_started
                     ).count();
                     for (const auto& item : mask_iterator->second) {
+                        if (item.provenance == "CUT") {
+                            continue;
+                        }
                         if (item.kind == ItemKind::mask) {
                             ++mask_rows;
                         } else {
@@ -4220,6 +4374,18 @@ int main(int argc, char** argv) {
                         item.provenance = "DETAILED";
                     }
                 }
+            }
+            for (const int frame : load_cut_frames(
+                     options.sqlite,
+                     options.start_frame,
+                     options.end_frame
+                 )) {
+                Mask indicator;
+                indicator.kind = ItemKind::mask;
+                indicator.label = "CUT";
+                indicator.provenance = "CUT";
+                indicator.bgr = {40, 40, 255};
+                masks[frame].push_back(std::move(indicator));
             }
         }
         const std::string unique_suffix = std::to_string(

@@ -128,6 +128,33 @@ def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
     return {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
 
 
+def load_cut_frames(
+    path: Path,
+    *,
+    start_frame: int = 0,
+    end_frame: int | None = None,
+) -> frozenset[int]:
+    """Read exact scene-boundary frames when the SQLite carries them."""
+
+    resolved = Path(path).expanduser().resolve()
+    connection = _connect_read_only(resolved)
+    try:
+        if "cuts" not in _tables(connection) or "frame" not in _columns(
+            connection, "cuts"
+        ):
+            return frozenset()
+        limit = (2**31 - 1) if end_frame is None else end_frame
+        return frozenset(
+            int(row[0])
+            for row in connection.execute(
+                "SELECT frame FROM cuts WHERE frame BETWEEN ? AND ?",
+                (start_frame, limit),
+            )
+        )
+    finally:
+        connection.close()
+
+
 def _validate_columns(
     connection: sqlite3.Connection,
     required: dict[str, set[str]],

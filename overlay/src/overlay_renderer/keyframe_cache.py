@@ -498,8 +498,43 @@ def _create_cache_schema(connection: sqlite3.Connection) -> None:
             PRIMARY KEY(frame, track_id, slot_index)
         ) WITHOUT ROWID;
         CREATE TABLE cache_info(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE cuts(frame INTEGER PRIMARY KEY) WITHOUT ROWID;
         """
     )
+
+
+def _load_cut_frames(
+    connection: sqlite3.Connection,
+    start_frame: int,
+    end_frame: int,
+) -> list[int]:
+    has_cuts = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cuts'"
+    ).fetchone()
+    if has_cuts is None:
+        return []
+    return [
+        int(row[0])
+        for row in connection.execute(
+            "SELECT frame FROM cuts WHERE frame BETWEEN ? AND ? ORDER BY frame",
+            (start_frame, end_frame),
+        )
+    ]
+
+
+def _split_keyframes_at_cuts(
+    keyframes: list[Keyframe],
+    cuts: list[int],
+) -> list[list[Keyframe]]:
+    """Return connected keyframe runs; a cut frame starts a new scene."""
+
+    groups: list[list[Keyframe]] = []
+    for keyframe in keyframes:
+        scene = bisect.bisect_right(cuts, keyframe.frame)
+        if not groups or bisect.bisect_right(cuts, groups[-1][0].frame) != scene:
+            groups.append([])
+        groups[-1].append(keyframe)
+    return groups
 
 
 def _materialize_final(
@@ -517,6 +552,10 @@ def _materialize_final(
     ellipse_batch: list[tuple[object, ...]] = []
     rectangle_batch: list[tuple[object, ...]] = []
     total = 0
+    # A worker shard can start after a cut while its source segment contains
+    # keyframes on both sides.  Load the tiny global cut list for grouping;
+    # only range-local cuts are copied to the disposable shard below.
+    cuts = _load_cut_frames(source, 0, 2**31 - 1)
 
     def flush_typed() -> None:
         if ellipse_batch:
@@ -534,75 +573,7 @@ def _materialize_final(
             )
             rectangle_batch.clear()
 
-    # Face privacy geometry currently has one observation/keyframe per
-    # segment.  Read it in one scan instead of issuing one query per face.
-    face_rows = (
-        source.execute(
-            """
-            SELECT k.frame, s.track_id, COALESCE(t.label, ''),
-                   c.slot_index, c.geometry_type,
-                   e.cx, e.cy, e.radius_x, e.radius_y, e.theta_radians,
-                   r.cx, r.cy, r.half_width, r.half_height, r.theta_radians
-            FROM mask_track_segments s
-            JOIN tracks t ON t.track_id=s.track_id
-            JOIN mask_keyframes k ON k.segment_id=s.id
-            JOIN keyframe_components c ON c.keyframe_id=k.id
-            LEFT JOIN keyframe_ellipses e ON e.component_id=c.id
-            LEFT JOIN keyframe_rectangles r ON r.component_id=c.id
-            WHERE t.domain='face_privacy' AND k.frame BETWEEN ? AND ?
-            ORDER BY k.frame, s.track_id, c.slot_index
-            """,
-            (start_frame, limit),
-        )
-        if mask_domain in {None, "face_privacy"}
-        else ()
-    )
-    for row in face_rows:
-        kind = str(row[4])
-        values = tuple(
-            float(row[index])
-            for index in (range(5, 10) if kind == "ellipse" else range(10, 15))
-        )
-        if compact_typed:
-            common = (
-                int(row[0]),
-                str(row[1]),
-                int(row[3]),
-                *values,
-            )
-            if kind == "ellipse":
-                ellipse_batch.append(
-                    (
-                        *common,
-                        64 if str(row[2]).casefold() == "eyes" else 96,
-                        str(row[2]),
-                        1,
-                    )
-                )
-            else:
-                rectangle_batch.append((*common, str(row[2]), 1))
-            total += 1
-            if len(ellipse_batch) + len(rectangle_batch) >= 2048:
-                flush_typed()
-            continue
-        component = Component(kind, values)
-        polygons = _component_polygons((component,), face_label=str(row[2]))
-        batch.append(
-            (
-                int(row[0]),
-                str(row[1]),
-                json.dumps(polygons, separators=(",", ":")),
-                kind,
-                str(row[2]),
-                1,
-            )
-        )
-        total += 1
-        if len(batch) >= 1024:
-            output.executemany(insert_sql, batch)
-            batch.clear()
-
-    domain_clause = "t.domain<>'face_privacy'" if mask_domain is None else "t.domain=?"
+    domain_clause = "1=1" if mask_domain is None else "t.domain=?"
     parameters: tuple[object, ...] = (
         (start_frame, limit)
         if mask_domain is None
@@ -625,8 +596,6 @@ def _materialize_final(
         if not keyframes:
             continue
         keyframe_frames = {keyframe.frame for keyframe in keyframes}
-        first_frame = max(start_frame, int(first))
-        last_frame = min(limit, int(last))
         polygon_segment = all(
             component.kind == "polygon"
             for keyframe in keyframes
@@ -653,73 +622,103 @@ def _materialize_final(
                 observed_frame: _components_at(keyframes, observed_frame, str(method))
                 for observed_frame in observed_frames
             }
-        for frame in range(first_frame, last_frame + 1):
-            components = (
-                _polygon_components_for_final_frame(
-                    keyframes,
-                    observed_components,
-                    observed_frames,
-                    frame,
-                    str(method),
-                )
-                if polygon_segment
-                else _components_at(keyframes, frame, str(method))
+        for connected_keyframes in _split_keyframes_at_cuts(keyframes, cuts):
+            # Only interpolate between actual keyframes.  Segment metadata may
+            # be broader, but extrapolating into that range makes masks flash
+            # or leak across disconnected observations.
+            first_frame = max(
+                start_frame,
+                int(first),
+                connected_keyframes[0].frame,
             )
-            if not components:
-                continue
-            if compact_typed and all(
-                component.kind in {"ellipse", "rectangle"} for component in components
-            ):
-                for slot_index, component in enumerate(components):
-                    values = tuple(component.values)  # type: ignore[arg-type]
-                    common = (
+            last_frame = min(
+                limit,
+                int(last),
+                connected_keyframes[-1].frame,
+            )
+            connected_observed_frames = [
+                frame
+                for frame in observed_frames
+                if first_frame <= frame <= last_frame
+            ]
+            connected_observed_components = {
+                frame: observed_components[frame]
+                for frame in connected_observed_frames
+            }
+            for frame in range(first_frame, last_frame + 1):
+                components = (
+                    _polygon_components_for_final_frame(
+                        connected_keyframes,
+                        connected_observed_components,
+                        connected_observed_frames,
+                        frame,
+                        str(method),
+                    )
+                    if polygon_segment
+                    else _components_at(connected_keyframes, frame, str(method))
+                )
+                if not components:
+                    continue
+                if compact_typed and all(
+                    component.kind in {"ellipse", "rectangle"}
+                    for component in components
+                ):
+                    for slot_index, component in enumerate(components):
+                        values = tuple(component.values)  # type: ignore[arg-type]
+                        common = (
+                            frame,
+                            str(track_id),
+                            slot_index,
+                            *values,
+                        )
+                        if component.kind == "ellipse":
+                            ellipse_batch.append(
+                                (
+                                    *common,
+                                    (
+                                        64
+                                        if str(domain) == "face_privacy"
+                                        and str(label).casefold() == "eyes"
+                                        else 96
+                                    ),
+                                    str(label),
+                                    1 if frame in keyframe_frames else 0,
+                                )
+                            )
+                        else:
+                            rectangle_batch.append(
+                                (
+                                    *common,
+                                    str(label),
+                                    1 if frame in keyframe_frames else 0,
+                                )
+                            )
+                    total += 1
+                    if len(ellipse_batch) + len(rectangle_batch) >= 2048:
+                        flush_typed()
+                    continue
+                polygons = _component_polygons(
+                    components,
+                    face_label=(
+                        str(label) if str(domain) == "face_privacy" else None
+                    ),
+                )
+                if not polygons:
+                    continue
+                batch.append(
+                    (
                         frame,
                         str(track_id),
-                        slot_index,
-                        *values,
+                        json.dumps(polygons, separators=(",", ":")),
+                        components[0].kind,
+                        str(label),
+                        1 if frame in keyframe_frames else 0,
                     )
-                    if component.kind == "ellipse":
-                        ellipse_batch.append(
-                            (
-                                *common,
-                                (
-                                    64
-                                    if str(domain) == "face_privacy"
-                                    and str(label).casefold() == "eyes"
-                                    else 96
-                                ),
-                                str(label),
-                                1 if frame in keyframe_frames else 0,
-                            )
-                        )
-                    else:
-                        rectangle_batch.append(
-                            (*common, str(label), 1 if frame in keyframe_frames else 0)
-                        )
-                total += 1
-                if len(ellipse_batch) + len(rectangle_batch) >= 2048:
-                    flush_typed()
-                continue
-            polygons = _component_polygons(
-                components,
-                face_label=(str(label) if str(domain) == "face_privacy" else None),
-            )
-            if not polygons:
-                continue
-            batch.append(
-                (
-                    frame,
-                    str(track_id),
-                    json.dumps(polygons, separators=(",", ":")),
-                    components[0].kind,
-                    str(label),
-                    1 if frame in keyframe_frames else 0,
                 )
-            )
-            total += 1
-            if len(batch) >= 1024:
-                output.executemany(insert_sql, batch)
-                batch.clear()
+                total += 1
+                if len(batch) >= 1024:
+                    output.executemany(insert_sql, batch)
+                    batch.clear()
     if batch:
         output.executemany(insert_sql, batch)
     flush_typed()
@@ -839,6 +838,15 @@ def materialize_overlay_cache(
             output.execute("PRAGMA journal_mode=OFF")
             output.execute("PRAGMA synchronous=OFF")
             _create_cache_schema(output)
+            copied_cuts = _load_cut_frames(
+                source,
+                start_frame,
+                (2**31 - 1) if end_frame is None else end_frame,
+            )
+            output.executemany(
+                "INSERT INTO cuts(frame) VALUES (?)",
+                ((frame,) for frame in copied_cuts),
+            )
             rows = (
                 _materialize_tracked(source, output, start_frame, end_frame)
                 if mode == "tracked"

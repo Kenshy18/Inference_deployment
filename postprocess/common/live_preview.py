@@ -207,6 +207,10 @@ class PostprocessPreviewSink:
         max_fps: float = 5.0,
         control_path: Path | None = None,
     ) -> None:
+        # Preview-only OpenCV operations must not borrow every host core from
+        # tracking/approximation. OpenCV defaults to all 24 cores on the target
+        # workstation, which caused visible desktop stalls for tiny JPEGs.
+        cv2.setNumThreads(2)
         self.path = path.resolve()
         self.video = video.resolve()
         self.width = width
@@ -357,18 +361,11 @@ class PostprocessPreviewSink:
     def close(self) -> None:
         with self._condition:
             self._closed = True
-            # Do not add a multi-second queue drain to the critical path.
-            if len(self._pending) > 1:
-                latest = next(reversed(self._pending.values()))
-                self._pending.clear()
-                key = (
-                    latest.stage
-                    if isinstance(latest, PreviewGeometry)
-                    else f"{latest.stage}:artifacts"
-                )
-                self._pending[key] = latest
+            # The next workflow stage immediately replaces this preview. Do
+            # not delay postprocess completion to render stale queued frames.
+            self._pending.clear()
             self._condition.notify()
-        self._thread.join(timeout=1.5)
+        self._thread.join(timeout=0.2)
 
     def _sample_artifacts(self, stage: str, label: str, artifacts: Mapping[str, Path]) -> PreviewGeometry | None:
         for name in (
@@ -536,6 +533,8 @@ class PostprocessPreviewSink:
         capture: cv2.VideoCapture | None = None
         fps = 0.0
         last_write = 0.0
+        last_frame: int | None = None
+        last_image: np.ndarray | None = None
         try:
             while True:
                 with self._condition:
@@ -555,14 +554,45 @@ class PostprocessPreviewSink:
                 try:
                     if item.preview_image is not None:
                         image = item.preview_image
+                    elif (
+                        not item.polygons
+                        and not item.ellipses
+                        and not item.boxes
+                        and not item.points
+                    ):
+                        # Stage-start/status events carry no source geometry.
+                        # Re-seeking frame zero for every such event used most
+                        # of the postprocess LIVE budget and made tracking look
+                        # frozen. Keep the last visual context (or a neutral
+                        # canvas before the first geometric event) instead.
+                        image = (
+                            last_image
+                            if last_image is not None
+                            else np.full(
+                                (self.height, self.width, 3),
+                                12,
+                                dtype=np.uint8,
+                            )
+                        )
+                    elif item.frame == last_frame and last_image is not None:
+                        image = last_image
                     else:
                         if capture is None:
-                            capture = cv2.VideoCapture(str(self.video))
+                            capture = cv2.VideoCapture(
+                                str(self.video),
+                                cv2.CAP_FFMPEG,
+                                [cv2.CAP_PROP_N_THREADS, 1],
+                            )
+                            if not capture.isOpened():
+                                capture.release()
+                                capture = cv2.VideoCapture(str(self.video))
                             fps = capture.get(cv2.CAP_PROP_FPS) or 0.0
                         capture.set(cv2.CAP_PROP_POS_FRAMES, max(0, item.frame))
                         ok, image = capture.read()
                         if not ok:
                             continue
+                        last_frame = item.frame
+                        last_image = image
                     canvas, scale, ox, oy = _fit_canvas(image, self.width, self.height)
                     _draw(canvas, item, scale, ox, oy)
                     self._write(canvas, item, fps)

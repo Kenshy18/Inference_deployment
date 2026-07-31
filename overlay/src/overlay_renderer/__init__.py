@@ -9,6 +9,7 @@ from .sources import (
     iter_face_frames,
     iter_mask_frames,
     iter_raw_segmentation_frames,
+    load_cut_frames,
 )
 
 __all__ = [
@@ -22,6 +23,6 @@ __all__ = [
     "iter_face_frames",
     "iter_mask_frames",
     "iter_raw_segmentation_frames",
+    "load_cut_frames",
     "render_video",
 ]
-

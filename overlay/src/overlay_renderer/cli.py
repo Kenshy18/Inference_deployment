@@ -18,6 +18,7 @@ from .sources import (
     iter_face_frames,
     iter_mask_frames,
     iter_raw_segmentation_frames,
+    load_cut_frames,
 )
 
 
@@ -667,6 +668,15 @@ def main(argv: list[str] | None = None) -> None:
         face_frames=face_frames,
         sources=tuple(sources),
         options=options,
+        cut_frames=(
+            load_cut_frames(
+                args.sqlite,
+                start_frame=args.start_frame,
+                end_frame=args.end_frame,
+            )
+            if options.display_style == "detailed"
+            else frozenset()
+        ),
         overwrite=args.overwrite,
     )
     payload = {

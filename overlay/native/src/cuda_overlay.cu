@@ -9,6 +9,9 @@
 namespace {
 
 struct Context {
+    cudaStream_t producer_stream{};
+    cudaEvent_t producer_ready{};
+    cudaEvent_t overlay_complete{};
     CudaOverlaySpan* device_fill{};
     std::size_t fill_capacity{};
     CudaOverlaySpan* device_outline{};
@@ -212,6 +215,7 @@ cudaError_t launch_batches(
 
 extern "C" void* cuda_overlay_create(
     int device_index,
+    void* producer_stream,
     char* error,
     std::size_t error_size
 ) {
@@ -225,6 +229,7 @@ extern "C" void* cuda_overlay_create(
         std::snprintf(error, error_size, "CUDA context allocation failed");
         return nullptr;
     }
+    context->producer_stream = static_cast<cudaStream_t>(producer_stream);
     const cudaError_t stream_result = cudaStreamCreateWithFlags(
         &context->stream,
         cudaStreamNonBlocking
@@ -236,6 +241,37 @@ extern "C" void* cuda_overlay_create(
             "create overlay stream",
             stream_result
         );
+        delete context;
+        return nullptr;
+    }
+    const cudaError_t event_result = cudaEventCreateWithFlags(
+        &context->producer_ready,
+        cudaEventDisableTiming
+    );
+    if (event_result != cudaSuccess) {
+        write_error(
+            error,
+            error_size,
+            "create decoder-ready event",
+            event_result
+        );
+        cudaStreamDestroy(context->stream);
+        delete context;
+        return nullptr;
+    }
+    const cudaError_t completion_event_result = cudaEventCreateWithFlags(
+        &context->overlay_complete,
+        cudaEventDisableTiming
+    );
+    if (completion_event_result != cudaSuccess) {
+        write_error(
+            error,
+            error_size,
+            "create overlay-complete event",
+            completion_event_result
+        );
+        cudaEventDestroy(context->producer_ready);
+        cudaStreamDestroy(context->stream);
         delete context;
         return nullptr;
     }
@@ -268,7 +304,31 @@ extern "C" int cuda_overlay_apply_nv12(
         }
         return 1;
     }
-    cudaError_t result = ensure_capacity(
+    // A decoded CUDA AVFrame can be returned while NVDEC work on libav's
+    // stream is still in flight.  Under six-worker load our non-blocking
+    // overlay stream could run first, after which NVDEC overwrote the mask.
+    // Establish the producer/consumer boundary before editing the surface.
+    // Recording on libav's producer stream and waiting on our stream keeps the
+    // dependency entirely on the GPU; synchronizing the producer on the CPU
+    // here costs measurable throughput with six workers.
+    cudaError_t result = cudaEventRecord(
+        context->producer_ready,
+        context->producer_stream
+    );
+    if (result != cudaSuccess) {
+        write_error(error, error_size, "record decoded-frame readiness", result);
+        return 1;
+    }
+    result = cudaStreamWaitEvent(
+        context->stream,
+        context->producer_ready,
+        0
+    );
+    if (result != cudaSuccess) {
+        write_error(error, error_size, "wait for decoded CUDA frame", result);
+        return 1;
+    }
+    result = ensure_capacity(
         &context->device_fill,
         &context->fill_capacity,
         fill_count
@@ -348,9 +408,21 @@ extern "C" int cuda_overlay_apply_nv12(
             return 1;
         }
     }
-    result = cudaStreamSynchronize(context->stream);
+    result = cudaEventRecord(context->overlay_complete, context->stream);
     if (result != cudaSuccess) {
-        write_error(error, error_size, "synchronize overlay", result);
+        write_error(error, error_size, "record overlay completion", result);
+        return 1;
+    }
+    // Return ownership to libav's stream without stalling the CPU.  Subsequent
+    // NVDEC/NVENC work using the shared device context cannot consume the
+    // surface until our overlay event has completed.
+    result = cudaStreamWaitEvent(
+        context->producer_stream,
+        context->overlay_complete,
+        0
+    );
+    if (result != cudaSuccess) {
+        write_error(error, error_size, "publish completed overlay", result);
         return 1;
     }
     return 0;
@@ -369,6 +441,12 @@ extern "C" void cuda_overlay_destroy(void* opaque) {
     }
     if (context->stream) {
         cudaStreamDestroy(context->stream);
+    }
+    if (context->producer_ready) {
+        cudaEventDestroy(context->producer_ready);
+    }
+    if (context->overlay_complete) {
+        cudaEventDestroy(context->overlay_complete);
     }
     delete context;
 }

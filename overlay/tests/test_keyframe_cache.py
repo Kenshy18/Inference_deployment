@@ -243,6 +243,38 @@ class KeyframeCacheTests(unittest.TestCase):
                     ).fetchone(),
                 )
 
+    def test_final_interpolation_never_crosses_a_cut(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "result.sqlite"
+            self._write_source(source)
+            with sqlite3.connect(source) as connection:
+                connection.executescript(
+                    "CREATE TABLE cuts(frame INTEGER PRIMARY KEY);"
+                    "INSERT INTO cuts VALUES (1);"
+                )
+
+            cache = root / "final-cache.sqlite"
+            summary = materialize_overlay_cache(
+                source,
+                cache,
+                mode="final",
+                mask_domain="genital",
+            )
+            self.assertEqual(2, summary["rows"])
+            with sqlite3.connect(cache) as connection:
+                self.assertEqual(
+                    [(0, "1", 1), (2, "1", 1)],
+                    connection.execute(
+                        "SELECT frame, track_id, is_keyframe "
+                        "FROM masks ORDER BY frame"
+                    ).fetchall(),
+                )
+                self.assertEqual(
+                    [(1,)],
+                    connection.execute("SELECT frame FROM cuts").fetchall(),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

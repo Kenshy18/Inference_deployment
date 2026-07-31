@@ -188,6 +188,7 @@ def materialize_fast_face_cache(
                 );
                 CREATE INDEX idx_fast_face_items_frame
                     ON fast_face_items(frame, id);
+                CREATE TABLE cuts(frame INTEGER PRIMARY KEY) WITHOUT ROWID;
                 """
             )
             connection.executemany(
@@ -201,6 +202,20 @@ def materialize_fast_face_cache(
                     ("end_frame", "" if end_frame is None else str(end_frame)),
                 ),
             )
+            with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as source_db:
+                has_cuts = source_db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='table' AND name='cuts'"
+                ).fetchone()
+                if has_cuts is not None:
+                    limit = (2**31 - 1) if end_frame is None else end_frame
+                    connection.executemany(
+                        "INSERT INTO cuts(frame) VALUES (?)",
+                        source_db.execute(
+                            "SELECT frame FROM cuts WHERE frame BETWEEN ? AND ?",
+                            (start_frame, limit),
+                        ),
+                    )
             frames = iter_face_frames(
                 source,
                 include_ellipses=include_ellipses,

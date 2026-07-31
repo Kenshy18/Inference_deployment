@@ -18,6 +18,7 @@ dist/
 *.pth
 *.ckpt
 *.safetensors
+/inference_pc_models_*.zip
 
 # Exported graphs, TensorRT engines, and compiled runtime plugins
 **/engines/**

@@ -557,6 +557,24 @@ def _draw_label(
     )
 
 
+def _draw_cut_indicator(frame: np.ndarray) -> None:
+    text = "CUT"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = max(0.72, frame.shape[1] / 2200.0)
+    thickness = max(2, round(frame.shape[1] / 960))
+    (text_width, _text_height), _baseline = cv2.getTextSize(
+        text, font, scale, thickness
+    )
+    _draw_label(
+        frame,
+        text,
+        (frame.shape[1] - text_width - 16, 28),
+        (40, 40, 255),
+        scale=scale,
+        thickness=thickness,
+    )
+
+
 def _draw_dotted_rectangle(
     frame: np.ndarray,
     top_left: tuple[int, int],
@@ -1050,6 +1068,7 @@ def render_video(
     face_frames: Iterable[FrameOverlay] | None,
     sources: tuple[SourceInfo, ...],
     options: RenderOptions,
+    cut_frames: frozenset[int] | set[int] | None = None,
     overwrite: bool = False,
 ) -> RenderSummary:
     """Render an overlay video atomically using OpenCV and CPU decoding."""
@@ -1127,6 +1146,7 @@ def render_video(
 
     masks = _SparseFrames(mask_frames)
     faces = _SparseFrames(face_frames)
+    cuts = cut_frames or frozenset()
     started = time.perf_counter()
     last_progress_emit = started
     progress_interval = _progress_interval_seconds()
@@ -1155,6 +1175,8 @@ def render_video(
             source_seconds += time.perf_counter() - phase_started
             phase_started = time.perf_counter()
             mask_count, face_count = _draw_items(frame, frame_items, options)
+            if options.display_style == "detailed" and frame_index in cuts:
+                _draw_cut_indicator(frame)
             draw_seconds += time.perf_counter() - phase_started
             phase_started = time.perf_counter()
             writer.write(frame)

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { calculateCpuPercent, parseNvidiaSmi } from "./hardware";
+import {
+  calculateCpuPercent,
+  parseNvidiaDmonLine,
+  parseNvidiaSmi,
+} from "./hardware";
 
 describe("hardware telemetry", () => {
   it("calculates CPU utilization from cumulative ticks", () => {
@@ -10,6 +14,21 @@ describe("hardware telemetry", () => {
       ),
     ).toBe(75);
     expect(calculateCpuPercent(null, { idle: 0, total: 0 })).toBeNull();
+  });
+
+  it("parses a persistent dmon sample", () => {
+    expect(
+      parseNvidiaDmonLine(
+        "0 157 43 - 40 23 0 0 0 0 13801 2797 20 0 2489 32739 - 70 47",
+      ),
+    ).toEqual({
+      gpuPercent: 40,
+      vramPercent: (2489 / 32739) * 100,
+      vramUsedMiB: 2489,
+      vramTotalMiB: 32739,
+      gpuTemperatureC: 43,
+    });
+    expect(parseNvidiaDmonLine("# gpu pwr gtemp")).toBeNull();
   });
 
   it("parses the first NVIDIA GPU without locale-dependent labels", () => {

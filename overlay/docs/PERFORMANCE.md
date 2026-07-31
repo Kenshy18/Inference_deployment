@@ -263,6 +263,24 @@ raw、tracked、final、faces、final＋facesも実入力のPTS gapを跨ぐ4 fr
 
 ## 現在の制限
 
+### NVDEC/CUDA stream順序修正（2026-08-01）
+
+6 worker時、libav/NVDECのproducer streamとCUDA描画用non-blocking streamの間に
+依存がなく、描画後にNVDECがsurfaceを上書きする競合があった。SQLite cacheには
+非keyframeを含む全行が存在し、frame数/PTSも正常なため、従来のartifact検査では
+検出できなかった。実出力画素を連続frameで比較して発見し、producer-readyと
+overlay-completeのCUDA eventを双方向に接続した。CPU同期待ちは使っていない。
+
+1280x720、24 fps、10分、14,400 frames、NVENC 6、p1、8 Mbpsの修正後実測は、
+genital-simpleが9.770秒（1,473.86 fps）、genital-detailedが9.669秒
+（1,489.33 fps）。両方とも14,400 packets/frames、600.000秒、24fps一定である。
+問題区間2696-2710は6 worker出力を全frame画素比較し、2700-2710の全11 framesで
+同じtrack maskが連続して描画された。詳細版のCUTはcut frameだけ右上に表示され、
+前後frameには表示されない。
+
+修正前に記録した約1,515-1,521 fpsは描画欠落を含むため品質保証値として扱わない。
+修正後の採用値は実行揺らぎ込みで約1,450-1,500 fpsとする。
+
 ### rich face presetの実効速度（2026-07-29）
 
 1280x720、24 fps、10分、14,400 frames、face-detailed、NVENC 6、p1、
