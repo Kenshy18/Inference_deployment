@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .runtime/
 artifacts/**/*.pth
+artifacts/**/*.pt
 artifacts/**/*.engine
 artifacts/**/*.so
 artifacts/**/onnx/

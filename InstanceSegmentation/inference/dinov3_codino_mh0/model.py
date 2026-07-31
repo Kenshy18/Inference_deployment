@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
+    from .classifier import classifier_from_checkpoint
+except ImportError:
+    from classifier import classifier_from_checkpoint
+
+try:
     from .optimization.fast_model import (
         SUPPORTED_BACKENDS,
         build_backend_model,
@@ -36,11 +41,19 @@ DEFAULT_TRT_BUNDLE = (
     / "fast-sm120-fixed-b16-v1"
     / "manifest.json"
 )
+DEFAULT_CLASSIFIER_CHECKPOINT = (
+    FAMILY_ROOT / "artifacts" / "classifier" / "best.pt"
+)
 
 
 @dataclass(slots=True)
 class Mh0Runtime:
     model: object
+    classifier: object | None
+    class_names: tuple[str, ...]
+    class_ids: tuple[int, ...]
+    classifier_checkpoint: Path | None
+    classifier_status: str | None
     backend: str
     device: str
     fixed_batch_size: int
@@ -56,6 +69,7 @@ def build_runtime(
     trt_bundle: Path = DEFAULT_TRT_BUNDLE,
     trt_verify: str = "engines",
     cuda_graph: bool = False,
+    classifier_checkpoint: Path | None = DEFAULT_CLASSIFIER_CHECKPOINT,
 ) -> Mh0Runtime:
     if not config.is_file():
         raise FileNotFoundError(f"MH0 config not found: {config}")
@@ -80,8 +94,56 @@ def build_runtime(
         artifacts=artifact_paths,
         cuda_graph=cuda_graph,
     )
+    classifier = None
+    classifier_payload: dict[str, object] = {}
+    resolved_classifier = (
+        None
+        if classifier_checkpoint is None
+        else Path(classifier_checkpoint).expanduser().resolve()
+    )
+    if resolved_classifier is not None:
+        if not resolved_classifier.is_file():
+            raise FileNotFoundError(
+                f"MH0 classifier checkpoint not found: {resolved_classifier}"
+            )
+        classifier, classifier_payload = classifier_from_checkpoint(
+            resolved_classifier,
+            map_location=device,
+        )
+        classifier.to(device).eval()
+    class_names = tuple(
+        str(value)
+        for value in classifier_payload.get(
+            "class_names",
+            ["foreground"],
+        )
+    )
+    class_ids = tuple(
+        int(value)
+        for value in classifier_payload.get(
+            "class_ids",
+            list(range(len(class_names))),
+        )
+    )
+    if len(class_ids) != len(class_names):
+        raise ValueError(
+            "MH0 classifier class_ids and class_names must have equal length"
+        )
+    if classifier is not None:
+        model._mh0_classifier = classifier
+        model._mh0_classifier_class_count = len(class_names)
+    classifier_status = (
+        str(classifier_payload.get("artifact_status", "trained"))
+        if classifier is not None
+        else None
+    )
     return Mh0Runtime(
         model=model,
+        classifier=classifier,
+        class_names=class_names,
+        class_ids=class_ids,
+        classifier_checkpoint=resolved_classifier,
+        classifier_status=classifier_status,
         backend=backend,
         device=device,
         fixed_batch_size=int(model._mh0_batch_size),
@@ -98,6 +160,7 @@ def infer(runtime: Mh0Runtime, frames):
 
 __all__ = [
     "DEFAULT_CHECKPOINT",
+    "DEFAULT_CLASSIFIER_CHECKPOINT",
     "DEFAULT_CONFIG",
     "DEFAULT_TRT_BUNDLE",
     "Mh0Runtime",

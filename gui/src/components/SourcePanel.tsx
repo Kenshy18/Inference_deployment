@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { QueueItem } from "../../shared/types";
+import type { QueueItem, QueueOutput } from "../../shared/types";
 import { duration } from "../lib/format";
 import { FilmIcon, FolderIcon, PlusIcon } from "./Icons";
 import { Panel, PathInput, Row } from "./ui";
@@ -18,6 +18,7 @@ export interface QueueActions {
   stopAndRemove: (id: string) => void;
   requeue: (id: string) => void;
   openOutput: (id: string) => void;
+  openOutputPath: (path: string) => void;
   setOutputRoot: (value: string) => void;
   pickOutput: () => void;
 }
@@ -37,6 +38,15 @@ function QueueEntry({
   progress: number | null;
   onContextMenu: (event: React.MouseEvent, item: QueueItem) => void;
 }) {
+  const videoMeta = [
+    duration(item.durationSeconds),
+    item.width !== null && item.height !== null
+      ? `${item.width}×${item.height}`
+      : null,
+    item.fps !== null ? `${item.fps.toFixed(2)} fps` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const meta =
     item.status === "done"
       ? item.summary ?? "完了"
@@ -44,7 +54,7 @@ function QueueEntry({
         ? item.error ?? "処理に失敗しました"
         : item.summary && item.status === "processing"
           ? item.summary
-          : duration(item.durationSeconds);
+          : videoMeta;
   return (
     <div
       className={`qitem is-${item.status}`}
@@ -84,6 +94,67 @@ function QueueEntry({
   );
 }
 
+function completedLabel(value: string | null): string {
+  if (!value) {
+    return "処理完了";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "処理完了";
+  }
+  return new Intl.DateTimeFormat("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function OutputEntry({
+  source,
+  output,
+  onOpen,
+}: {
+  source: QueueItem;
+  output: QueueOutput;
+  onOpen: (output: QueueOutput) => void;
+}) {
+  const details = [
+    completedLabel(output.completedAt),
+    output.artifactCount !== null ? `${output.artifactCount}成果物` : null,
+    output.summary,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const outputName =
+    output.outputDir.split(/[\\/]/).filter(Boolean).at(-1) ?? source.title;
+  return (
+    <button
+      type="button"
+      className="qitem qitem--output is-done"
+      title={`${output.outputDir}\nクリックして出力フォルダを開く`}
+      onClick={() => onOpen(output)}
+    >
+      <span className="qitem__thumb">
+        {source.thumbnail ? (
+          <img src={source.thumbnail} alt="" draggable={false} />
+        ) : (
+          <FilmIcon />
+        )}
+      </span>
+      <span className="qitem__main">
+        <b>{outputName}</b>
+        <span className="qitem__meta" title={details}>
+          {details}
+        </span>
+      </span>
+      <span className="qitem__open" aria-label="出力フォルダを開く">
+        <FolderIcon />
+      </span>
+    </button>
+  );
+}
+
 export function SourcePanel({
   queue,
   outputRoot,
@@ -100,7 +171,14 @@ export function SourcePanel({
   const [dragOver, setDragOver] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
 
-  const pending = queue.filter((item) => item.status === "pending").length;
+  // The input queue is the durable processing history. Completed entries also
+  // appear in the output queue, but remain here so they can be re-queued from
+  // the existing context menu.
+  const inputQueue = queue;
+  const outputQueue = queue.flatMap((source) =>
+    source.outputs.map((output) => ({ source, output })),
+  );
+  const pending = inputQueue.filter((item) => item.status === "pending").length;
 
   const openMenu = useCallback((event: React.MouseEvent, item: QueueItem) => {
     event.preventDefault();
@@ -180,7 +258,7 @@ export function SourcePanel({
             actions.addFiles(Array.from(event.dataTransfer.files));
           }}
         >
-          {queue.length === 0 ? (
+          {inputQueue.length === 0 ? (
             <div className="queue__empty">
               <FilmIcon />
               ここに動画をドラッグ
@@ -188,12 +266,36 @@ export function SourcePanel({
               または「追加」で選択します
             </div>
           ) : (
-            queue.map((item) => (
+            inputQueue.map((item) => (
               <QueueEntry
                 key={item.id}
                 item={item}
                 progress={item.status === "processing" ? activeProgress : null}
                 onContextMenu={openMenu}
+              />
+            ))
+          )}
+        </div>
+
+        <div className="subhead subhead--bar output-queue__head">
+          出力キュー
+          <i className="subhead__note">{outputQueue.length}本完了</i>
+          {outputQueue.length > 0 && <span>クリックでフォルダを開く</span>}
+        </div>
+
+        <div className="queue output-queue">
+          {outputQueue.length === 0 ? (
+            <div className="queue__empty queue__empty--compact">
+              <FolderIcon />
+              処理済み動画がここに表示されます
+            </div>
+          ) : (
+            outputQueue.map(({ source, output }) => (
+              <OutputEntry
+                key={output.id}
+                source={source}
+                output={output}
+                onOpen={(entry) => actions.openOutputPath(entry.outputDir)}
               />
             ))
           )}

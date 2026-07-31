@@ -37,6 +37,33 @@ infer__TORCH_MODULE: ModuleType | None = None
 infer__K2V5_MODULE: ModuleType | None = None
 
 
+def _publish_ellipse_preview(metric: dict[str, object]) -> None:
+    """Publish geometry only; rendering/decoding remains off the K1/K2 path."""
+
+    from common.live_preview import PreviewGeometry, active_postprocess_preview
+
+    preview = active_postprocess_preview()
+    if preview is None or not preview.should_sample("ellipse_approximation"):
+        return
+    try:
+        ellipses = tuple(
+            tuple(float(value) for value in ellipse[:5])
+            for ellipse in json.loads(str(metric["ellipse_params"]))
+        )
+        preview.submit(
+            PreviewGeometry(
+                int(metric["frame"]),
+                "ellipse_approximation",
+                "ellipse approximation",
+                ellipses=ellipses,
+                track_id=str(metric["track_id"]),
+                detail=f"{str(metric.get('mode', 'K1')).upper()} / IoU {float(metric.get('iou', 0.0)):.3f}",
+            )
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return
+
+
 def infer_get_torch_module() -> ModuleType:
     global infer__TORCH_MODULE
     if infer__TORCH_MODULE is None:
@@ -400,12 +427,47 @@ def infer_solve_subset(
             ) in enumerate(rows_with_index)
         ]
         chunksize = max(1, len(tasks) // (workers * 8))
-        ctx = multiprocessing.get_context("fork")
+        # Forking while the GUI preview worker is decoding with OpenCV can
+        # inherit a held native lock and leave every K1 worker asleep forever.
+        # Live mode therefore uses clean interpreters plus explicit bounded
+        # payloads; headless mode retains the fastest fork-inherited cache.
+        from common.live_preview import active_postprocess_preview
+
+        preview = active_postprocess_preview()
+        if preview is None:
+            worker = fst._solve_k1_row_worker
+            worker_tasks = tasks
+            executor_workers = workers
+            context = multiprocessing.get_context("fork")
+        else:
+            worker = fst._solve_k1_payload_worker
+            worker_tasks = [
+                (
+                    subset_idx,
+                    int(frame),
+                    str(track_id),
+                    str(polygons_json),
+                    payloads[subset_idx],
+                    gt_polys[subset_idx],
+                    float(recall_target),
+                    int(exact_refine_rounds),
+                )
+                for subset_idx, (
+                    _original_idx,
+                    frame,
+                    track_id,
+                    polygons_json,
+                ) in enumerate(rows_with_index)
+            ]
+            executor_workers = min(workers, 8)
+            context = multiprocessing.get_context("spawn")
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=workers, mp_context=ctx, initializer=fst._k1_pool_init
+            max_workers=executor_workers,
+            mp_context=context,
+            initializer=fst._k1_pool_init,
         ) as executor:
             for completed, result in enumerate(
-                executor.map(fst._solve_k1_row_worker, tasks, chunksize=chunksize),
+                executor.map(worker, worker_tasks, chunksize=chunksize),
                 start=1,
             ):
                 subset_idx, row_value, metric_row, _solution_entry = result
@@ -416,8 +478,9 @@ def infer_solve_subset(
                 metric_row = infer_add_weighted_error_norm(metric_row)
                 solved_rows.append((original_idx, row_value))
                 solved_metrics.append((original_idx, metric_row))
-                if completed % 1000 == 0 or completed == len(tasks):
-                    print(f"{branch_name}: processed {completed}/{len(tasks)}")
+                _publish_ellipse_preview(metric_row)
+                if completed % 1000 == 0 or completed == len(worker_tasks):
+                    print(f"{branch_name}: processed {completed}/{len(worker_tasks)}")
     else:
         fst._k1_pool_init()
         for completed, (original_idx, frame, track_id, polygons_json) in enumerate(
@@ -453,6 +516,7 @@ def infer_solve_subset(
             )
             solved_rows.append((original_idx, (int(frame), str(track_id), pred_json)))
             solved_metrics.append((original_idx, metric_row))
+            _publish_ellipse_preview(metric_row)
             if completed % 1000 == 0 or completed == len(rows_with_index):
                 print(f"{branch_name}: processed {completed}/{len(rows_with_index)}")
     elapsed = time.perf_counter() - started
@@ -2239,6 +2303,7 @@ def infer_infer_k2_v5(
                         (original_idx, (int(frame), str(track_id), pred_json))
                     )
                     solved_metrics.append((original_idx, metric_row))
+                    _publish_ellipse_preview(metric_row)
                 stage_timings["postprocess_exact"] += time.perf_counter() - stage_start
                 processed = min(end_idx, len(selected_rows))
                 if processed % 1000 == 0 or processed == len(selected_rows):
@@ -2786,3 +2851,7 @@ def infer_main(argv: list[str] | None = None) -> None:
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    infer_main()

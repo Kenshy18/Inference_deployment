@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import shutil
@@ -42,6 +43,62 @@ LOCAL_NVENC_FFMPEG = (
     / "bin"
     / "ffmpeg"
 )
+
+
+def _progress_interval_seconds() -> float:
+    try:
+        value = float(
+            os.environ.get("MASK_PIPELINE_PROGRESS_INTERVAL_SEC", "0.3")
+        )
+    except ValueError:
+        value = 0.3
+    return max(0.05, value)
+
+
+def _emit_overlay_progress(
+    completed: int,
+    total: int,
+    *,
+    state: str,
+    fps: float | None,
+) -> None:
+    item_index = max(
+        0,
+        int(os.environ.get("MASK_PIPELINE_PROGRESS_ITEM_INDEX", "0")),
+    )
+    item_count = max(
+        1,
+        int(os.environ.get("MASK_PIPELINE_PROGRESS_ITEM_COUNT", "1")),
+    )
+    item_name = os.environ.get("MASK_PIPELINE_PROGRESS_ITEM_NAME", "").strip()
+    local_total = max(0, int(total))
+    overall_completed = item_index * local_total + max(
+        0,
+        min(int(completed), local_total),
+    )
+    overall_total = item_count * local_total
+    overall_state = (
+        "complete"
+        if state == "complete" and item_index + 1 >= item_count
+        else "running"
+    )
+    detail = "complete" if state == "complete" else "rendering"
+    print(
+        "[phase-progress] "
+        + json.dumps(
+            {
+                "phase": "overlay",
+                "state": overall_state,
+                "completed": overall_completed,
+                "total": overall_total,
+                "detail": f"{item_name}:{detail}" if item_name else detail,
+                "fps": None if fps is None else max(0.0, float(fps)),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -410,6 +467,15 @@ def _color(key: str) -> tuple[int, int, int]:
     return int(values[0]), int(values[1]), int(values[2])
 
 
+def _keyframe_highlight(color: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Lighten an existing track color without adding another draw pass."""
+
+    return tuple(
+        min(255, int(round(channel * 0.72 + 255.0 * 0.28)))
+        for channel in color
+    )
+
+
 def _contours(item: OverlayItem, width: int, height: int) -> list[np.ndarray]:
     output: list[np.ndarray] = []
     for polygon in item.polygons:
@@ -735,6 +801,8 @@ def _draw_items(
             if not contours:
                 continue
             color = _color(item.color_key)
+            if options.display_style == "detailed" and item.is_keyframe:
+                color = _keyframe_highlight(color)
             cv2.polylines(
                 frame,
                 contours,
@@ -1003,6 +1071,13 @@ def render_video(
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = float(capture.get(cv2.CAP_PROP_FPS) or 30.0)
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    selected_end = (
+        frame_count - 1
+        if options.end_frame is None
+        else min(frame_count - 1, options.end_frame)
+    )
+    progress_total = max(0, selected_end - options.start_frame + 1)
+    _emit_overlay_progress(0, progress_total, state="running", fps=None)
     for source in sources:
         _validate_source_video(
             source,
@@ -1053,6 +1128,8 @@ def render_video(
     masks = _SparseFrames(mask_frames)
     faces = _SparseFrames(face_frames)
     started = time.perf_counter()
+    last_progress_emit = started
+    progress_interval = _progress_interval_seconds()
     frames_written = 0
     masks_drawn = 0
     faces_drawn = 0
@@ -1087,6 +1164,18 @@ def render_video(
             faces_drawn += face_count
             first_written = frame_index if first_written is None else first_written
             last_written = frame_index
+            progress_now = time.perf_counter()
+            if (
+                frames_written >= progress_total
+                or progress_now - last_progress_emit >= progress_interval
+            ):
+                _emit_overlay_progress(
+                    frames_written,
+                    progress_total,
+                    state="running",
+                    fps=frames_written / max(progress_now - started, 1e-9),
+                )
+                last_progress_emit = progress_now
             if options.progress_every and frames_written % options.progress_every == 0:
                 print(
                     f"[overlay] frames={frames_written} "
@@ -1124,6 +1213,12 @@ def render_video(
         os.replace(temporary, output_path)
 
     elapsed_seconds = time.perf_counter() - started
+    _emit_overlay_progress(
+        frames_written,
+        progress_total,
+        state="complete",
+        fps=frames_written / max(elapsed_seconds, 1e-9),
+    )
     accounted_seconds = decode_seconds + source_seconds + draw_seconds + write_seconds
     return RenderSummary(
         mode=options.mode,

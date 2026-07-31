@@ -35,6 +35,12 @@ class Mh0Adapter:
     def __init__(self, runtime: Mh0Runtime, *, score_threshold: float) -> None:
         self.runtime = runtime
         self.score_threshold = float(score_threshold)
+        self.class_names = tuple(
+            getattr(runtime, "class_names", ("foreground",))
+        )
+        self.class_ids = tuple(
+            getattr(runtime, "class_ids", tuple(range(len(self.class_names))))
+        )
         self.descriptor = ModelDescriptor(
             model_id=f"dinov3_codino_mh0_{runtime.backend.replace('-', '_')}",
             task=TaskType.INSTANCE_SEGMENTATION,
@@ -42,7 +48,8 @@ class Mh0Adapter:
                 "tensorrt_partitioned_vitsplus_codino_mh0"
                 if runtime.backend == "tensorrt-fast"
                 else "pytorch_vitsplus_codino_mh0"
-            ),
+            )
+            + ("_roi_classifier" if getattr(runtime, "classifier", None) else ""),
         )
 
     def infer_raw(self, batch: FrameBatch) -> Any:
@@ -82,13 +89,15 @@ class Mh0Adapter:
                             mask = mask[:, :, 0]
                         polygons = mask_to_polygons(mask)
                     rows.append(
-                        {
-                            "category_id": int(class_index),
-                            "class_name": "foreground",
-                            "detector_score": score,
-                            "bbox_xyxy": (x1, y1, x2, y2),
-                            "polygons": polygons,
-                        }
+                        self._row(
+                            box,
+                            score=score,
+                            x1=x1,
+                            y1=y1,
+                            x2=x2,
+                            y2=y2,
+                            polygons=polygons,
+                        )
                     )
             output.append(
                 segmentation_frame_from_rows(
@@ -98,6 +107,47 @@ class Mh0Adapter:
                 )
             )
         return tuple(output)
+
+    def _row(
+        self,
+        box,
+        *,
+        score: float,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        polygons,
+    ) -> dict[str, object]:
+        row: dict[str, object] = {
+            "category_id": 0,
+            "class_name": "foreground",
+            "detector_score": score,
+            "bbox_xyxy": (x1, y1, x2, y2),
+            "polygons": polygons,
+        }
+        if len(box) >= 7 and self.class_names:
+            class_index = int(round(float(box[5])))
+            if not 0 <= class_index < len(self.class_names):
+                raise ValueError(
+                    f"MH0 classifier returned invalid class index {class_index}"
+                )
+            probability_count = min(
+                len(self.class_names),
+                max(0, len(box) - 7),
+            )
+            row.update(
+                {
+                    "classifier_class_id": int(self.class_ids[class_index]),
+                    "classifier_class_name": self.class_names[class_index],
+                    "class_score": float(box[6]),
+                    "class_probs": [
+                        float(value)
+                        for value in box[7 : 7 + probability_count]
+                    ],
+                }
+            )
+        return row
 
     def predict(self, batch: FrameBatch) -> tuple[SegmentationFrame, ...]:
         return self.convert_raw(batch, self.infer_raw(batch))

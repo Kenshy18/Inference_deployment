@@ -17,6 +17,8 @@ from contracts import (
     segmentation_frame_from_rows,
 )
 from pipelines import InferenceRunSummary
+from live_preview import LivePreviewSink
+from progress_protocol import InferenceProgressReporter
 from video import read_video_metadata
 
 try:
@@ -105,6 +107,13 @@ def run_fast_video_inference(
         raise ValueError("warmup_frames must be non-negative")
 
     video_metadata = read_video_metadata(input_path)
+    structured_progress = InferenceProgressReporter.from_environment(
+        available_frames=video_metadata.frames,
+        max_frames=max_frames,
+    )
+    if structured_progress is not None:
+        structured_progress.start()
+    preview = LivePreviewSink.from_environment()
     writer.set_metadata(
         {
             "input": str(input_path.expanduser().resolve()),
@@ -169,6 +178,8 @@ def run_fast_video_inference(
                 settings=settings,
             )
             writer.write(result)
+            if preview is not None:
+                preview.submit(frame, result)
             written += len(result.instances)
         return written
 
@@ -189,33 +200,60 @@ def run_fast_video_inference(
             processed += valid_count
             if progress is not None:
                 wall_elapsed = time.perf_counter() - started
-                progress(
-                    InferenceRunSummary(
-                        input=str(input_path),
-                        model_id=FAST_DESCRIPTOR.model_id,
-                        task=FAST_DESCRIPTOR.task.value,
-                        processed_frames=processed,
-                        result_items=items,
-                        wall_elapsed_sec=wall_elapsed,
-                        wall_fps=processed / max(wall_elapsed, 1e-9),
-                        warmup_frames=warmup_frames,
-                        measured_frames=measured_frames,
-                        measured_time_sec=measured_time,
-                        compute_fps=(
-                            measured_frames / measured_time
-                            if measured_time > 0
-                            else 0.0
-                        ),
-                    )
+                current_summary = InferenceRunSummary(
+                    input=str(input_path),
+                    model_id=FAST_DESCRIPTOR.model_id,
+                    task=FAST_DESCRIPTOR.task.value,
+                    processed_frames=processed,
+                    result_items=items,
+                    wall_elapsed_sec=wall_elapsed,
+                    wall_fps=processed / max(wall_elapsed, 1e-9),
+                    warmup_frames=warmup_frames,
+                    measured_frames=measured_frames,
+                    measured_time_sec=measured_time,
+                    compute_fps=(
+                        measured_frames / measured_time
+                        if measured_time > 0
+                        else 0.0
+                    ),
+                )
+                progress(current_summary)
+            else:
+                wall_elapsed = time.perf_counter() - started
+                current_summary = InferenceRunSummary(
+                    input=str(input_path),
+                    model_id=FAST_DESCRIPTOR.model_id,
+                    task=FAST_DESCRIPTOR.task.value,
+                    processed_frames=processed,
+                    result_items=items,
+                    wall_elapsed_sec=wall_elapsed,
+                    wall_fps=processed / max(wall_elapsed, 1e-9),
+                    warmup_frames=warmup_frames,
+                    measured_frames=measured_frames,
+                    measured_time_sec=measured_time,
+                    compute_fps=(
+                        measured_frames / measured_time
+                        if measured_time > 0
+                        else 0.0
+                    ),
+                )
+            if structured_progress is not None:
+                structured_progress.update(
+                    processed,
+                    fps=current_summary.wall_fps,
                 )
         while pending_output:
             items += int(pending_output.popleft().result())
     finally:
         output_pool.shutdown(wait=True, cancel_futures=True)
-        writer.close()
+        try:
+            if preview is not None:
+                preview.close()
+        finally:
+            writer.close()
     torch.cuda.synchronize()
     wall_elapsed = time.perf_counter() - started
-    return InferenceRunSummary(
+    summary = InferenceRunSummary(
         input=str(input_path),
         model_id=FAST_DESCRIPTOR.model_id,
         task=FAST_DESCRIPTOR.task.value,
@@ -230,6 +268,12 @@ def run_fast_video_inference(
             measured_frames / measured_time if measured_time > 0 else 0.0
         ),
     )
+    if structured_progress is not None:
+        structured_progress.complete(
+            summary.processed_frames,
+            fps=summary.wall_fps,
+        )
+    return summary
 
 
 __all__ = ["FAST_DESCRIPTOR", "run_fast_video_inference"]

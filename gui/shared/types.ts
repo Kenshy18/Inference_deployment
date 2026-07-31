@@ -171,6 +171,29 @@ export interface ArtifactMap {
   [name: string]: string;
 }
 
+export type ProgressPhase =
+  | "segmentation_inference"
+  | "face_inference"
+  | "postprocess"
+  | "overlay";
+export type ProgressPhaseState =
+  | "pending"
+  | "running"
+  | "complete"
+  | "failed";
+
+export interface PhaseProgress {
+  state: ProgressPhaseState;
+  completed: number;
+  total: number | null;
+  progress: number | null;
+  estimated: boolean;
+  detail: string;
+  fps: number | null;
+}
+
+export type PhaseProgressMap = Record<ProgressPhase, PhaseProgress>;
+
 export interface JobTelemetry {
   processedFrames: number;
   totalFrames: number | null;
@@ -181,6 +204,7 @@ export interface JobTelemetry {
   faces: number;
   elapsedSeconds: number;
   progress: number | null;
+  phases: PhaseProgressMap;
 }
 
 export interface JobSnapshot {
@@ -208,24 +232,75 @@ export type FilePickerKind = "video" | "sqlite" | "python";
 
 export interface VideoProbe {
   durationSeconds: number | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  frameCount: number | null;
   /** JPEG data URL, ~192px wide. null when ffmpeg is unavailable. */
   thumbnail: string | null;
 }
 
 export type QueueItemStatus = "pending" | "processing" | "done" | "failed";
 
+export interface QueueOutput {
+  id: string;
+  outputDir: string;
+  summary: string | null;
+  completedAt: string | null;
+  artifactCount: number | null;
+}
+
 export interface QueueItem {
   id: string;
   path: string;
   title: string;
   durationSeconds: number | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  frameCount: number | null;
   thumbnail: string | null;
   status: QueueItemStatus;
   /** Per-item job folder under the output repository, fixed at run start. */
   outputDir: string | null;
   /** Inference-settings summary captured when the run started. */
   summary: string | null;
+  /** Completion metadata retained by the output queue. */
+  completedAt: string | null;
+  artifactCount: number | null;
+  /** Immutable history: one entry per successfully completed run. */
+  outputs: QueueOutput[];
   error: string | null;
+}
+
+/** A lightweight point-in-time hardware sample used by the live monitor. */
+export interface HardwareMetrics {
+  timestamp: number;
+  cpuPercent: number | null;
+  memoryPercent: number | null;
+  memoryUsedBytes: number | null;
+  memoryTotalBytes: number | null;
+  gpuPercent: number | null;
+  vramPercent: number | null;
+  vramUsedMiB: number | null;
+  vramTotalMiB: number | null;
+  gpuTemperatureC: number | null;
+}
+
+export interface LivePreviewFrame {
+  jobId: string | null;
+  dataUrl: string;
+  phase: string;
+  frameIndex: number;
+  timestampSeconds: number;
+  model: string;
+  stage?: string;
+  status?: string;
+  detail?: string;
+  width: number;
+  height: number;
+  generatedAtMs: number;
+  dropped: number;
 }
 
 export interface MaskStudioApi {
@@ -246,6 +321,9 @@ export interface MaskStudioApi {
     settings: AppSettings,
   ): Promise<JobSnapshot>;
   cancelWorkflow(): Promise<JobSnapshot>;
+  setPreviewEnabled(enabled: boolean): Promise<void>;
+  sampleHardware(): Promise<HardwareMetrics>;
   openOutput(path: string): Promise<string>;
   onJobUpdate(callback: (job: JobSnapshot) => void): () => void;
+  onPreviewUpdate(callback: (frame: LivePreviewFrame) => void): () => void;
 }

@@ -57,7 +57,14 @@ export async function probeVideo(
   videoPath: string,
   settings: AppSettings,
 ): Promise<VideoProbe> {
-  const result: VideoProbe = { durationSeconds: null, thumbnail: null };
+  const result: VideoProbe = {
+    durationSeconds: null,
+    width: null,
+    height: null,
+    fps: null,
+    frameCount: null,
+    thumbnail: null,
+  };
   if (!videoPath.trim()) {
     return result;
   }
@@ -70,16 +77,54 @@ export async function probeVideo(
       const out = await run(ffprobe, [
         "-v",
         "error",
+        "-select_streams",
+        "v:0",
         "-show_entries",
-        "format=duration",
+        "stream=width,height,avg_frame_rate,nb_frames,duration:format=duration",
         "-of",
-        "default=noprint_wrappers=1:nokey=1",
+        "json",
         videoPath,
       ]);
-      const seconds = Number.parseFloat(out.trim());
+      const payload = JSON.parse(out) as {
+        streams?: Array<{
+          width?: number;
+          height?: number;
+          avg_frame_rate?: string;
+          nb_frames?: string;
+          duration?: string;
+        }>;
+        format?: { duration?: string };
+      };
+      const stream = payload.streams?.[0];
+      const seconds = Number.parseFloat(
+        stream?.duration ?? payload.format?.duration ?? "",
+      );
       if (Number.isFinite(seconds) && seconds > 0) {
         result.durationSeconds = seconds;
       }
+      const width = Number(stream?.width);
+      const height = Number(stream?.height);
+      result.width = Number.isFinite(width) && width > 0 ? width : null;
+      result.height = Number.isFinite(height) && height > 0 ? height : null;
+      const [numerator, denominator] = String(
+        stream?.avg_frame_rate ?? "",
+      )
+        .split("/")
+        .map(Number);
+      const fps =
+        Number.isFinite(numerator) &&
+        Number.isFinite(denominator) &&
+        denominator > 0
+          ? numerator / denominator
+          : null;
+      result.fps = fps !== null && fps > 0 ? fps : null;
+      const frames = Number.parseInt(stream?.nb_frames ?? "", 10);
+      result.frameCount =
+        Number.isFinite(frames) && frames > 0
+          ? frames
+          : result.durationSeconds !== null && result.fps !== null
+            ? Math.round(result.durationSeconds * result.fps)
+            : null;
     } catch {
       /* keep null */
     }

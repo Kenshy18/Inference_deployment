@@ -41,7 +41,7 @@ class KeyframeCacheTests(unittest.TestCase):
                 );
                 INSERT INTO mask_track_segments
                     VALUES
-                        (1, '1', 0, 2, 'linear_polygon_v1'),
+                        (1, '1', 0, 2, 'none'),
                         (2, 'face:1', 1, 1, 'none');
                 CREATE TABLE mask_keyframes(
                     id INTEGER PRIMARY KEY,
@@ -164,6 +164,15 @@ class KeyframeCacheTests(unittest.TestCase):
                         0
                     ],
                 )
+                self.assertEqual(
+                    [(0, 1), (1, 0), (2, 1)],
+                    connection.execute(
+                        """
+                        SELECT frame, is_keyframe FROM masks
+                        WHERE track_id='1' ORDER BY frame
+                        """
+                    ).fetchall(),
+                )
             self.assertEqual(8, len(middle[0]))
             self.assertEqual([1.0, 0.0], middle[0][0])
             self.assertEqual([3.0, 0.0], middle[0][2])
@@ -225,10 +234,10 @@ class KeyframeCacheTests(unittest.TestCase):
                 Path(str(shards["shards"][1]["cache_sqlite"]))
             ) as connection:
                 self.assertEqual(
-                    (1, "face:1", 64, "Eyes"),
+                    (1, "face:1", 64, "Eyes", 1),
                     connection.execute(
                         """
-                        SELECT frame, track_id, point_count, label
+                        SELECT frame, track_id, point_count, label, is_keyframe
                         FROM mask_ellipses
                         """
                     ).fetchone(),

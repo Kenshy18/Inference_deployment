@@ -305,8 +305,6 @@ def _components_at(
         for _slot, component in keyframe.components
     )
     if polygon_segment:
-        if interpolation_method == "none":
-            return ()
         if position == 0:
             return tuple(component for _slot, component in keyframes[0].components)
         if position == len(keyframes):
@@ -328,8 +326,6 @@ def _components_at(
         position = bisect.bisect_left(frames, frame)
         if position < len(samples) and frames[position] == frame:
             output.append((slot, samples[position][1]))
-            continue
-        if interpolation_method == "none":
             continue
         if position == 0:
             output.append((slot, samples[0][1]))
@@ -471,6 +467,7 @@ def _create_cache_schema(connection: sqlite3.Connection) -> None:
             polygons TEXT NOT NULL,
             shape_type TEXT NOT NULL,
             label TEXT,
+            is_keyframe INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(frame, track_id)
         ) WITHOUT ROWID;
         CREATE TABLE mask_ellipses(
@@ -484,6 +481,7 @@ def _create_cache_schema(connection: sqlite3.Connection) -> None:
             theta_radians REAL NOT NULL,
             point_count INTEGER NOT NULL,
             label TEXT,
+            is_keyframe INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(frame, track_id, slot_index)
         ) WITHOUT ROWID;
         CREATE TABLE mask_rectangles(
@@ -496,6 +494,7 @@ def _create_cache_schema(connection: sqlite3.Connection) -> None:
             half_height REAL NOT NULL,
             theta_radians REAL NOT NULL,
             label TEXT,
+            is_keyframe INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(frame, track_id, slot_index)
         ) WITHOUT ROWID;
         CREATE TABLE cache_info(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -513,7 +512,7 @@ def _materialize_final(
     mask_domain: str | None,
 ) -> int:
     limit = (2**31 - 1) if end_frame is None else end_frame
-    insert_sql = "INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?)"
+    insert_sql = "INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?, ?)"
     batch: list[tuple[object, ...]] = []
     ellipse_batch: list[tuple[object, ...]] = []
     rectangle_batch: list[tuple[object, ...]] = []
@@ -523,14 +522,14 @@ def _materialize_final(
         if ellipse_batch:
             output.executemany(
                 "INSERT OR REPLACE INTO mask_ellipses "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 ellipse_batch,
             )
             ellipse_batch.clear()
         if rectangle_batch:
             output.executemany(
                 "INSERT OR REPLACE INTO mask_rectangles "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rectangle_batch,
             )
             rectangle_batch.clear()
@@ -577,10 +576,11 @@ def _materialize_final(
                         *common,
                         64 if str(row[2]).casefold() == "eyes" else 96,
                         str(row[2]),
+                        1,
                     )
                 )
             else:
-                rectangle_batch.append((*common, str(row[2])))
+                rectangle_batch.append((*common, str(row[2]), 1))
             total += 1
             if len(ellipse_batch) + len(rectangle_batch) >= 2048:
                 flush_typed()
@@ -594,6 +594,7 @@ def _materialize_final(
                 json.dumps(polygons, separators=(",", ":")),
                 kind,
                 str(row[2]),
+                1,
             )
         )
         total += 1
@@ -623,6 +624,7 @@ def _materialize_final(
         keyframes = _load_keyframes(source, int(segment_id))
         if not keyframes:
             continue
+        keyframe_frames = {keyframe.frame for keyframe in keyframes}
         first_frame = max(start_frame, int(first))
         last_frame = min(limit, int(last))
         polygon_segment = all(
@@ -687,10 +689,13 @@ def _materialize_final(
                                     else 96
                                 ),
                                 str(label),
+                                1 if frame in keyframe_frames else 0,
                             )
                         )
                     else:
-                        rectangle_batch.append((*common, str(label)))
+                        rectangle_batch.append(
+                            (*common, str(label), 1 if frame in keyframe_frames else 0)
+                        )
                 total += 1
                 if len(ellipse_batch) + len(rectangle_batch) >= 2048:
                     flush_typed()
@@ -708,6 +713,7 @@ def _materialize_final(
                     json.dumps(polygons, separators=(",", ":")),
                     components[0].kind,
                     str(label),
+                    1 if frame in keyframe_frames else 0,
                 )
             )
             total += 1
@@ -765,6 +771,7 @@ def _materialize_tracked(
                     json.dumps(polygons, separators=(",", ":")),
                     "polygon",
                     label,
+                    0,
                 )
             )
             total += 1
@@ -778,7 +785,7 @@ def _materialize_tracked(
             flush()
             if len(batch) >= 1024:
                 output.executemany(
-                    "INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?, ?)",
                     batch,
                 )
                 batch.clear()
@@ -792,7 +799,10 @@ def _materialize_tracked(
         polygon.append((float(x), float(y)))
     flush()
     if batch:
-        output.executemany("INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?)", batch)
+        output.executemany(
+            "INSERT OR REPLACE INTO masks VALUES (?, ?, ?, ?, ?, ?)",
+            batch,
+        )
     return total
 
 

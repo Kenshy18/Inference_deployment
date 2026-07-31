@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -57,4 +58,26 @@ def select_keyframes_sqlite(
 ) -> Path:
     implementation = selector or IntervalKeyframeSelector()
     rows = implementation.select(read_mask_rows(input_sqlite))
+    from common.live_preview import PreviewGeometry, active_postprocess_preview
+
+    preview = active_postprocess_preview()
+    if preview is not None:
+        for row in rows:
+            if not preview.should_sample("keyframe_selection"):
+                continue
+            polygons = json.loads(row.polygons)
+            preview.submit(
+                PreviewGeometry(
+                    row.frame,
+                    "keyframe_selection",
+                    "keyframe selection",
+                    polygons=tuple(
+                        tuple((float(point[0]), float(point[1])) for point in polygon)
+                        for polygon in polygons
+                    ),
+                    track_id=row.track_id,
+                    detail=f"interval {getattr(implementation, 'interval_frames', '?')}",
+                    is_keyframe=True,
+                )
+            )
     return write_mask_sqlite(output_sqlite, rows, reference_sqlite=input_sqlite)

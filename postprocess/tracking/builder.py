@@ -169,6 +169,9 @@ def build_tracked_sqlite(
     track_label_counts: dict[str, dict[str, int]] = {}
     track_label_first_seen: dict[tuple[str, str], int] = {}
     staging_rows: list[tuple[object, ...]] = []
+    from common.live_preview import PreviewGeometry, active_postprocess_preview
+
+    preview = active_postprocess_preview()
 
     try:
         with sqlite3.connect(str(staging_path)) as connection:
@@ -265,6 +268,32 @@ def build_tracked_sqlite(
                         track_label_first_seen[label_key] = label_seen_order
                         label_seen_order += 1
                     total_rows += 1
+
+                if preview is not None and preview.should_sample("tracking"):
+                    preview_polygons: list[tuple[tuple[float, float], ...]] = []
+                    preview_boxes: list[tuple[float, float, float, float]] = []
+                    preview_track = ""
+                    for detection_index, detection in enumerate(detections):
+                        for polygon in detection.get("polygons") or []:
+                            if len(polygon) >= 3:
+                                preview_polygons.append(
+                                    tuple((float(point[0]), float(point[1])) for point in polygon)
+                                )
+                        bbox = detection.get("bbox_xyxy")
+                        if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+                            preview_boxes.append(tuple(float(value) for value in bbox[:4]))
+                        preview_track = str(assignments.get(detection_index, preview_track))
+                    preview.submit(
+                        PreviewGeometry(
+                            frame_index,
+                            "tracking",
+                            "tracking + short-track filter",
+                            polygons=tuple(preview_polygons),
+                            boxes=tuple(preview_boxes),
+                            track_id=preview_track,
+                            detail=f"active {len(active_track_ids)} / scene {current_scene_id + 1}",
+                        )
+                    )
 
             _flush_staging_rows(connection, staging_rows)
 

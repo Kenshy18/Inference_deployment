@@ -67,6 +67,8 @@ class ContractTest(unittest.TestCase):
                     "category_id": 3,
                     "class_name": "foreground",
                     "detector_score": 0.8,
+                    "classifier_class_id": 11,
+                    "classifier_class_name": "class-b",
                     "class_score": 0.7,
                     "class_probs": [0.3, 0.7],
                     "polygons": [[1, 2, 11, 2, 11, 12, 1, 12]],
@@ -81,6 +83,13 @@ class ContractTest(unittest.TestCase):
         instance = result.instances[0]
         self.assertEqual(instance.detection.bbox.width, 10.0)
         self.assertEqual(instance.detection.bbox.height, 10.0)
+        self.assertEqual(instance.detection.class_id, 3)
+        self.assertEqual(instance.detection.class_name, "foreground")
+        self.assertEqual(instance.detection.classification.class_id, 11)
+        self.assertEqual(
+            instance.detection.classification.class_name,
+            "class-b",
+        )
         self.assertEqual(instance.detection.classification.score, 0.7)
         self.assertEqual(len(instance.segmentation.polygons), 1)
 

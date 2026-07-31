@@ -1,4 +1,7 @@
+import fs from "node:fs";
 import path from "node:path";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import {
   app,
   BrowserWindow,
@@ -10,14 +13,106 @@ import {
 import type {
   AppSettings,
   FilePickerKind,
+  LivePreviewFrame,
   PipelineDraft,
 } from "../shared/types";
-import { JobManager } from "./job-manager";
+import { JobManager, type LivePreviewFileEvent } from "./job-manager";
+import { HardwareSampler } from "./hardware";
 import { probeVideo } from "./probe";
+import { parseRuntimeOptions } from "./runtime-options";
 import { readSettings, writeSettings } from "./settings";
 
 let mainWindow: BrowserWindow | null = null;
 let jobManager: JobManager;
+const runtimeOptions = parseRuntimeOptions(process.argv, process.env);
+const execFileAsync = promisify(execFile);
+const hardwareSampler = new HardwareSampler();
+let pendingPreview: LivePreviewFileEvent | null = null;
+let previewReadActive = false;
+
+function queuePreview(frame: LivePreviewFileEvent): void {
+  pendingPreview = frame;
+  if (previewReadActive) {
+    return;
+  }
+  previewReadActive = true;
+  void (async () => {
+    while (pendingPreview !== null) {
+      const current = pendingPreview;
+      pendingPreview = null;
+      try {
+        const bytes = await fs.promises.readFile(current.path);
+        const output: LivePreviewFrame = {
+          jobId: current.jobId,
+          dataUrl: `data:image/jpeg;base64,${bytes.toString("base64")}`,
+          phase: current.phase,
+          frameIndex: current.frameIndex,
+          timestampSeconds: current.timestampSeconds,
+          model: current.model,
+          stage: current.stage,
+          status: current.status,
+          detail: current.detail,
+          width: current.width,
+          height: current.height,
+          generatedAtMs: current.generatedAtMs,
+          dropped: current.dropped,
+        };
+        mainWindow?.webContents.send("preview:update", output);
+      } catch {
+        // A newer ring-buffer slot may replace a preview before it is read.
+      }
+    }
+    previewReadActive = false;
+  })();
+}
+
+async function openOutputFolder(targetPath: string): Promise<string> {
+  const resolved = path.resolve(targetPath);
+  if (process.env.MASK_STUDIO_AUTOMATION_NO_EXTERNAL === "1") {
+    console.log(`[gui] automation open-output: ${resolved}`);
+    return "";
+  }
+  if (process.platform === "linux" && process.env.WSL_DISTRO_NAME) {
+    try {
+      const { stdout } = await execFileAsync("wslpath", ["-w", resolved]);
+      const windowsPath = stdout.trim();
+      if (!windowsPath) {
+        return `Windowsパスへ変換できませんでした: ${resolved}`;
+      }
+      await new Promise<void>((resolve, reject) => {
+        const explorer = spawn("explorer.exe", [windowsPath], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: false,
+        });
+        explorer.once("error", reject);
+        explorer.once("spawn", () => {
+          explorer.unref();
+          resolve();
+        });
+      });
+      return "";
+    } catch (error) {
+      return error instanceof Error
+        ? `エクスプローラーを開けませんでした: ${error.message}`
+        : "エクスプローラーを開けませんでした。";
+    }
+  }
+  return shell.openPath(resolved);
+}
+
+if (runtimeOptions.softwareRendering) {
+  // WSLg occasionally fails to create Chromium's GPU command buffer. The
+  // pipeline child processes still use CUDA; this affects only GUI painting.
+  app.disableHardwareAcceleration();
+}
+if (runtimeOptions.automationPort !== null) {
+  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+  app.commandLine.appendSwitch(
+    "remote-debugging-port",
+    String(runtimeOptions.automationPort),
+  );
+}
 
 function settingsPath(): string {
   return path.join(app.getPath("userData"), "settings.json");
@@ -64,7 +159,7 @@ function createWindow(): void {
     minWidth: 1120,
     minHeight: 720,
     backgroundColor: "#111317",
-    title: "動画処理",
+    title: "Mask Pipeline Studio",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -103,6 +198,9 @@ function registerIpc(): void {
   );
 
   ipcMain.handle("dialog:pick-videos", async () => {
+    if (runtimeOptions.automationVideos.length > 0) {
+      return runtimeOptions.automationVideos;
+    }
     const options: OpenDialogOptions = {
       ...filePickerOptions("video"),
       properties: ["openFile", "multiSelections"],
@@ -120,6 +218,9 @@ function registerIpc(): void {
   );
 
   ipcMain.handle("dialog:pick-directory", async () => {
+    if (runtimeOptions.automationOutput) {
+      return runtimeOptions.automationOutput;
+    }
     const options: OpenDialogOptions = {
       properties: ["openDirectory", "createDirectory"],
     };
@@ -149,19 +250,30 @@ function registerIpc(): void {
 
   ipcMain.handle("workflow:cancel", () => jobManager.cancel());
 
+  ipcMain.handle("preview:set-enabled", (_event, enabled: boolean) => {
+    jobManager.setPreviewEnabled(Boolean(enabled));
+  });
+
+  ipcMain.handle("system:sample-hardware", () => hardwareSampler.sample());
+
   ipcMain.handle("shell:open-output", async (_event, targetPath: string) => {
     if (!targetPath) {
       return "出力パスがありません。";
     }
-    return shell.openPath(path.resolve(targetPath));
+    return openOutputFolder(targetPath);
   });
 }
 
 app.whenReady().then(() => {
+  console.log(
+    `[gui] software-rendering=${runtimeOptions.softwareRendering} ` +
+      `automation-port=${runtimeOptions.automationPort ?? "off"}`,
+  );
   jobManager = new JobManager(path.join(app.getPath("userData"), "jobs"));
   jobManager.on("update", (job) => {
     mainWindow?.webContents.send("job:update", job);
   });
+  jobManager.on("preview", queuePreview);
   registerIpc();
   createWindow();
 

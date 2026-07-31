@@ -25,11 +25,11 @@ describe("segmentation model catalog", () => {
     ]);
   });
 
-  it("uses model-family names instead of ambiguous pipeline versions", () => {
-    expect(modelSpec("eva02_cascade").label).toBe("EVA-02 + Cascade");
-    expect(modelSpec("dinov3_cascade").label).toBe("DINOv3 + Cascade");
-    expect(modelSpec("dinov3_codino").label).toBe("Co-DINO（巨大）");
-    expect(modelSpec("dinov3_codino_mh0").label).toBe("Co-DINO（高速）");
+  it("uses the product-facing model version names", () => {
+    expect(modelSpec("eva02_cascade").label).toBe("V1");
+    expect(modelSpec("dinov3_cascade").label).toBe("V2");
+    expect(modelSpec("dinov3_codino").label).toBe("V3");
+    expect(modelSpec("dinov3_codino_mh0").label).toBe("v3-lite");
   });
 
   it("defaults every model to its fast backend", () => {
@@ -38,7 +38,7 @@ describe("segmentation model catalog", () => {
     expect(defaultBackend("dinov3_codino")).toBe("tensorrt-fast");
     expect(defaultBackend("dinov3_codino_mh0")).toBe("tensorrt-fast");
     for (const model of SEGMENTATION_MODELS) {
-      expect(model.backends[0].label).toBe("TensorRT（高速・推奨）");
+      expect(model.backends[0].label).toBe("高速（デフォルト）");
     }
   });
 
@@ -64,12 +64,20 @@ describe("segmentation model catalog", () => {
       "face_dino_v2",
       "rtdetr_head_face",
     ]);
+    expect(faceModelSpec("rtdetr_head_face").label).toBe("Face V1");
+    expect(faceModelSpec("face_dino_v2").label).toBe("Face V2");
   });
 
   it("shows and normalizes the engine supported by each face model", () => {
     expect(defaultFaceBackend("face_dino_v2")).toBe("tensorrt-fast");
     expect(defaultFaceBackend("rtdetr_head_face")).toBe("pytorch");
     expect(faceModelSpec("face_dino_v2").backends).toHaveLength(1);
+    expect(faceModelSpec("face_dino_v2").backends[0].label).toBe(
+      "高速（デフォルト）",
+    );
+    expect(faceModelSpec("rtdetr_head_face").backends[0].label).toBe(
+      "低速（安定）",
+    );
     expect(normalizeFaceBackend("rtdetr_head_face", "tensorrt-fast")).toBe(
       "pytorch",
     );

@@ -1,4 +1,10 @@
-import type { AppSettings, JobSnapshot, MaskStudioApi } from "../../shared/types";
+import type {
+  AppSettings,
+  HardwareMetrics,
+  JobSnapshot,
+  LivePreviewFrame,
+  MaskStudioApi,
+} from "../../shared/types";
 import { browserSettings, emptyJob } from "./defaults";
 
 /** Browser preview (`npm run dev:renderer`) has no Electron bridge.
@@ -28,6 +34,7 @@ function mockJob(): JobSnapshot {
     outputRoot: "/home/kenshin/runs/job-041",
     logs,
     telemetry: {
+      ...emptyJob.telemetry,
       processedFrames: 298,
       totalFrames: 482,
       fps: 20.156,
@@ -37,6 +44,44 @@ function mockJob(): JobSnapshot {
       faces: 812,
       elapsedSeconds: 252,
       progress: 298 / 482,
+      phases: {
+        segmentation_inference: {
+          state: "complete",
+          completed: 482,
+          total: 482,
+          progress: 1,
+          estimated: false,
+          detail: "complete",
+          fps: 20.16,
+        },
+        face_inference: {
+          state: "complete",
+          completed: 482,
+          total: 482,
+          progress: 1,
+          estimated: false,
+          detail: "complete",
+          fps: 25.4,
+        },
+        postprocess: {
+          state: "running",
+          completed: 14,
+          total: 30,
+          progress: 14 / 30,
+          estimated: true,
+          detail: "tracking:output-validation",
+          fps: null,
+        },
+        overlay: {
+          state: "pending",
+          completed: 0,
+          total: null,
+          progress: null,
+          estimated: false,
+          detail: "",
+          fps: null,
+        },
+      },
     },
   };
   if (kind === "done") {
@@ -106,8 +151,14 @@ const previewApi: MaskStudioApi = {
   pickDirectory: async () => null,
   probeVideo: async (path: string) => {
     const seed = [...path].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    const durationSeconds = 45 + (seed % 600);
+    const fps = 30;
     return {
-      durationSeconds: 45 + (seed % 600),
+      durationSeconds,
+      width: 1920,
+      height: 1080,
+      fps,
+      frameCount: Math.round(durationSeconds * fps),
       thumbnail: mockThumbnail(seed),
     };
   },
@@ -127,6 +178,22 @@ const previewApi: MaskStudioApi = {
     error: "ブラウザプレビューではジョブを実行できません。",
   }),
   cancelWorkflow: async () => emptyJob,
+  setPreviewEnabled: async () => undefined,
+  sampleHardware: async (): Promise<HardwareMetrics> => {
+    const seconds = Date.now() / 1_000;
+    return {
+      timestamp: Date.now(),
+      cpuPercent: 42 + Math.sin(seconds / 3.1) * 18,
+      memoryPercent: 58 + Math.sin(seconds / 8.7) * 3,
+      memoryUsedBytes: 37.1 * 1024 ** 3,
+      memoryTotalBytes: 64 * 1024 ** 3,
+      gpuPercent: 73 + Math.sin(seconds / 2.3) * 20,
+      vramPercent: 64 + Math.sin(seconds / 5.2) * 6,
+      vramUsedMiB: 15_728,
+      vramTotalMiB: 24_576,
+      gpuTemperatureC: 66 + Math.sin(seconds / 6.2) * 4,
+    };
+  },
   openOutput: async () => "",
   /* `?mock=running` also streams synthetic progress so the live monitor,
      console and throughput scope can be reviewed in the browser. */
@@ -155,7 +222,29 @@ const previewApi: MaskStudioApi = {
         ].slice(-400),
       };
       callback(snapshot);
-    }, 320);
+    }, 100);
+    return () => window.clearInterval(timer);
+  },
+  onPreviewUpdate: (callback: (frame: LivePreviewFrame) => void) => {
+    if (new URLSearchParams(window.location.search).get("mock") !== "running") {
+      return () => undefined;
+    }
+    let frameIndex = 0;
+    const timer = window.setInterval(() => {
+      frameIndex += 5;
+      callback({
+        jobId: "2026-07-26T13-04-11-882Z",
+        dataUrl: mockThumbnail(frameIndex),
+        phase: frameIndex % 20 === 0 ? "face_inference" : "segmentation_inference",
+        frameIndex,
+        timestampSeconds: frameIndex / 30,
+        model: "preview-model",
+        width: 960,
+        height: 540,
+        generatedAtMs: Date.now(),
+        dropped: 0,
+      });
+    }, 200);
     return () => window.clearInterval(timer);
   },
 };

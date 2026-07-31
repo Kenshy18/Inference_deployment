@@ -160,9 +160,10 @@ def _validate_face_masks_sqlite(path: Path) -> None:
     _validate_mask_sqlite(path)
     with sqlite3.connect(str(path)) as connection:
         info = dict(connection.execute("SELECT key, value FROM schema_info"))
+        schema_version = str(info.get("schema_version"))
         if (
             info.get("schema_name") != "face-privacy-mask-sqlite"
-            or str(info.get("schema_version")) not in {"1", "2"}
+            or schema_version not in {"1", "2"}
         ):
             raise ArtifactContractError(f"{path}: unsupported face mask schema")
         geometry_columns = {
@@ -200,6 +201,13 @@ def _validate_face_masks_sqlite(path: Path) -> None:
             "confidence",
             "algorithm_version",
         }
+        if schema_version == "2":
+            required.update(
+                {
+                    "source_observation_id_end",
+                    "is_interpolated",
+                }
+            )
         missing = required - provenance_columns
         if missing:
             raise ArtifactContractError(
@@ -228,23 +236,52 @@ def _validate_face_masks_sqlite(path: Path) -> None:
             track_id,
             kind,
             observation_id,
+            observation_id_end,
+            is_interpolated,
             derivation,
             confidence,
             algorithm_version,
         ) in connection.execute(
-            """
+            f"""
             SELECT frame, track_id, mask_kind, source_observation_id,
+                   {
+                       "source_observation_id_end"
+                       if schema_version == "2"
+                       else "source_observation_id"
+                   },
+                   {
+                       "is_interpolated"
+                       if schema_version == "2"
+                       else "0"
+                   },
                    derivation, confidence, algorithm_version
             FROM mask_provenance
             """
         ):
+            derivation = str(derivation)
+            is_interpolated = int(is_interpolated)
+            provenance_is_consistent = (
+                (
+                    derivation == "interpolated-linear"
+                    and schema_version == "2"
+                    and is_interpolated == 1
+                    and int(observation_id_end) != int(observation_id)
+                )
+                or (
+                    derivation
+                    in {"face-ellipse", "eye-keypoints", "ellipse-fallback"}
+                    and is_interpolated == 0
+                    and int(observation_id_end) == int(observation_id)
+                )
+            )
             if (
                 int(frame) < 0
                 or not str(track_id).startswith("face:")
                 or str(kind) not in {"face", "eyes"}
                 or int(observation_id) < 1
-                or str(derivation)
-                not in {"face-ellipse", "eye-keypoints", "ellipse-fallback"}
+                or int(observation_id_end) < 1
+                or is_interpolated not in {0, 1}
+                or not provenance_is_consistent
                 or not math.isfinite(float(confidence))
                 or not 0.0 <= float(confidence) <= 1.0
                 or str(algorithm_version) != "face-privacy-geometry-v1"

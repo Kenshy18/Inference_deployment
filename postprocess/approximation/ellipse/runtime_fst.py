@@ -1162,6 +1162,71 @@ def fst__solve_k1_row_worker(
     )
 
 
+def fst__solve_k1_payload_worker(
+    task: tuple[
+        int,
+        int,
+        str,
+        str,
+        tuple[tuple[int, int], tuple[int, int], list[np.ndarray]],
+        list[np.ndarray],
+        float,
+        int,
+    ]
+) -> tuple[
+    int,
+    tuple[int, str, str],
+    dict[str, object],
+    tuple[tuple[int, str], dict[str, object]],
+]:
+    """Spawn-safe K1 worker that does not rely on fork-inherited caches."""
+
+    (
+        idx,
+        frame,
+        track_id,
+        polygons_json,
+        prepared_payload,
+        gt_polys,
+        recall_target,
+        exact_refine_rounds,
+    ) = task
+    pred_json, exact, candidate_name, ellipses = fst_solve_k1_row(
+        polygons_json,
+        recall_target=recall_target,
+        exact_refine_rounds=exact_refine_rounds,
+        prepared_payload=prepared_payload,
+        gt_polys=gt_polys,
+    )
+    weighted_error = int(exact["weighted_error"])
+    metric_row = {
+        "frame": frame,
+        "track_id": track_id,
+        "candidate_name": candidate_name,
+        "gt_area": int(exact["gt_area"]),
+        "pred_area": int(exact["pred_area"]),
+        "intersection": int(exact["intersection"]),
+        "union": int(exact["union"]),
+        "recall": float(exact["recall"]),
+        "precision": float(exact["precision"]),
+        "iou": float(exact["iou"]),
+        "weighted_error": weighted_error,
+        "ellipse_params": json.dumps(fst_serialize_ellipses(ellipses)),
+    }
+    solution = {
+        "pred_json": pred_json,
+        "ellipses": ellipses,
+        "metrics": dict(exact),
+        "candidate_name": candidate_name,
+    }
+    return (
+        idx,
+        (frame, track_id, pred_json),
+        metric_row,
+        ((frame, track_id), solution),
+    )
+
+
 def fst_determine_k1_workers(requested_workers: int, row_count: int) -> int:
     if row_count < 32:
         return 1
@@ -2000,6 +2065,7 @@ fst = _register_inline_module(
         "solve_k1_row": "fst_solve_k1_row",
         "_k1_pool_init": "fst__k1_pool_init",
         "_solve_k1_row_worker": "fst__solve_k1_row_worker",
+        "_solve_k1_payload_worker": "fst__solve_k1_payload_worker",
         "determine_k1_workers": "fst_determine_k1_workers",
         "_precompute_k2_ranked_candidate_worker": "fst__precompute_k2_ranked_candidate_worker",
         "determine_k2_precompute_workers": "fst_determine_k2_precompute_workers",

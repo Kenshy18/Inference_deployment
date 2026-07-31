@@ -9,6 +9,108 @@ import numpy as np
 import torch
 
 
+def _store_classifier_results(
+    model,
+    mask_features: torch.Tensor,
+    entries: list[dict[str, Any]],
+    mask_coverages: torch.Tensor,
+) -> None:
+    """Classify every RoI without scanning pasted full-resolution masks."""
+
+    classifier = getattr(model, "_mh0_classifier", None)
+    if classifier is None:
+        model._mh0_last_classifications = None
+        return
+    counts = [int(entry["count"]) for entry in entries]
+    total = sum(counts)
+    if int(mask_features.shape[0]) != total:
+        raise RuntimeError(
+            "MH0 classifier mask-feature count does not match detections"
+        )
+    class_count = int(model._mh0_classifier_class_count)
+    if total == 0:
+        model._mh0_last_classifications = tuple(
+            entry["boxes"].new_zeros((0, 2 + class_count))
+            for entry in entries
+        )
+        return
+
+    boxes = torch.cat(
+        [entry["output_boxes"][:, :4] for entry in entries if entry["count"]],
+        dim=0,
+    ).float()
+    scores = torch.cat(
+        [entry["boxes"][:, 4] for entry in entries if entry["count"]],
+        dim=0,
+    ).float()
+    image_areas = torch.cat(
+        [
+            boxes.new_full(
+                (int(entry["count"]),),
+                float(
+                    max(
+                        1,
+                        int(entry["mask_out_shape"][0])
+                        * int(entry["mask_out_shape"][1]),
+                    )
+                ),
+            )
+            for entry in entries
+            if entry["count"]
+        ],
+        dim=0,
+    )
+    widths = (boxes[:, 2] - boxes[:, 0]).clamp_min(0)
+    heights = (boxes[:, 3] - boxes[:, 1]).clamp_min(0)
+    box_areas = widths * heights
+    coverages = mask_coverages.to(
+        device=boxes.device,
+        dtype=torch.float32,
+    ).clamp_(0, 1)
+    areas = coverages * box_areas
+    metadata = torch.stack(
+        (
+            scores,
+            box_areas / image_areas,
+            areas / image_areas,
+            torch.log((widths + 1e-6) / (heights + 1e-6)),
+            areas / box_areas.clamp_min(1e-6),
+        ),
+        dim=1,
+    )
+    parameter = next(classifier.parameters())
+    features = mask_features.to(
+        device=parameter.device,
+        dtype=parameter.dtype,
+    )
+    metadata = metadata.to(
+        device=parameter.device,
+        dtype=parameter.dtype,
+    )
+    logits = classifier(features, metadata)
+    probabilities = torch.softmax(logits.float(), dim=1)
+    scores_out, classes = probabilities.max(dim=1)
+    packed = torch.cat(
+        (
+            classes.to(dtype=probabilities.dtype).unsqueeze(1),
+            scores_out.unsqueeze(1),
+            probabilities,
+        ),
+        dim=1,
+    )
+    model._mh0_last_classifications = tuple(
+        packed[offset : offset + count]
+        for offset, count in _offsets(counts)
+    )
+
+
+def _offsets(counts: list[int]):
+    offset = 0
+    for count in counts:
+        yield offset, count
+        offset += count
+
+
 def _as_image_lists(values: Any, count: int) -> list[torch.Tensor]:
     if isinstance(values, (list, tuple)):
         return list(values)
@@ -77,6 +179,7 @@ def simple_test_mask_batched(
         entries.append(
             {
                 "count": int(boxes.shape[0]),
+                "boxes": boxes,
                 "labels": labels,
                 "paste_boxes": paste_boxes,
                 "output_boxes": output_boxes,
@@ -119,6 +222,9 @@ def simple_test_mask_batched(
                 torch.arange(total_rois, device=mask_predictions.device),
                 all_labels,
             ][:, None]
+        mask_coverages = (
+            mask_predictions >= threshold
+        ).float().mean(dim=(1, 2, 3))
         cropped_masks, spatial = _do_paste_mask(
             mask_predictions,
             all_boxes,
@@ -127,6 +233,12 @@ def simple_test_mask_batched(
             skip_empty=True,
         )
         cropped_masks = (cropped_masks >= threshold).to(torch.bool)
+        _store_classifier_results(
+            self,
+            mask_results["mask_feats"],
+            entries,
+            mask_coverages,
+        )
         cropped_cpu = cropped_masks.cpu().numpy()
         y_start = int(spatial[0].start)
         y_stop = int(spatial[0].stop)
@@ -178,6 +290,28 @@ def simple_test_mask_batched(
                 class_results[int(label)].append(mask)
             offset = end
         segmentation_results.append(class_results)
+    if total_rois:
+        mask_predictions = instance_predictions.sigmoid()
+        if mask_predictions.shape[1] > 1:
+            mask_predictions = mask_predictions[
+                torch.arange(total_rois, device=mask_predictions.device),
+                all_labels,
+            ][:, None]
+        mask_coverages = (
+            mask_predictions >= threshold
+        ).float().mean(dim=(1, 2, 3))
+        _store_classifier_results(
+            self,
+            mask_results["mask_feats"],
+            entries,
+            mask_coverages,
+        )
+    elif getattr(self, "_mh0_classifier", None) is not None:
+        class_count = int(self._mh0_classifier_class_count)
+        self._mh0_last_classifications = tuple(
+            entry["boxes"].new_zeros((0, 2 + class_count))
+            for entry in entries
+        )
     return segmentation_results
 
 

@@ -7,6 +7,10 @@ from typing import Any
 
 from contracts.detections import transform_detection_jsonl
 from contracts.stages import StageContext, StageResult
+from common.live_preview import (
+    active_postprocess_preview,
+    geometry_from_detection_record,
+)
 
 from .adaptive import AdaptiveNms
 
@@ -31,8 +35,24 @@ class AdaptiveNmsStage:
             transformed["detections"] = implementation.apply(list(record["detections"]))
             return transformed
 
+        preview = active_postprocess_preview()
+
+        def show_result(_before: dict[str, Any], after: dict[str, Any]) -> None:
+            if preview is not None and preview.should_sample(context.stage_id):
+                preview.submit(
+                    geometry_from_detection_record(
+                        after,
+                        stage=context.stage_id,
+                        label=self.name,
+                        detail=f"NMS kept {len(after['detections'])}",
+                    )
+                )
+
         stats = transform_detection_jsonl(
-            context.artifacts["scored_jsonl"], output, suppress
+            context.artifacts["scored_jsonl"],
+            output,
+            suppress,
+            on_record=show_result,
         )
         return StageResult(
             {"nms_jsonl": output},

@@ -54,10 +54,27 @@ def approximate_sqlite(
     approximator: PolygonApproximator | None = None,
 ) -> Path:
     implementation = approximator or OpenCvRdpApproximator()
+    from common.live_preview import PreviewGeometry, active_postprocess_preview
+
+    preview = active_postprocess_preview()
     output_rows: list[MaskRow] = []
     for row in read_mask_rows(input_sqlite):
         polygons = json.loads(row.polygons)
         approximated = implementation.approximate(polygons)
+        if preview is not None and preview.should_sample("polygon_approximation"):
+            preview.submit(
+                PreviewGeometry(
+                    row.frame,
+                    "polygon_approximation",
+                    "polygon approximation",
+                    polygons=tuple(
+                        tuple((float(point[0]), float(point[1])) for point in polygon)
+                        for polygon in approximated
+                    ),
+                    track_id=row.track_id,
+                    detail=f"RDP {sum(map(len, polygons))} -> {sum(map(len, approximated))} vertices",
+                )
+            )
         output_rows.append(
             MaskRow(
                 frame=row.frame,

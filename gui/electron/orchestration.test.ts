@@ -26,15 +26,18 @@ describe("orchestration bridge", () => {
   it("builds the repository schema without GUI-only fields", () => {
     const config = buildOrchestrationConfig(draft, settings);
     expect(config.schema_version).toBe(1);
-    expect(config.inference.segmentation_model).toBe("dinov3_codino_mh0");
+    expect(config.inference.segmentation_model).toBe("dinov3_codino");
     expect(config.inference.face_model).toBe("face_dino_v2");
     expect(config.inference.face_backend).toBe("tensorrt-fast");
     expect(config.postprocess.k2_batch_size).toBe(128);
     expect(config.postprocess.face_tracking_max_gap_frames).toBe(5);
     expect(config.overlay.execution_mode).toBe("fast");
-    expect(config.overlay.presets).toEqual(["combined-simple"]);
+    expect(config.overlay.presets).toEqual([
+      "combined-simple",
+      "combined-detailed",
+    ]);
     expect(config.overlay.workers).toBe(6);
-    expect(config.overlay.face_mask_target).toBe("none");
+    expect(config.overlay.face_mask_target).toBe("eyes");
   });
 
   it("omits segmentation fields for a face-only workflow", () => {

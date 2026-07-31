@@ -371,7 +371,7 @@ export function Segment<T extends string>({
         <button
           key={option.value}
           type="button"
-          title={option.title ?? option.label}
+          title={option.title}
           disabled={disabled}
           className={value === option.value ? "is-on" : ""}
           onClick={() => onChange(option.value)}
@@ -401,7 +401,7 @@ export function Check({
     <label
       className={`check ${disabled ? "is-disabled" : ""}`}
       htmlFor={id}
-      title={title ?? label}
+      title={title}
     >
       <input
         id={id}

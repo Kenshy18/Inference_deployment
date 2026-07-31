@@ -44,10 +44,45 @@ def _runtime() -> SimpleNamespace:
         device="cpu",
         fixed_batch_size=2,
         model=None,
+        classifier=None,
+        class_names=("女性器", "男性器", "結合部分"),
+        class_ids=(1, 2, 3),
     )
 
 
 class Mh0AdapterTest(unittest.TestCase):
+    def test_preserves_foreground_detector_and_three_class_result(self) -> None:
+        frames = FrameBatch.from_sequence(
+            [
+                Frame(
+                    index=0,
+                    timestamp_sec=0.0,
+                    image=np.zeros((12, 16, 3), dtype=np.uint8),
+                )
+            ]
+        )
+        raw_results = [
+            _raw_result(
+                [[1, 2, 8, 10, 0.9, 1, 0.8, 0.1, 0.8, 0.1]],
+                [_mask(regions=((slice(2, 10), slice(1, 8)),))],
+            )
+        ]
+        adapter = Mh0Adapter(_runtime(), score_threshold=0.5)
+        with patch(
+            "dinov3_codino_mh0.adapter.infer",
+            return_value=raw_results,
+        ):
+            result = adapter.predict(frames)[0].instances[0].detection
+        self.assertEqual((result.class_id, result.class_name), (0, "foreground"))
+        self.assertIsNotNone(result.classification)
+        assert result.classification is not None
+        self.assertEqual(
+            (result.classification.class_id, result.classification.class_name),
+            (2, "男性器"),
+        )
+        self.assertAlmostEqual(result.classification.score, 0.8, places=6)
+        self.assertEqual(len(result.classification.probabilities or ()), 3)
+
     def test_normalizes_order_clipping_threshold_and_masks(self) -> None:
         frames = FrameBatch.from_sequence(
             [

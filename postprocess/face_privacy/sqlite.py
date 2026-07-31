@@ -238,6 +238,9 @@ def export_face_masks(
     if temporary.exists():
         temporary.unlink()
     counts: Counter[str] = Counter()
+    from common.live_preview import PreviewGeometry, active_postprocess_preview
+
+    preview = active_postprocess_preview()
     first_frame: int | None = None
     last_frame: int | None = None
     try:
@@ -480,6 +483,28 @@ def export_face_masks(
                         geometry_rows.append(_geometry_row(frame, track_id, mask))
                         track_rows.append((track_id, label))
                         counts[mask.derivation] += 1
+                        if preview is not None and preview.should_sample("face_privacy_masks"):
+                            preview.submit(
+                                PreviewGeometry(
+                                    frame,
+                                    "face_privacy_masks",
+                                    "face tracking + privacy mask",
+                                    polygons=(
+                                        tuple(
+                                            (float(x), float(y))
+                                            for x, y in mask.polygon
+                                        ),
+                                    ),
+                                    boxes=(tuple(float(value) for value in observation.bbox),),
+                                    points=tuple(
+                                        (float(point.x), float(point.y))
+                                        for point in observation.keypoints
+                                        if point.valid
+                                    ),
+                                    track_id=track_id,
+                                    detail=f"{target}/{mask.shape} / {assignment.association_stage}",
+                                )
+                            )
                         first_frame = (
                             frame if first_frame is None else min(first_frame, frame)
                         )

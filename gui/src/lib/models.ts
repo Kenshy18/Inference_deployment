@@ -32,15 +32,15 @@ export interface FaceModelSpec {
   }>;
 }
 
-const FAST = "TensorRT（高速・推奨）";
-const SLOW = "PyTorch（互換）";
+const FAST = "高速（デフォルト）";
+const SLOW = "低速（安定）";
 
 /** Mirrors InstanceSegmentation/inference/registry.py — a model may only be
  *  launched with a backend it registers, so the picker offers nothing else. */
 export const SEGMENTATION_MODELS: readonly ModelSpec[] = [
   {
     id: "eva02_cascade",
-    label: "EVA-02 + Cascade",
+    label: "V1",
     note: "旧世代のEVA-02セグメンテーション",
     backends: [
       { value: "tensorrt-backbone", label: FAST, id: "tensorrt-backbone" },
@@ -49,7 +49,7 @@ export const SEGMENTATION_MODELS: readonly ModelSpec[] = [
   },
   {
     id: "dinov3_cascade",
-    label: "DINOv3 + Cascade",
+    label: "V2",
     note: "DINOv3バックボーン + Cascade Mask R-CNN",
     backends: [
       { value: "tensorrt-backbone", label: FAST, id: "tensorrt-backbone" },
@@ -57,7 +57,7 @@ export const SEGMENTATION_MODELS: readonly ModelSpec[] = [
   },
   {
     id: "dinov3_codino",
-    label: "Co-DINO（巨大）",
+    label: "V3",
     note: "高精度の大型DINOv3 + Co-DINO",
     backends: [
       { value: "tensorrt-fast", label: FAST, id: "tensorrt-fast" },
@@ -66,7 +66,7 @@ export const SEGMENTATION_MODELS: readonly ModelSpec[] = [
   },
   {
     id: "dinov3_codino_mh0",
-    label: "Co-DINO（高速）",
+    label: "v3-lite",
     note: "高速・小型DINOv3 + Co-DINO（MH0）",
     backends: [
       { value: "tensorrt-fast", label: FAST, id: "tensorrt-fast" },
@@ -79,7 +79,7 @@ export const SEGMENTATION_MODELS: readonly ModelSpec[] = [
 export const FACE_MODELS: readonly FaceModelSpec[] = [
   {
     id: "face_dino_v2",
-    label: "Face DINO v2（新）",
+    label: "Face V2",
     note: "頭部box・顔楕円/マスク・キーポイント",
     backends: [
       { value: "tensorrt-fast", label: FAST, id: "tensorrt-fast" },
@@ -87,7 +87,7 @@ export const FACE_MODELS: readonly FaceModelSpec[] = [
   },
   {
     id: "rtdetr_head_face",
-    label: "RT-DETR（旧）",
+    label: "Face V1",
     note: "Face / Head box",
     backends: [{ value: "pytorch", label: SLOW, id: "pytorch" }],
   },

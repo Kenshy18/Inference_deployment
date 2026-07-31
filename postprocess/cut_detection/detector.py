@@ -268,6 +268,9 @@ class FrameDifferenceCutDetector:
 
     def detect(self, jsonl_path: Path, video_path: Path) -> CutDetectionResult:
         started = time.perf_counter()
+        from common.live_preview import PreviewGeometry, active_postprocess_preview
+
+        preview = active_postprocess_preview()
         frames: list[int] = []
         previous: np.ndarray | None = None
         last_cut = -(10**9)
@@ -284,6 +287,16 @@ class FrameDifferenceCutDetector:
                     frames.append(frame_index)
                     last_cut = frame_index
             previous = current
+            if preview is not None and preview.should_sample("cut_detection"):
+                preview.submit(
+                    PreviewGeometry(
+                        frame_index,
+                        "cut_detection",
+                        "cut detection",
+                        detail=f"frame-diff · cuts {len(frames)}",
+                        preview_image=cv2.cvtColor(current, cv2.COLOR_GRAY2BGR),
+                    )
+                )
         return CutDetectionResult(frames, time.perf_counter() - started, self.name)
 
 
@@ -332,6 +345,9 @@ class HighPrecisionCutDetector:
         previous_gray: np.ndarray | None = None
         previous_bgr: np.ndarray | None = None
         last_cut = -(10**9)
+        from common.live_preview import PreviewGeometry, active_postprocess_preview
+
+        preview = active_postprocess_preview()
         for frame_index, frame in reader:
             current_bgr = (
                 frame
@@ -339,6 +355,8 @@ class HighPrecisionCutDetector:
                 else _small_bgr(frame, self.width, self.height)
             )
             current_gray = cv2.cvtColor(current_bgr, cv2.COLOR_BGR2GRAY)
+            is_cut = False
+            difference = 0.0
             if previous_gray is not None and previous_bgr is not None:
                 difference = float(np.mean(cv2.absdiff(current_gray, previous_gray)))
                 if difference >= self.min_difference:
@@ -354,6 +372,22 @@ class HighPrecisionCutDetector:
                     ):
                         cuts.append(frame_index)
                         last_cut = frame_index
+                        is_cut = True
+            if preview is not None and preview.should_sample("cut_detection"):
+                preview.submit(
+                    PreviewGeometry(
+                        frame_index,
+                        "cut_detection",
+                        "cut detection",
+                        detail=(
+                            f"CUT · diff {difference:.1f} · total {len(cuts)}"
+                            if is_cut
+                            else f"scan · diff {difference:.1f} · cuts {len(cuts)}"
+                        ),
+                        is_keyframe=is_cut,
+                        preview_image=current_bgr.copy(),
+                    )
+                )
             previous_gray = current_gray
             previous_bgr = current_bgr
         return CutDetectionResult(cuts, time.perf_counter() - started, self.name)

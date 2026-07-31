@@ -50,6 +50,7 @@ class OverlayItem:
     keypoints: tuple[FaceKeypointOverlay, ...] = ()
     face_mask: FaceMaskOverlay | None = None
     provenance: str | None = None
+    is_keyframe: bool = False
     face_score: float | None = None
     face_present: bool | None = None
 

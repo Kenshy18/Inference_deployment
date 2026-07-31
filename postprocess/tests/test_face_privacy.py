@@ -10,6 +10,7 @@ from pathlib import Path
 
 from common.config import PipelineConfig, StageSpec
 from common.runner import PipelineRunner
+from contracts.artifacts import validate_artifact
 from face_privacy.geometry import FaceKeypoint, derive_privacy_mask
 from face_privacy.sqlite import export_face_masks, merge_face_masks
 
@@ -247,6 +248,7 @@ class FacePrivacyTests(unittest.TestCase):
             self.assertEqual(1, summary["face_tracks"])
             self.assertEqual(1, summary["interpolated_rows"])
             self.assertEqual(1, summary["interpolated_boxes"])
+            validate_artifact("face_masks_sqlite", output)
             with sqlite3.connect(output) as connection:
                 self.assertEqual(
                     [

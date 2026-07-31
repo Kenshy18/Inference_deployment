@@ -8,10 +8,13 @@
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1",
     "dev:electron": "wait-on tcp:5173 && npm run build:electron && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
+    "start": "electron .",
+    "start:automation": "electron . --software-rendering --automation-port=9222",
     "build": "npm run typecheck && npm run test && vite build && npm run build:electron",
     "build:electron": "tsc -p tsconfig.electron.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:gui": "npm run build && node scripts/gui-smoke.mjs",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"
   },

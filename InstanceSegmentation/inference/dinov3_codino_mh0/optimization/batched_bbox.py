@@ -8,6 +8,36 @@ import numpy as np
 import torch
 
 
+def _with_classifier_columns(model, results_list):
+    classifications = getattr(model, "_mh0_last_classifications", None)
+    model._mh0_last_classifications = None
+    if classifications is None:
+        return results_list
+    if len(classifications) != len(results_list):
+        raise RuntimeError(
+            "MH0 classifier result count does not match the image batch"
+        )
+    enriched = []
+    for (boxes, labels), extra in zip(results_list, classifications):
+        if int(boxes.shape[0]) != int(extra.shape[0]):
+            raise RuntimeError(
+                "MH0 classifier result count does not match detections"
+            )
+        enriched.append(
+            (
+                torch.cat(
+                    (
+                        boxes,
+                        extra.to(device=boxes.device, dtype=boxes.dtype),
+                    ),
+                    dim=1,
+                ),
+                labels,
+            )
+        )
+    return enriched
+
+
 def _bbox_results_batched(results_list, num_classes):
     counts = [int(boxes.shape[0]) for boxes, _ in results_list]
     total = sum(counts)
@@ -30,8 +60,8 @@ def _bbox_results_batched(results_list, num_classes):
     offset = 0
     for count in counts:
         image = packed[offset : offset + count]
-        image_boxes = image[:, :5]
-        image_labels = image[:, 5].astype(np.int64, copy=False)
+        image_boxes = image[:, :-1]
+        image_labels = image[:, -1].astype(np.int64, copy=False)
         outputs.append(
             [
                 image_boxes[image_labels == class_index, :]
@@ -86,6 +116,7 @@ def simple_test_query_head_batched(
         det_labels,
         rescale=rescale,
     )
+    results_list = _with_classifier_columns(self, results_list)
     bbox_results = _bbox_results_batched(
         results_list, self.query_head.num_classes
     )

@@ -1,8 +1,7 @@
-import type { AppSettings, JobSnapshot } from "../../shared/types";
+import type { JobSnapshot } from "../../shared/types";
 import { filename } from "../lib/format";
 import {
   CheckIcon,
-  CpuIcon,
   FilmIcon,
   PlayIcon,
   StopIcon,
@@ -13,23 +12,19 @@ export function TopBar({
   queuePending,
   outputRoot,
   job,
-  settings,
   busy,
   canRun,
   onRun,
   onCancel,
-  onRuntime,
 }: {
   queueTotal: number;
   queuePending: number;
   outputRoot: string;
   job: JobSnapshot;
-  settings: AppSettings;
   busy: boolean;
   canRun: boolean;
   onRun: (dryRun: boolean) => void;
   onCancel: () => void;
-  onRuntime: () => void;
 }) {
   return (
     <header className="topbar">
@@ -37,7 +32,6 @@ export function TopBar({
         <span className="topbar__logo">
           <FilmIcon />
         </span>
-        <span>Mask Pipeline</span>
       </div>
 
       <div className="topbar__file">
@@ -58,15 +52,6 @@ export function TopBar({
       </div>
 
       <div className="topbar__transport">
-        <button
-          type="button"
-          className="btn btn--quiet"
-          onClick={onRuntime}
-          title="実行環境の設定"
-        >
-          <CpuIcon />
-          {settings.backendMode === "wsl" ? `WSL2 · ${settings.wslDistro}` : "Native"}
-        </button>
         <button
           type="button"
           className="btn"

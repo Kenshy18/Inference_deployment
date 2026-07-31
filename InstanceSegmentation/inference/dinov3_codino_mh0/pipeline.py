@@ -10,6 +10,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from pipelines import InferenceRunSummary
+from live_preview import LivePreviewSink
+from progress_protocol import InferenceProgressReporter
 from video import AsyncVideoDecoder
 
 try:
@@ -46,6 +48,13 @@ def run_mh0_video_inference(
         max_frames=max_frames,
         prefetch_batches=prefetch_batches,
     )
+    structured_progress = InferenceProgressReporter.from_environment(
+        available_frames=decoder.metadata.frames,
+        max_frames=max_frames,
+    )
+    if structured_progress is not None:
+        structured_progress.start()
+    preview = LivePreviewSink.from_environment()
     writer.set_metadata(
         {
             "input": str(input_path.expanduser().resolve()),
@@ -66,9 +75,12 @@ def run_mh0_video_inference(
         max_workers=1,
         thread_name_prefix="mh0-contract-output",
     )
-    pending: deque[Future[tuple[tuple[object, ...], int]]] = deque()
+    pending: deque[Future[tuple[object, tuple[object, ...], int]]] = deque()
 
-    def convert_batch(batch, raw_results) -> tuple[tuple[object, ...], int]:
+    def convert_batch(
+        batch,
+        raw_results,
+    ) -> tuple[object, tuple[object, ...], int]:
         results = adapter.convert_raw(batch, raw_results)
         expected = tuple(frame.index for frame in batch.frames)
         actual = tuple(result.frame.index for result in results)
@@ -79,14 +91,16 @@ def run_mh0_video_inference(
             )
         if any(result.model != adapter.descriptor for result in results):
             raise RuntimeError("adapter returned a mismatched model descriptor")
-        return results, sum(len(result.instances) for result in results)
+        return batch, results, sum(len(result.instances) for result in results)
 
     def persist_completed(
-        future: Future[tuple[tuple[object, ...], int]],
+        future: Future[tuple[object, tuple[object, ...], int]],
     ) -> int:
-        results, count = future.result()
-        for result in results:
+        batch, results, count = future.result()
+        for frame, result in zip(batch.frames, results):
             writer.write(result)
+            if preview is not None:
+                preview.submit(frame, result)
         return count
 
     try:
@@ -108,24 +122,47 @@ def run_mh0_video_inference(
             processed += len(batch)
             if progress is not None:
                 wall_elapsed = time.perf_counter() - started
-                progress(
-                    InferenceRunSummary(
-                        input=str(input_path),
-                        model_id=adapter.descriptor.model_id,
-                        task=adapter.descriptor.task.value,
-                        processed_frames=processed,
-                        result_items=items,
-                        wall_elapsed_sec=wall_elapsed,
-                        wall_fps=processed / max(wall_elapsed, 1e-9),
-                        warmup_frames=warmup_frames,
-                        measured_frames=measured_frames,
-                        measured_time_sec=measured_time,
-                        compute_fps=(
-                            measured_frames / measured_time
-                            if measured_time > 0
-                            else 0.0
-                        ),
-                    )
+                current_summary = InferenceRunSummary(
+                    input=str(input_path),
+                    model_id=adapter.descriptor.model_id,
+                    task=adapter.descriptor.task.value,
+                    processed_frames=processed,
+                    result_items=items,
+                    wall_elapsed_sec=wall_elapsed,
+                    wall_fps=processed / max(wall_elapsed, 1e-9),
+                    warmup_frames=warmup_frames,
+                    measured_frames=measured_frames,
+                    measured_time_sec=measured_time,
+                    compute_fps=(
+                        measured_frames / measured_time
+                        if measured_time > 0
+                        else 0.0
+                    ),
+                )
+                progress(current_summary)
+            else:
+                wall_elapsed = time.perf_counter() - started
+                current_summary = InferenceRunSummary(
+                    input=str(input_path),
+                    model_id=adapter.descriptor.model_id,
+                    task=adapter.descriptor.task.value,
+                    processed_frames=processed,
+                    result_items=items,
+                    wall_elapsed_sec=wall_elapsed,
+                    wall_fps=processed / max(wall_elapsed, 1e-9),
+                    warmup_frames=warmup_frames,
+                    measured_frames=measured_frames,
+                    measured_time_sec=measured_time,
+                    compute_fps=(
+                        measured_frames / measured_time
+                        if measured_time > 0
+                        else 0.0
+                    ),
+                )
+            if structured_progress is not None:
+                structured_progress.update(
+                    processed,
+                    fps=current_summary.wall_fps,
                 )
         while pending:
             items += persist_completed(pending.popleft())
@@ -133,12 +170,16 @@ def run_mh0_video_inference(
         decoder.close()
         output_pool.shutdown(wait=True, cancel_futures=True)
         try:
-            writer.close()
+            if preview is not None:
+                preview.close()
         finally:
-            adapter.close()
+            try:
+                writer.close()
+            finally:
+                adapter.close()
 
     wall_elapsed = time.perf_counter() - started
-    return InferenceRunSummary(
+    summary = InferenceRunSummary(
         input=str(input_path),
         model_id=adapter.descriptor.model_id,
         task=adapter.descriptor.task.value,
@@ -153,6 +194,12 @@ def run_mh0_video_inference(
             measured_frames / measured_time if measured_time > 0 else 0.0
         ),
     )
+    if structured_progress is not None:
+        structured_progress.complete(
+            summary.processed_frames,
+            fps=summary.wall_fps,
+        )
+    return summary
 
 
 __all__ = ["run_mh0_video_inference"]

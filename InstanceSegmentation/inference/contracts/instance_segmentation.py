@@ -68,14 +68,20 @@ def segmentation_frame_from_rows(
         raw_probabilities = row.get("class_probs")
         classification = None
         if raw_class_score is not None:
+            classifier_class_id = int(
+                row.get("classifier_class_id", class_id)
+            )
+            classifier_class_name = str(
+                row.get("classifier_class_name", class_name)
+            )
             probabilities = (
                 tuple(float(value) for value in raw_probabilities)
                 if isinstance(raw_probabilities, (list, tuple))
                 else None
             )
             classification = Classification(
-                class_id=class_id,
-                class_name=class_name,
+                class_id=classifier_class_id,
+                class_name=classifier_class_name,
                 score=float(raw_class_score),
                 probabilities=probabilities,
             )

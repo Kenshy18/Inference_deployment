@@ -110,6 +110,9 @@ def fill_keyframe_gaps_sqlite(
     max_gap: int | None = None,
 ) -> Path:
     implementation = interpolator or LinearPolygonInterpolator()
+    from common.live_preview import PreviewGeometry, active_postprocess_preview
+
+    preview = active_postprocess_preview()
     if max_gap is not None and max_gap < 0:
         raise ValueError("max_gap must be non-negative")
     keyframes_by_track: dict[str, list[MaskRow]] = {}
@@ -130,6 +133,21 @@ def fill_keyframe_gaps_sqlite(
             position = bisect_left(key_frames, target.frame)
             if position < len(keys) and keys[position].frame == target.frame:
                 track_output.append(keys[position])
+                if preview is not None and preview.should_sample("mask_gap_fill"):
+                    preview.submit(
+                        PreviewGeometry(
+                            target.frame,
+                            "mask_gap_fill",
+                            "gap fill",
+                            polygons=tuple(
+                                tuple((float(point[0]), float(point[1])) for point in polygon)
+                                for polygon in json.loads(keys[position].polygons)
+                            ),
+                            track_id=track_id,
+                            detail="source keyframe",
+                            is_keyframe=True,
+                        )
+                    )
                 continue
             if position == 0 or position == len(keys):
                 nearest = keys[0] if position == 0 else keys[-1]
@@ -160,6 +178,21 @@ def fill_keyframe_gaps_sqlite(
                     shape_type="polygon",
                 )
             )
+            if preview is not None and preview.should_sample("mask_gap_fill"):
+                preview.submit(
+                    PreviewGeometry(
+                        target.frame,
+                        "mask_gap_fill",
+                        "gap fill",
+                        polygons=tuple(
+                            tuple((float(point[0]), float(point[1])) for point in polygon)
+                            for polygon in polygons
+                        ),
+                        track_id=track_id,
+                        detail=f"linear alpha={alpha:.2f}",
+                        is_interpolated=True,
+                    )
+                )
         if max_gap:
             for index, left in enumerate(track_output):
                 output.append(left)

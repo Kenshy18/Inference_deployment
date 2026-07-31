@@ -10,6 +10,18 @@ export function isVideoPath(value: string): boolean {
   return VIDEO_EXTENSIONS.has(ext);
 }
 
+/** 1-based current position while running, or the number already attempted
+ *  while idle. Failed items count because the sequential runner has moved on. */
+export function batchPosition(
+  queue: ReadonlyArray<Pick<QueueItem, "status">>,
+): number {
+  const settled = queue.filter(
+    (item) => item.status === "done" || item.status === "failed",
+  ).length;
+  const running = queue.some((item) => item.status === "processing") ? 1 : 0;
+  return Math.min(queue.length, settled + running);
+}
+
 /** File name without directories and extension — the queue display title. */
 export function titleFromPath(value: string): string {
   const base = value.split(/[\\/]/).filter(Boolean).at(-1) ?? value;
@@ -46,7 +58,7 @@ export function uniqueOutputDir(
   );
   const stem = sanitizeName(title);
   for (let index = 1; ; index += 1) {
-    const name = index === 1 ? stem : `${stem}-${index}`;
+    const name = index === 1 ? stem : `${stem}_${index}`;
     const dir = joinPath(repoRoot, name);
     if (!taken.has(dir.toLowerCase())) {
       return dir;
@@ -87,7 +99,35 @@ export function loadQueue(): QueueItem[] {
     if (!Array.isArray(saved)) {
       return [];
     }
-    return saved.filter((item) => item && item.id && item.path);
+    return saved
+      .filter((item) => item && item.id && item.path)
+      .map((item) => {
+        const legacyOutput =
+          item.status === "done" && item.outputDir
+            ? [
+                {
+                  id: `legacy:${item.id}:${item.outputDir}`,
+                  outputDir: item.outputDir,
+                  summary: item.summary ?? null,
+                  completedAt: item.completedAt ?? null,
+                  artifactCount: item.artifactCount ?? null,
+                },
+              ]
+            : [];
+        return {
+          ...item,
+          width: item.width ?? null,
+          height: item.height ?? null,
+          fps: item.fps ?? null,
+          frameCount: item.frameCount ?? null,
+          completedAt: item.completedAt ?? null,
+          artifactCount: item.artifactCount ?? null,
+          outputs:
+            Array.isArray(item.outputs) && item.outputs.length > 0
+              ? item.outputs
+              : legacyOutput,
+        };
+      });
   } catch {
     return [];
   }
@@ -103,10 +143,17 @@ export function newQueueItem(path: string): QueueItem {
     path,
     title: titleFromPath(path),
     durationSeconds: null,
+    width: null,
+    height: null,
+    fps: null,
+    frameCount: null,
     thumbnail: null,
     status: "pending",
     outputDir: null,
     summary: null,
+    completedAt: null,
+    artifactCount: null,
+    outputs: [],
     error: null,
   };
 }

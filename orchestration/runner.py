@@ -74,6 +74,25 @@ def _atomic_json(path: Path, value: object) -> None:
     os.replace(temporary, path)
 
 
+def _emit_phase_complete(phase: str, completed: int) -> None:
+    print(
+        "[phase-progress] "
+        + json.dumps(
+            {
+                "phase": phase,
+                "state": "complete",
+                "completed": max(0, int(completed)),
+                "total": max(0, int(completed)),
+                "detail": "complete",
+                "fps": None,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
+
+
 class OrchestrationRunner:
     def __init__(
         self,
@@ -637,6 +656,13 @@ class OrchestrationRunner:
             require_faces=settings.uses_faces,
             expected_face_model=(settings.face_model if settings.uses_faces else None),
         )
+        if settings.uses_segmentation:
+            _emit_phase_complete(
+                "segmentation_inference",
+                int(stats["frames"]),
+            )
+        if settings.uses_faces:
+            _emit_phase_complete("face_inference", int(stats["frames"]))
         self._publish_artifacts(
             {"inference_sqlite": inference_sqlite},
             validation={"inference_sqlite": stats},
@@ -653,10 +679,11 @@ class OrchestrationRunner:
         if settings.enabled:
             post_root = self.output_root / "02_postprocess"
             manifest_path = post_root / "pipeline_manifest.json"
-            if self._can_resume_stage(
+            resumed_postprocess = self._can_resume_stage(
                 "postprocess",
                 {"postprocess_manifest": manifest_path},
-            ):
+            )
+            if resumed_postprocess:
                 tracked, final, legacy = read_postprocess_artifacts(manifest_path)
             else:
                 command = self.postprocess_command(
@@ -705,6 +732,8 @@ class OrchestrationRunner:
                 validation=validation,
                 replace_sqlite_outputs=integrated,
             )
+            if resumed_postprocess:
+                _emit_phase_complete("postprocess", 1)
             return WorkflowArtifacts(
                 inference_sqlite=artifacts.inference_sqlite,
                 tracked_sqlite=tracked,
@@ -966,7 +995,13 @@ class OrchestrationRunner:
                     None,
                 )
             )
-        for name, mode, source, face_source, preset in requested:
+        for overlay_index, (
+            name,
+            mode,
+            source,
+            face_source,
+            preset,
+        ) in enumerate(requested):
             output = output_root / f"{name}.mp4"
             output_manifest = output.with_suffix(".json")
             artifact_name = f"overlay_{name}"
@@ -990,6 +1025,11 @@ class OrchestrationRunner:
                 command,
                 cpu_only=not settings.uses_nvenc,
                 extra_pythonpath=OVERLAY_ROOT / "src",
+                extra_environment={
+                    "MASK_PIPELINE_PROGRESS_ITEM_INDEX": str(overlay_index),
+                    "MASK_PIPELINE_PROGRESS_ITEM_COUNT": str(len(requested)),
+                    "MASK_PIPELINE_PROGRESS_ITEM_NAME": name,
+                },
             )
             if not output.is_file() or output.stat().st_size == 0:
                 raise OrchestrationError(f"overlay did not create output: {output}")
@@ -1007,6 +1047,7 @@ class OrchestrationRunner:
         *,
         cpu_only: bool,
         extra_pythonpath: Path | None = None,
+        extra_environment: dict[str, str] | None = None,
     ) -> None:
         log_path = self.logs_dir / f"{stage}.log"
         environment = dict(os.environ)
@@ -1020,6 +1061,10 @@ class OrchestrationRunner:
                 str(extra_pythonpath)
                 if not existing
                 else f"{extra_pythonpath}{os.pathsep}{existing}"
+            )
+        if extra_environment is not None:
+            environment.update(
+                {str(key): str(value) for key, value in extra_environment.items()}
             )
         record: dict[str, Any] = {
             "name": stage,
@@ -1046,7 +1091,11 @@ class OrchestrationRunner:
             with process.stdout:
                 for line in process.stdout:
                     print(f"[{stage}] {line}", end="", flush=True)
-                    log.write(line)
+                    if (
+                        "[phase-progress]" not in line
+                        and "[live-preview]" not in line
+                    ):
+                        log.write(line)
             return_code = process.wait()
         record["elapsed_seconds"] = time.perf_counter() - started
         record["completed_at_utc"] = _utc_now()

@@ -1,12 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { defaultDraft } from "./defaults";
 import {
+  batchPosition,
   isVideoPath,
   joinPath,
   settingsSummary,
   titleFromPath,
   uniqueOutputDir,
 } from "./queue";
+
+describe("batchPosition", () => {
+  it("shows the current 1-based item and counts failed attempts", () => {
+    expect(
+      batchPosition([
+        { status: "done" },
+        { status: "processing" },
+        { status: "pending" },
+        { status: "pending" },
+      ]),
+    ).toBe(2);
+    expect(
+      batchPosition([
+        { status: "done" },
+        { status: "failed" },
+        { status: "processing" },
+        { status: "pending" },
+      ]),
+    ).toBe(3);
+    expect(batchPosition([{ status: "done" }, { status: "done" }])).toBe(2);
+  });
+});
 
 describe("titleFromPath", () => {
   it("strips directories and the extension", () => {
@@ -35,9 +58,9 @@ describe("uniqueOutputDir", () => {
   it("uses the title and dedupes against claimed folders", () => {
     const first = uniqueOutputDir("/out", "clip", []);
     expect(first).toBe("/out/clip");
-    expect(uniqueOutputDir("/out", "clip", [first, null])).toBe("/out/clip-2");
-    expect(uniqueOutputDir("/out", "clip", [first, "/out/clip-2"])).toBe(
-      "/out/clip-3",
+    expect(uniqueOutputDir("/out", "clip", [first, null])).toBe("/out/clip_2");
+    expect(uniqueOutputDir("/out", "clip", [first, "/out/clip_2"])).toBe(
+      "/out/clip_3",
     );
   });
 
@@ -49,9 +72,9 @@ describe("uniqueOutputDir", () => {
 describe("settingsSummary", () => {
   it("describes the default draft", () => {
     const summary = settingsSummary(defaultDraft);
-    expect(summary).toContain("Co-DINO（高速）");
-    expect(summary).toContain("Face DINO v2（新）");
-    expect(summary).toContain("楕円");
+    expect(summary).toContain("V3");
+    expect(summary).toContain("Face V2");
+    expect(summary).toContain("ポリゴン");
     expect(summary).toContain("overlay fast");
   });
 

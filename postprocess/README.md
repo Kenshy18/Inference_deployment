@@ -36,6 +36,11 @@ postprocess/
 `stages.py`を所有します。機能パッケージ同士はimportしません。データは
 `contracts`で定義された名前付き成果物だけで受け渡されます。
 
+GUI用Liveプレビューは`common/live_preview.py`の単一非同期workerへ、各stageが
+フレーム番号と軽量な図形だけを通知します。元動画のデコード・960×540描画・JPEG
+生成はアルゴリズムの実行スレッド外で行い、ステージごとに最新1件だけを保持します。
+環境変数`MASK_PIPELINE_PREVIEW_PATH`がない場合は完全に無効です。
+
 ## 実行
 
 Python 3.10以上と、`pyproject.toml`に記載された依存関係が必要です。

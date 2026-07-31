@@ -448,18 +448,24 @@ def _run_fast(
     )
     completed = False
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             command,
-            check=False,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
         )
-        if result.returncode != 0:
-            detail = "\n".join(
-                value.strip()
-                for value in (result.stdout, result.stderr)
-                if value.strip()
-            )
+        captured: list[str] = []
+        assert process.stdout is not None
+        with process.stdout:
+            for line in process.stdout:
+                text = line.rstrip()
+                if "[phase-progress]" in text:
+                    print(text, flush=True)
+                elif text:
+                    captured.append(text)
+        return_code = process.wait()
+        if return_code != 0:
+            detail = "\n".join(captured).strip()
             raise RuntimeError(
                 "fast overlay failed; worker artifacts were retained at "
                 f"{work_dir}" + (f"\n{detail}" if detail else "")

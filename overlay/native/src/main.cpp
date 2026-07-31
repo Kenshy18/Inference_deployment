@@ -95,6 +95,7 @@ struct Mask {
     std::string privacy_derivation;
     std::optional<double> privacy_confidence;
     bool face_detailed{false};
+    bool is_keyframe{false};
 
     Mask() = default;
 
@@ -105,7 +106,8 @@ struct Mask {
         std::optional<double> input_score,
         std::vector<Polygon> input_polygons,
         std::optional<Box> input_box,
-        std::array<std::uint8_t, 3> input_bgr
+        std::array<std::uint8_t, 3> input_bgr,
+        bool input_is_keyframe = false
     )
         : kind(input_kind),
           track_id(std::move(input_track_id)),
@@ -113,7 +115,8 @@ struct Mask {
           score(input_score),
           polygons(std::move(input_polygons)),
           box(input_box),
-          bgr(input_bgr) {}
+          bgr(input_bgr),
+          is_keyframe(input_is_keyframe) {}
 };
 
 using FrameMasks = std::map<int, std::vector<Mask>>;
@@ -124,6 +127,7 @@ struct Options {
     fs::path face_sqlite;
     fs::path output;
     fs::path manifest;
+    fs::path progress_file;
     std::string mode{"final"};
     std::string display_style{"legacy"};
     std::string mask_domain{"all"};
@@ -437,6 +441,24 @@ std::array<std::uint8_t, 3> item_color(std::string_view color_key) {
     return bgr;
 }
 
+std::array<std::uint8_t, 3> keyframe_outline_color(
+    const Mask& item
+) {
+    if (!item.is_keyframe || item.provenance != "DETAILED") {
+        return item.bgr;
+    }
+    auto highlighted = item.bgr;
+    for (auto& channel : highlighted) {
+        channel = static_cast<std::uint8_t>(std::min(
+            255,
+            static_cast<int>(std::lround(
+                static_cast<double>(channel) * 0.72 + 255.0 * 0.28
+            ))
+        ));
+    }
+    return highlighted;
+}
+
 class SqliteConnection {
 public:
     explicit SqliteConnection(const fs::path& path) {
@@ -698,6 +720,11 @@ FrameMasks load_postprocess_masks(
         table,
         "label"
     );
+    const bool has_keyframe = sqlite_column_exists(
+        connection.get(),
+        table,
+        "is_keyframe"
+    );
     const bool filter_domain =
         mask_domain != "all" &&
         sqlite_table_exists(connection.get(), "tracks") &&
@@ -713,6 +740,10 @@ FrameMasks load_postprocess_masks(
         "SELECT m.frame, CAST(m.track_id AS TEXT), m.polygons, " +
         std::string(
             has_label ? "COALESCE(m.label, '')" : "''"
+        ) +
+        ", " +
+        std::string(
+            has_keyframe ? "COALESCE(m.is_keyframe, 0)" : "0"
         ) +
         " FROM " + table + " m " + domain_join + "WHERE m.frame >= ?1 "
         "AND (?2 IS NULL OR m.frame <= ?2)" + domain_where +
@@ -761,6 +792,7 @@ FrameMasks load_postprocess_masks(
                     std::move(polygons),
                     std::nullopt,
                     item_color("track:" + track_id),
+                    sqlite3_column_int(statement.get(), 4) != 0
                 }
             );
         }
@@ -771,7 +803,8 @@ FrameMasks load_postprocess_masks(
         int frame,
         std::string track_id,
         std::string label,
-        Polygon polygon
+        Polygon polygon,
+        bool is_keyframe
     ) {
         auto& by_track = typed_masks[frame];
         auto [iterator, inserted] = by_track.try_emplace(
@@ -791,17 +824,35 @@ FrameMasks load_postprocess_masks(
                 "typed cache has inconsistent labels for one track/frame"
             );
         }
+        if (!inserted && iterator->second.is_keyframe != is_keyframe) {
+            throw std::runtime_error(
+                "typed cache has inconsistent keyframe flags for one track/frame"
+            );
+        }
+        iterator->second.is_keyframe = is_keyframe;
         iterator->second.polygons.push_back(std::move(polygon));
     };
 
     if (sqlite_table_exists(connection.get(), "mask_ellipses")) {
+        const bool has_ellipse_keyframe = sqlite_column_exists(
+            connection.get(),
+            "mask_ellipses",
+            "is_keyframe"
+        );
         SqliteStatement ellipses(
             connection.get(),
-            "SELECT frame, CAST(track_id AS TEXT), COALESCE(label, ''), "
-            "cx, cy, radius_x, radius_y, theta_radians, point_count "
+            (
+                "SELECT frame, CAST(track_id AS TEXT), COALESCE(label, ''), "
+                "cx, cy, radius_x, radius_y, theta_radians, point_count, " +
+                std::string(
+                    has_ellipse_keyframe
+                        ? "COALESCE(is_keyframe, 0) "
+                        : "0 "
+                ) +
             "FROM mask_ellipses WHERE frame >= ?1 "
             "AND (?2 IS NULL OR frame <= ?2) "
             "ORDER BY frame, track_id, slot_index"
+            ).c_str()
         );
         bind_frame_range(ellipses.get(), start_frame, end_frame);
         while (true) {
@@ -826,18 +877,31 @@ FrameMasks load_postprocess_masks(
                     sqlite3_column_double(ellipses.get(), 6),
                     sqlite3_column_double(ellipses.get(), 7),
                     sqlite3_column_int(ellipses.get(), 8)
-                )
+                ),
+                sqlite3_column_int(ellipses.get(), 9) != 0
             );
         }
     }
     if (sqlite_table_exists(connection.get(), "mask_rectangles")) {
+        const bool has_rectangle_keyframe = sqlite_column_exists(
+            connection.get(),
+            "mask_rectangles",
+            "is_keyframe"
+        );
         SqliteStatement rectangles(
             connection.get(),
-            "SELECT frame, CAST(track_id AS TEXT), COALESCE(label, ''), "
-            "cx, cy, half_width, half_height, theta_radians "
+            (
+                "SELECT frame, CAST(track_id AS TEXT), COALESCE(label, ''), "
+                "cx, cy, half_width, half_height, theta_radians, " +
+                std::string(
+                    has_rectangle_keyframe
+                        ? "COALESCE(is_keyframe, 0) "
+                        : "0 "
+                ) +
             "FROM mask_rectangles WHERE frame >= ?1 "
             "AND (?2 IS NULL OR frame <= ?2) "
             "ORDER BY frame, track_id, slot_index"
+            ).c_str()
         );
         bind_frame_range(rectangles.get(), start_frame, end_frame);
         while (true) {
@@ -861,7 +925,8 @@ FrameMasks load_postprocess_masks(
                     sqlite3_column_double(rectangles.get(), 5),
                     sqlite3_column_double(rectangles.get(), 6),
                     sqlite3_column_double(rectangles.get(), 7)
-                )
+                ),
+                sqlite3_column_int(rectangles.get(), 8) != 0
             );
         }
     }
@@ -1750,7 +1815,7 @@ void draw_masks(
             }
             const YuvColor color = bgr_to_bt709_limited(
                 regular_mask
-                    ? mask.bgr
+                    ? keyframe_outline_color(mask)
                     : std::array<std::uint8_t, 3>{255, 70, 255}
             );
             const auto draw_outline = [&](const Polygon& polygon) {
@@ -2861,7 +2926,7 @@ public:
                 const std::size_t batch_start = outline_spans_.size();
                 const YuvColor color = bgr_to_bt709_limited(
                     regular_mask
-                        ? mask.bgr
+                        ? keyframe_outline_color(mask)
                         : std::array<std::uint8_t, 3>{255, 70, 255}
                 );
                 const auto append_outline = [&](const Polygon& polygon) {
@@ -3012,6 +3077,8 @@ Options parse_options(int argc, char** argv) {
             options.output = require_value(index, argument);
         } else if (argument == "--manifest") {
             options.manifest = require_value(index, argument);
+        } else if (argument == "--progress-file") {
+            options.progress_file = require_value(index, argument);
         } else if (argument == "--mode") {
             options.mode = require_value(index, argument);
         } else if (argument == "--display-style") {
@@ -3102,6 +3169,7 @@ Options parse_options(int argc, char** argv) {
                 << "[--mask-domain all|genital|face_privacy] "
                 << "[--include-faces --face-sqlite FILE] "
                 << "[--no-labels] [--copy-audio] [--manifest FILE] "
+                << "[--progress-file FILE] "
                 << "[--encoder libx264|h264_nvenc] [--preset VALUE] "
                 << "[--codec h264|h264_nvenc] [--nvenc-gpu N] "
                 << "[--bitrate-mbps N | --crf N] [--mask-alpha N] "
@@ -3306,6 +3374,50 @@ struct RunSummary {
     double encoder_seconds{};
     std::uintmax_t size_bytes{};
 };
+
+class ProgressFileWriter {
+public:
+    explicit ProgressFileWriter(const fs::path& path) {
+        if (path.empty()) {
+            return;
+        }
+        stream_.open(path, std::ios::out | std::ios::trunc);
+        if (!stream_) {
+            throw std::runtime_error(
+                "failed to open progress file: " + path.string()
+            );
+        }
+    }
+
+    void write(int frames) {
+        if (!stream_.is_open()) {
+            return;
+        }
+        stream_.seekp(0);
+        stream_ << std::setw(20) << frames << '\n';
+        stream_.flush();
+        if (!stream_) {
+            throw std::runtime_error("failed to update progress file");
+        }
+    }
+
+private:
+    std::ofstream stream_;
+};
+
+double progress_interval_seconds() {
+    constexpr double fallback = 0.3;
+    const char* raw = std::getenv("MASK_PIPELINE_PROGRESS_INTERVAL_SEC");
+    if (raw == nullptr || *raw == '\0') {
+        return fallback;
+    }
+    char* end = nullptr;
+    const double parsed = std::strtod(raw, &end);
+    if (end == raw || *end != '\0' || !std::isfinite(parsed)) {
+        return fallback;
+    }
+    return std::max(0.05, parsed);
+}
 
 RunSummary render(const Options& options, const FrameMasks& masks) {
     auto gpu_trace = [&](const char* message) {
@@ -3662,6 +3774,10 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
 
     int next_source_frame = 0;
     int encoded_frames = 0;
+    const double progress_interval = progress_interval_seconds();
+    auto last_progress_write = std::chrono::steady_clock::now();
+    ProgressFileWriter progress_writer(options.progress_file);
+    progress_writer.write(encoded_frames);
     int mask_rows = 0;
     int face_rows = 0;
     int audio_packets = 0;
@@ -3899,6 +4015,16 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
                     encoder_completed - encoder_started
                 ).count();
                 ++encoded_frames;
+                const auto progress_now = std::chrono::steady_clock::now();
+                if (
+                    !options.progress_file.empty() &&
+                    std::chrono::duration<double>(
+                        progress_now - last_progress_write
+                    ).count() >= progress_interval
+                ) {
+                    progress_writer.write(encoded_frames);
+                    last_progress_write = progress_now;
+                }
             }
             av_frame_unref(software_frame.get());
             av_frame_unref(frame.get());
@@ -3938,6 +4064,7 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
             );
         }
     }
+    progress_writer.write(encoded_frames);
     if (output_started) {
         check_av(
             avcodec_send_frame(encoder_context.get(), nullptr),
@@ -4078,6 +4205,10 @@ int main(int argc, char** argv) {
                 for (auto& item : items) {
                     if (item.kind == ItemKind::mask) {
                         item.bgr = {180, 105, 255};
+                        // Simple overlays deliberately have no keyframe
+                        // presentation state. Dense cache rows are rendered
+                        // identically throughout each connected segment.
+                        item.is_keyframe = false;
                     }
                 }
             }

@@ -47,6 +47,8 @@ const OVERLAY_PRESETS: ReadonlyArray<{
   { value: "combined-simple", label: "両方・簡易" },
 ];
 
+const SIMPLE_POSTPROCESS_CLASSES = ["男性器", "女性器", "結合部分"] as const;
+
 function lines(value: string[]): string {
   return value.join("\n");
 }
@@ -137,10 +139,6 @@ export function InspectorPanel({
       ];
   const spec = modelSpec(inference.segmentationModel);
   const faceSpec = faceModelSpec(inference.faceModel);
-  const backend =
-    spec.backends.find(
-      (option) => option.value === inference.segmentationBackend,
-    ) ?? spec.backends[0];
 
   const togglePreset = (preset: OverlayPreset, checked: boolean) => {
     if (
@@ -167,10 +165,41 @@ export function InspectorPanel({
       ),
     });
   };
+  const simpleClassRules = SIMPLE_POSTPROCESS_CLASSES.map((className) => {
+    if (postprocess.classPostprocessPolicySource === "editor") {
+      const configured = postprocess.classPostprocessRules.find(
+        (rule) => rule.className === className,
+      );
+      if (configured) {
+        return configured;
+      }
+    }
+    return {
+      className,
+      shapeMode: postprocess.shapeMode,
+      keyframeInterval: postprocess.keyframeInterval ?? 2,
+      maxGap: postprocess.maxGap ?? 0,
+    };
+  });
+  const updateSimpleClassRule = (
+    className: string,
+    values: Partial<ClassPostprocessRule>,
+  ) => {
+    const rules = simpleClassRules.map((rule) =>
+      rule.className === className ? { ...rule, ...values } : { ...rule },
+    );
+    actions.postprocess({
+      classPostprocessPolicySource: "editor",
+      pipelineConfig: "",
+      classPostprocessPolicyJson: "",
+      classPostprocessRules: rules,
+    });
+  };
 
   return (
     <Panel
       title="Inspector"
+      className="panel--inspector"
       actions={
         <Segment<SettingsView>
           value={viewMode}
@@ -245,7 +274,7 @@ export function InspectorPanel({
           </Row>
           {usesSegmentation && (
             <>
-              <Row label="性器モデル" hint={spec.note}>
+              <Row label="性器モデル">
                 <Select
                   value={inference.segmentationModel}
                   disabled={busy || !inference.enabled}
@@ -256,14 +285,7 @@ export function InspectorPanel({
                   }))}
                 />
               </Row>
-              <Row
-                label="推論エンジン"
-                hint={
-                  spec.backends.length > 1
-                    ? backend.id
-                    : `${backend.id} のみ`
-                }
-              >
+              <Row label="推論エンジン">
                 <Select
                   value={inference.segmentationBackend}
                   disabled={
@@ -282,7 +304,7 @@ export function InspectorPanel({
           )}
           {usesFaces && (
             <>
-              <Row label="顔モデル" hint={faceSpec.note}>
+              <Row label="顔モデル">
                 <Select
                   value={inference.faceModel}
                   disabled={busy || !inference.enabled}
@@ -295,11 +317,6 @@ export function InspectorPanel({
               </Row>
               <Row
                 label="顔推論エンジン"
-                hint={
-                  faceSpec.backends.length > 1
-                    ? "モデルが対応する実行方式"
-                    : `${faceSpec.backends[0].id} のみ`
-                }
                 title="選択中の顔モデルを実行するバックエンドです。現行モデルは新顔=TensorRT、旧顔=PyTorchに固定されています。"
               >
                 <Select
@@ -405,10 +422,7 @@ export function InspectorPanel({
                   onChange={(maxFrames) => actions.inference({ maxFrames })}
                 />
               </Row>
-              <Row
-                label="速度計測除外"
-                hint="先頭フレーム。出力には影響しません"
-              >
+              <Row label="速度計測除外">
                 <NumberInput
                   value={inference.warmupFrames}
                   min={0}
@@ -439,7 +453,7 @@ export function InspectorPanel({
                 label="モデル同時推論"
                 hint={
                   parallelCompatible
-                    ? "Co-DINO（高速）+ Face DINO v2限定"
+                    ? "v3-lite + Face V2限定"
                     : "現在の組合せでは不可"
                 }
               >
@@ -567,7 +581,56 @@ export function InspectorPanel({
           )}
           {!faceOnly && (
             <>
-              {postprocess.classPostprocessPolicySource !== "editor" && (
+              {!advanced && (
+                <>
+                  <SubHead>クラス別形状・キーフレーム</SubHead>
+                  <Row label="クラス別設定" stack>
+                    <div className="simple-policy-editor">
+                      <div className="simple-policy-editor__head">
+                        <span>クラス</span>
+                        <span>形状</span>
+                        <span>KF間隔</span>
+                      </div>
+                      {simpleClassRules.map((rule) => (
+                        <div
+                          className="simple-policy-editor__rule"
+                          key={rule.className}
+                        >
+                          <span className="simple-policy-editor__name">
+                            {rule.className}
+                          </span>
+                          <Segment
+                            value={rule.shapeMode}
+                            disabled={busy || !postprocess.enabled}
+                            onChange={(shapeMode) =>
+                              updateSimpleClassRule(rule.className, {
+                                shapeMode,
+                              })
+                            }
+                            options={[
+                              { value: "polygon", label: "ポリゴン" },
+                              { value: "ellipse", label: "楕円" },
+                            ]}
+                          />
+                          <NumberInput
+                            value={rule.keyframeInterval}
+                            min={1}
+                            unit="f"
+                            disabled={busy || !postprocess.enabled}
+                            onChange={(value) =>
+                              updateSimpleClassRule(rule.className, {
+                                keyframeInterval: value ?? 1,
+                              })
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </Row>
+                </>
+              )}
+              {advanced &&
+                postprocess.classPostprocessPolicySource !== "editor" && (
                 <Row
                   label="既定形状"
                   hint={
@@ -589,19 +652,6 @@ export function InspectorPanel({
                   />
                 </Row>
               )}
-              {!advanced &&
-                postprocess.classPostprocessPolicySource === "editor" && (
-                  <Row
-                    label="形状・KF・補完"
-                    hint="詳細表示でクラスごとに編集"
-                  >
-                    <TextInput
-                      value={`${postprocess.classPostprocessRules.length}クラスを個別設定`}
-                      disabled
-                      onChange={() => undefined}
-                    />
-                  </Row>
-                )}
               <Row label="検出スコア下限">
                 <NumberInput
                   value={postprocess.scoreMin}
@@ -615,7 +665,8 @@ export function InspectorPanel({
                   }
                 />
               </Row>
-              {postprocess.classPostprocessPolicySource !== "editor" && (
+              {advanced &&
+                postprocess.classPostprocessPolicySource !== "editor" && (
                 <Row
                   label="既定KF間隔"
                   hint={
@@ -638,36 +689,38 @@ export function InspectorPanel({
               )}
             </>
           )}
-          <Row
-            label="カット検出"
-            hint={
-              !postprocess.enabled && !inference.enabled
-                ? "推論・後処理の両方を再利用する場合は実行不可"
-                : undefined
-            }
-          >
-            <Check
-              checked={postprocess.cutDetect}
-              disabled={
-                busy || (!postprocess.enabled && !inference.enabled)
+          {advanced && (
+            <Row
+              label="カット検出"
+              hint={
+                !postprocess.enabled && !inference.enabled
+                  ? "推論・後処理の両方を再利用する場合は実行不可"
+                  : undefined
               }
-              onChange={(cutDetect) =>
-                actions.postprocess({
-                  cutDetect,
-                  cutMethod:
-                    !postprocess.enabled && cutDetect
-                      ? "high_precision"
-                      : postprocess.cutMethod,
-                  precomputeCutsDuringInference:
-                    cutDetect &&
-                    inference.enabled &&
-                    (!postprocess.enabled ||
-                      postprocess.precomputeCutsDuringInference),
-                })
-              }
-              label="カット位置を保存し、trackを分割"
-            />
-          </Row>
+            >
+              <Check
+                checked={postprocess.cutDetect}
+                disabled={
+                  busy || (!postprocess.enabled && !inference.enabled)
+                }
+                onChange={(cutDetect) =>
+                  actions.postprocess({
+                    cutDetect,
+                    cutMethod:
+                      !postprocess.enabled && cutDetect
+                        ? "high_precision"
+                        : postprocess.cutMethod,
+                    precomputeCutsDuringInference:
+                      cutDetect &&
+                      inference.enabled &&
+                      (!postprocess.enabled ||
+                        postprocess.precomputeCutsDuringInference),
+                  })
+                }
+                label="カット位置を保存し、trackを分割"
+              />
+            </Row>
+          )}
           {usesFaces && inference.faceModel === "face_dino_v2" && (
             <>
               <Row
@@ -1366,16 +1419,7 @@ export function InspectorPanel({
               })}
             </div>
           </Row>
-          <Row
-            label="エンコード"
-            hint={
-              overlay.executionMode === "fast"
-                ? "ネイティブ描画 + 分割CPU/NVENC"
-                : overlay.executionMode === "nvenc"
-                  ? "OpenCV描画 + NVENC"
-                  : "OpenCV描画 + libx264"
-            }
-          >
+          <Row label="エンコード">
             <Segment<OverlayExecutionMode>
               value={overlay.executionMode}
               disabled={busy}

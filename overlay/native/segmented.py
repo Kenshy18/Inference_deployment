@@ -9,6 +9,7 @@ from collections import Counter
 from dataclasses import dataclass
 import importlib.util
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -22,6 +23,59 @@ class VideoFrame:
 
     timestamp: int
     keyframe: bool
+
+
+def progress_interval_seconds() -> float:
+    try:
+        value = float(
+            os.environ.get("MASK_PIPELINE_PROGRESS_INTERVAL_SEC", "0.3")
+        )
+    except ValueError:
+        value = 0.3
+    return max(0.05, value)
+
+
+def emit_overlay_progress(
+    completed: int,
+    total: int,
+    *,
+    state: str,
+    detail: str,
+    fps: float | None = None,
+) -> None:
+    item_index = max(
+        0,
+        int(os.environ.get("MASK_PIPELINE_PROGRESS_ITEM_INDEX", "0")),
+    )
+    item_count = max(
+        1,
+        int(os.environ.get("MASK_PIPELINE_PROGRESS_ITEM_COUNT", "1")),
+    )
+    item_name = os.environ.get("MASK_PIPELINE_PROGRESS_ITEM_NAME", "").strip()
+    local_total = max(0, int(total))
+    overall_completed = item_index * local_total + max(
+        0,
+        min(int(completed), local_total),
+    )
+    overall_total = item_count * local_total
+    overall_state = (
+        "complete"
+        if state == "complete" and item_index + 1 >= item_count
+        else "running"
+    )
+    payload = {
+        "phase": "overlay",
+        "state": overall_state,
+        "completed": overall_completed,
+        "total": overall_total,
+        "detail": f"{item_name}:{detail}" if item_name else str(detail),
+        "fps": None if fps is None else max(0.0, float(fps)),
+    }
+    print(
+        "[phase-progress] "
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        flush=True,
+    )
 
 
 def parser() -> argparse.ArgumentParser:
@@ -385,6 +439,12 @@ def main() -> None:
             f"range 0..{len(video_frames) - 1}"
         )
     frame_total = args.end_frame - args.start_frame + 1
+    emit_overlay_progress(
+        0,
+        frame_total,
+        state="running",
+        detail="preparing-workers",
+    )
     if args.workers > frame_total:
         args.workers = frame_total
         args.cpu_workers = min(args.cpu_workers, args.workers)
@@ -451,6 +511,7 @@ def main() -> None:
         output = output_dir / f"segment_{index:02d}.mp4"
         summary_path = output_dir / f"segment_{index:02d}.json"
         error_path = output_dir / f"segment_{index:02d}.stderr.log"
+        progress_path = output_dir / f"segment_{index:02d}.progress"
         preset = args.cpu_preset if encoder == "libx264" else args.nvenc_preset
         command = [
             str(renderer),
@@ -488,6 +549,8 @@ def main() -> None:
             str(anchor_index),
             "--seek-timestamp",
             str(anchor.timestamp),
+            "--progress-file",
+            str(progress_path),
         ]
         if args.hw_decode:
             command.append("--hw-decode")
@@ -518,9 +581,43 @@ def main() -> None:
             "output": str(output),
             "summary": str(summary_path),
             "stderr": str(error_path),
+            "progress": str(progress_path),
             "command": command,
         }
         processes.append((process, (summary_file, error_file), record))
+
+    render_started = time.perf_counter()
+    progress_interval = progress_interval_seconds()
+    last_reported = -1
+    last_report_time = 0.0
+    while any(process.poll() is None for process, _, _ in processes):
+        completed_frames = 0
+        for process, _, record in processes:
+            progress_path = Path(str(record["progress"]))
+            try:
+                completed_frames += int(progress_path.read_text().strip())
+            except (FileNotFoundError, ValueError):
+                if process.poll() == 0:
+                    completed_frames += (
+                        int(record["end_frame"]) - int(record["start_frame"]) + 1
+                    )
+        completed_frames = min(frame_total, completed_frames)
+        now = time.perf_counter()
+        if (
+            completed_frames != last_reported
+            and now - last_report_time >= progress_interval
+        ):
+            elapsed = now - render_started
+            emit_overlay_progress(
+                completed_frames,
+                frame_total,
+                state="running",
+                detail="rendering",
+                fps=completed_frames / max(elapsed, 1e-9),
+            )
+            last_reported = completed_frames
+            last_report_time = now
+        time.sleep(min(0.05, progress_interval / 2.0))
 
     failures: list[tuple[int, int]] = []
     records: list[dict[str, object]] = []
@@ -539,6 +636,13 @@ def main() -> None:
     parallel_seconds = time.perf_counter() - parallel_started
     if failures:
         raise RuntimeError(f"worker failures: {failures}")
+    emit_overlay_progress(
+        frame_total,
+        frame_total,
+        state="running",
+        detail="concatenating",
+        fps=frame_total / max(time.perf_counter() - render_started, 1e-9),
+    )
 
     concat_path = output_dir / "concat.txt"
     concat_path.write_text(
@@ -693,6 +797,13 @@ def main() -> None:
     (output_dir / "benchmark_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+    )
+    emit_overlay_progress(
+        frame_total,
+        frame_total,
+        state="complete",
+        detail="complete",
+        fps=summary["aggregate_fps"],
     )
     if args.compact_output:
         print(

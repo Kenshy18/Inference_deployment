@@ -441,6 +441,11 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
 
 
 def run_pipeline(args: argparse.Namespace) -> dict[str, object]:
+    from common.live_preview import (
+        activate_postprocess_preview,
+        close_postprocess_preview,
+    )
+
     config = _configured_pipeline(args)
     initial: dict[str, Path] = {}
     if args.input_jsonl is not None:
@@ -468,7 +473,15 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, object]:
         if not cuts.is_file():
             raise FileNotFoundError(cuts)
         initial["cuts_json"] = cuts
-    manifest = PipelineRunner(config, args.output_dir).run(initial)
+    activate_postprocess_preview(args.input_video)
+    try:
+        manifest = PipelineRunner(
+            config,
+            args.output_dir,
+            emit_progress=True,
+        ).run(initial)
+    finally:
+        close_postprocess_preview()
     result_value = manifest.get("artifacts", {}).get("result_sqlite")
     if result_value:
         specs = {stage.id: stage for stage in config.stages if stage.enabled}

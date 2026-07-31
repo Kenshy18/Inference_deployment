@@ -185,6 +185,22 @@ def create_mask_sqlite(path: Path) -> None:
         )
 
 
+def create_keyframe_mask_sqlite(path: Path) -> None:
+    polygons = json.dumps(
+        [[[10.0, 10.0], [36.0, 10.0], [36.0, 36.0], [10.0, 36.0]]]
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE masks("
+            "frame INTEGER, track_id TEXT, polygons TEXT, label TEXT, "
+            "is_keyframe INTEGER)"
+        )
+        connection.executemany(
+            "INSERT INTO masks VALUES (?, '7', ?, 'target', ?)",
+            ((frame, polygons, int(frame % 2 == 0)) for frame in range(8)),
+        )
+
+
 def create_typed_mask_pair(
     expanded_path: Path,
     compact_path: Path,
@@ -306,6 +322,68 @@ def probe(path: Path) -> dict[str, object]:
     "build the native renderer and FFmpeg runtime first",
 )
 class LowLevelModeTests(unittest.TestCase):
+    def test_detailed_keyframe_changes_outline_not_mask_fill(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = root / "input.mp4"
+            masks = root / "keyframes.sqlite"
+            output = root / "detailed.mp4"
+            create_video(video)
+            create_keyframe_mask_sqlite(masks)
+
+            subprocess.run(
+                [
+                    str(RENDERER),
+                    "--mode",
+                    "final",
+                    "--display-style",
+                    "detailed",
+                    "--video",
+                    str(video),
+                    "--sqlite",
+                    str(masks),
+                    "--output",
+                    str(output),
+                    "--encoder",
+                    "libx264",
+                    "--preset",
+                    "ultrafast",
+                    "--crf",
+                    "0",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            gray = subprocess.run(
+                [
+                    str(FFMPEG),
+                    "-v",
+                    "error",
+                    "-i",
+                    str(output),
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "gray",
+                    "-",
+                ],
+                check=True,
+                capture_output=True,
+            ).stdout
+            frame_size = 64 * 48
+            self.assertEqual(frame_size * 8, len(gray))
+            center = [
+                gray[frame * frame_size + 24 * 64 + 24]
+                for frame in range(8)
+            ]
+            decoded_frames = [
+                gray[frame * frame_size : (frame + 1) * frame_size]
+                for frame in range(8)
+            ]
+            self.assertEqual(1, len(set(center)))
+            self.assertEqual(2, len(set(decoded_frames)))
+
     def test_compact_typed_cache_matches_expanded_polygon_pixels(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

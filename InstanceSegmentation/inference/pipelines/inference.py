@@ -14,6 +14,8 @@ from contracts import (
     SegmentationFrame,
     VisionAdapter,
 )
+from progress_protocol import InferenceProgressReporter
+from live_preview import LivePreviewSink
 from video import AsyncVideoDecoder
 
 
@@ -81,6 +83,13 @@ def run_video_inference(
         max_frames=max_frames,
         prefetch_batches=prefetch_batches,
     )
+    structured_progress = InferenceProgressReporter.from_environment(
+        available_frames=decoder.metadata.frames,
+        max_frames=max_frames,
+    )
+    if structured_progress is not None:
+        structured_progress.start()
+    preview = LivePreviewSink.from_environment()
     writer.set_metadata(
         {
             "input": str(input_path.expanduser().resolve()),
@@ -120,41 +129,70 @@ def run_video_inference(
             if measured:
                 measured_time += elapsed * (measured / len(batch))
                 measured_frames += measured
-            for result in results:
+            for frame, result in zip(batch.frames, results):
                 writer.write(result)
+                if preview is not None:
+                    preview.submit(frame, result)
             processed += len(batch)
             items += _result_count(results)
             if progress is not None:
                 wall_elapsed = time.perf_counter() - started
-                progress(
-                    InferenceRunSummary(
-                        input=str(input_path),
-                        model_id=adapter.descriptor.model_id,
-                        task=adapter.descriptor.task.value,
-                        processed_frames=processed,
-                        result_items=items,
-                        wall_elapsed_sec=wall_elapsed,
-                        wall_fps=processed / max(wall_elapsed, 1e-9),
-                        warmup_frames=warmup_frames,
-                        measured_frames=measured_frames,
-                        measured_time_sec=measured_time,
-                        compute_fps=(
-                            measured_frames / measured_time
-                            if measured_time > 0
-                            else 0.0
-                        ),
-                    )
+                current_summary = InferenceRunSummary(
+                    input=str(input_path),
+                    model_id=adapter.descriptor.model_id,
+                    task=adapter.descriptor.task.value,
+                    processed_frames=processed,
+                    result_items=items,
+                    wall_elapsed_sec=wall_elapsed,
+                    wall_fps=processed / max(wall_elapsed, 1e-9),
+                    warmup_frames=warmup_frames,
+                    measured_frames=measured_frames,
+                    measured_time_sec=measured_time,
+                    compute_fps=(
+                        measured_frames / measured_time
+                        if measured_time > 0
+                        else 0.0
+                    ),
+                )
+                progress(current_summary)
+            else:
+                wall_elapsed = time.perf_counter() - started
+                current_summary = InferenceRunSummary(
+                    input=str(input_path),
+                    model_id=adapter.descriptor.model_id,
+                    task=adapter.descriptor.task.value,
+                    processed_frames=processed,
+                    result_items=items,
+                    wall_elapsed_sec=wall_elapsed,
+                    wall_fps=processed / max(wall_elapsed, 1e-9),
+                    warmup_frames=warmup_frames,
+                    measured_frames=measured_frames,
+                    measured_time_sec=measured_time,
+                    compute_fps=(
+                        measured_frames / measured_time
+                        if measured_time > 0
+                        else 0.0
+                    ),
+                )
+            if structured_progress is not None:
+                structured_progress.update(
+                    processed,
+                    fps=current_summary.wall_fps,
                 )
     finally:
         try:
             decoder.close()
         finally:
             try:
-                writer.close()
+                if preview is not None:
+                    preview.close()
             finally:
-                adapter.close()
+                try:
+                    writer.close()
+                finally:
+                    adapter.close()
     wall_elapsed = time.perf_counter() - started
-    return InferenceRunSummary(
+    summary = InferenceRunSummary(
         input=str(input_path),
         model_id=adapter.descriptor.model_id,
         task=adapter.descriptor.task.value,
@@ -169,6 +207,12 @@ def run_video_inference(
             measured_frames / measured_time if measured_time > 0 else 0.0
         ),
     )
+    if structured_progress is not None:
+        structured_progress.complete(
+            summary.processed_frames,
+            fps=summary.wall_fps,
+        )
+    return summary
 
 
 __all__ = ["InferenceRunSummary", "ProgressCallback", "run_video_inference"]

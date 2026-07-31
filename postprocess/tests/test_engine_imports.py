@@ -51,8 +51,12 @@ class EngineImportTests(unittest.TestCase):
                 importlib.import_module(module_name)
 
     def test_registered_fst_worker_is_pickleable(self) -> None:
-        worker = runtime_fst.fst._solve_k1_row_worker
-        self.assertIs(pickle.loads(pickle.dumps(worker)), worker)
+        for worker in (
+            runtime_fst.fst._solve_k1_row_worker,
+            runtime_fst.fst._solve_k1_payload_worker,
+        ):
+            with self.subTest(worker=worker.__name__):
+                self.assertIs(pickle.loads(pickle.dumps(worker)), worker)
 
 
 if __name__ == "__main__":

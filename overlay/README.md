@@ -48,6 +48,12 @@ Head box、face moment-maskの点線境界、顔楕円、可視/遮蔽keypoint�
 複数polygonが重なる場合は、偶奇塗りで相殺せずunionしたbinary maskとして
 表示します。
 
+keyframe-primary V3 SQLiteの最終maskは、同じtrack segment内の隣接keyframeを
+補間して全対象frameへ連続表示します。cutまたはsegment境界を越えて接続しません。
+simple presetはkeyframeを意識させない同一表示、detailed presetはkeyframeだけ
+輪郭色を少し明るくします。補間とkeyframe判定は高速
+runner開始時の一括cache生成で完了するため、frame描画中にSQLite照会を追加しません。
+
 ```bash
 overlay-render \
   --preset combined-detailed \

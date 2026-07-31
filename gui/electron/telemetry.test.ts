@@ -26,7 +26,7 @@ describe("job telemetry parser", () => {
     );
     telemetry = parseTelemetryLine(
       telemetry,
-      "[inference] [orchestrator] frames=300 detections=1468 classifications=265 segmentations=265",
+      "[inference] [orchestrator] frames=300 detections=1468 classifications=265 segmentations=265 face_observations=814 face_keypoints=4070",
     );
 
     expect(telemetry.elapsedSeconds).toBe(14.884);
@@ -34,6 +34,7 @@ describe("job telemetry parser", () => {
     expect(telemetry.computeFps).toBe(20.16);
     expect(telemetry.detections).toBe(1468);
     expect(telemetry.masks).toBe(265);
+    expect(telemetry.faces).toBe(814);
     expect(telemetry.progress).toBe(1);
   });
 
@@ -47,5 +48,51 @@ describe("job telemetry parser", () => {
     expect(telemetry.masks).toBe(166);
     expect(telemetry.faces).toBe(800);
     expect(telemetry.progress).toBeCloseTo(2 / 3);
+  });
+
+  it("tracks four structured phases independently at sub-percent precision", () => {
+    let telemetry = emptyTelemetry();
+    telemetry = parseTelemetryLine(
+      telemetry,
+      '[inference] [phase-progress] {"phase":"segmentation_inference","state":"running","completed":1233,"total":5290,"detail":"frames","fps":145.3}',
+    );
+    telemetry = parseTelemetryLine(
+      telemetry,
+      '[inference] [phase-progress] {"phase":"face_inference","state":"running","completed":16,"total":5290,"detail":"frames","fps":170.2}',
+    );
+    telemetry = parseTelemetryLine(
+      telemetry,
+      '[postprocess] [phase-progress] {"phase":"postprocess","state":"running","completed":7,"total":30,"detail":"nms:input-validation","fps":null}',
+    );
+
+    expect(
+      telemetry.phases.segmentation_inference.progress,
+    ).toBeCloseTo(1233 / 5290);
+    expect(telemetry.phases.segmentation_inference.fps).toBe(145.3);
+    expect(telemetry.phases.face_inference.progress).toBeCloseTo(16 / 5290);
+    expect(telemetry.phases.postprocess.progress).toBeCloseTo(7 / 30);
+    expect(telemetry.phases.overlay.state).toBe("pending");
+  });
+
+  it("marks a phase complete even when its total was unavailable", () => {
+    const telemetry = parseTelemetryLine(
+      emptyTelemetry(),
+      '[overlay] [phase-progress] {"phase":"overlay","state":"complete","completed":0,"total":null,"detail":"complete","fps":null}',
+    );
+
+    expect(telemetry.phases.overlay.progress).toBe(1);
+    expect(telemetry.phases.overlay.state).toBe("complete");
+  });
+
+  it("keeps exact counts while accepting an explicitly estimated display value", () => {
+    const telemetry = parseTelemetryLine(
+      emptyTelemetry(),
+      '[postprocess] [phase-progress] {"phase":"postprocess","state":"running","completed":2,"total":10,"display_progress":0.257,"estimated":true,"detail":"tracking:running","fps":null}',
+    );
+
+    expect(telemetry.phases.postprocess.completed).toBe(2);
+    expect(telemetry.phases.postprocess.total).toBe(10);
+    expect(telemetry.phases.postprocess.progress).toBe(0.257);
+    expect(telemetry.phases.postprocess.estimated).toBe(true);
   });
 });

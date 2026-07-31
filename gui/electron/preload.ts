@@ -3,6 +3,8 @@ import type {
   AppSettings,
   BootstrapData,
   FilePickerKind,
+  HardwareMetrics,
+  LivePreviewFrame,
   JobSnapshot,
   MaskStudioApi,
   PipelineDraft,
@@ -45,6 +47,10 @@ const api: MaskStudioApi = {
     ) as Promise<JobSnapshot>,
   cancelWorkflow: () =>
     ipcRenderer.invoke("workflow:cancel") as Promise<JobSnapshot>,
+  setPreviewEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke("preview:set-enabled", enabled) as Promise<void>,
+  sampleHardware: () =>
+    ipcRenderer.invoke("system:sample-hardware") as Promise<HardwareMetrics>,
   openOutput: (path: string) =>
     ipcRenderer.invoke("shell:open-output", path) as Promise<string>,
   onJobUpdate: (callback: (job: JobSnapshot) => void) => {
@@ -53,7 +59,12 @@ const api: MaskStudioApi = {
     ipcRenderer.on("job:update", listener);
     return () => ipcRenderer.removeListener("job:update", listener);
   },
+  onPreviewUpdate: (callback: (frame: LivePreviewFrame) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, frame: LivePreviewFrame) =>
+      callback(frame);
+    ipcRenderer.on("preview:update", listener);
+    return () => ipcRenderer.removeListener("preview:update", listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("maskStudio", api);
-

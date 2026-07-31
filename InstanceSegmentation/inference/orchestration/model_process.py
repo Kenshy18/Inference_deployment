@@ -10,6 +10,11 @@ from pathlib import Path
 
 from contracts import TaskType
 from registry import ModelRegistration
+from progress_protocol import (
+    INTERVAL_ENVIRONMENT,
+    PHASE_ENVIRONMENT,
+    emit_phase_progress,
+)
 
 from .config import OrchestrationRequest
 
@@ -124,6 +129,20 @@ def build_invocation(
 def execute_invocation(invocation: ModelInvocation) -> None:
     environment = dict(os.environ)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    phase = (
+        "segmentation_inference"
+        if invocation.role == "instance_segmentation"
+        else "face_inference"
+    )
+    environment[PHASE_ENVIRONMENT] = phase
+    environment.setdefault(INTERVAL_ENVIRONMENT, "0.3")
+    emit_phase_progress(
+        phase,
+        state="running",
+        completed=0,
+        total=None,
+        detail="model-loading",
+    )
     print(
         f"[orchestrator] role={invocation.role} "
         f"model={invocation.registration.model_id} "
@@ -167,6 +186,20 @@ def execute_invocations_parallel(
         for index, invocation in enumerate(ordered):
             environment = dict(os.environ)
             environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            phase = (
+                "segmentation_inference"
+                if invocation.role == "instance_segmentation"
+                else "face_inference"
+            )
+            environment[PHASE_ENVIRONMENT] = phase
+            environment.setdefault(INTERVAL_ENVIRONMENT, "0.3")
+            emit_phase_progress(
+                phase,
+                state="running",
+                completed=0,
+                total=None,
+                detail="model-loading",
+            )
             print(
                 f"[orchestrator] parallel role={invocation.role} "
                 f"model={invocation.registration.model_id} "

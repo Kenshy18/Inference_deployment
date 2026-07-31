@@ -11,7 +11,10 @@ import type {
 import { ConsolePanel } from "./components/ConsolePanel";
 import { InspectorPanel } from "./components/InspectorPanel";
 import type { InspectorActions } from "./components/InspectorPanel";
-import { MonitorPanel } from "./components/MonitorPanel";
+import {
+  MonitorPanel,
+  type HardwareHistories,
+} from "./components/MonitorPanel";
 import { SourcePanel } from "./components/SourcePanel";
 import type { QueueActions } from "./components/SourcePanel";
 import { StatusBar } from "./components/StatusBar";
@@ -26,6 +29,7 @@ import {
 } from "./lib/defaults";
 import { defaultBackend, defaultFaceBackend } from "./lib/models";
 import {
+  batchPosition,
   isVideoPath,
   loadQueue,
   newQueueItem,
@@ -33,6 +37,7 @@ import {
   settingsSummary,
   uniqueOutputDir,
 } from "./lib/queue";
+import { estimatePipelineProgress } from "./lib/progress-estimator";
 
 const STATUS_LABELS: Record<JobSnapshot["status"], string> = {
   idle: "待機中",
@@ -53,6 +58,21 @@ const BUSY_STATUSES: ReadonlyArray<JobSnapshot["status"]> = [
 
 const SECTIONS_KEY = "mask-studio-sections";
 const SETTINGS_VIEW_KEY = "mask-studio-settings-view";
+const TELEMETRY_POINTS = 180;
+
+const EMPTY_HARDWARE_HISTORIES: HardwareHistories = {
+  gpu: [],
+  cpu: [],
+  vram: [],
+  memory: [],
+  temperature: [],
+};
+
+function appendSample(history: number[], value: number | null): number[] {
+  return value === null
+    ? history
+    : [...history, value].slice(-TELEMETRY_POINTS);
+}
 
 function loadSettingsView(): SettingsView {
   return window.localStorage.getItem(SETTINGS_VIEW_KEY) === "advanced"
@@ -90,6 +110,8 @@ export default function App() {
   );
   const [tick, setTick] = useState(() => Date.now());
   const [fpsHistory, setFpsHistory] = useState<number[]>([]);
+  const [hardwareHistories, setHardwareHistories] =
+    useState<HardwareHistories>(EMPTY_HARDWARE_HISTORIES);
   const settingsLoaded = useRef(false);
   const sampled = useRef<{ id: string | null; frames: number }>({
     id: null,
@@ -104,6 +126,7 @@ export default function App() {
   const autoRunRef = useRef(false);
   const removeAfterCancelRef = useRef<string | null>(null);
   const lastTransitionRef = useRef("");
+  const probingRef = useRef(new Set<string>());
 
   useEffect(() => {
     draftRef.current = draft;
@@ -160,9 +183,10 @@ export default function App() {
       const outputDir = uniqueOutputDir(
         currentDraft.outputRoot,
         item.title,
-        queueRef.current.map((entry) =>
+        queueRef.current.flatMap((entry) => [
           entry.id === item.id ? null : entry.outputDir,
-        ),
+          ...entry.outputs.map((output) => output.outputDir),
+        ]),
       );
       const summary = settingsSummary(currentDraft);
       patchItem(item.id, {
@@ -173,12 +197,14 @@ export default function App() {
       });
       try {
         await desktopApi.saveSettings(settingsRef.current);
-        setJob(
-          await desktopApi.startWorkflow(
-            { ...currentDraft, inputVideo: item.path, outputRoot: outputDir },
-            settingsRef.current,
-          ),
+        const started = await desktopApi.startWorkflow(
+          { ...currentDraft, inputVideo: item.path, outputRoot: outputDir },
+          settingsRef.current,
         );
+        if (started.outputRoot && started.outputRoot !== outputDir) {
+          patchItem(item.id, { outputDir: started.outputRoot });
+        }
+        setJob(started);
       } catch (error) {
         const text =
           error instanceof Error ? error.message : "実行できませんでした。";
@@ -216,7 +242,10 @@ export default function App() {
     const outputDir = uniqueOutputDir(
       draftRef.current.outputRoot,
       next.title,
-      queueRef.current.map((entry) => entry.outputDir),
+      queueRef.current.flatMap((entry) => [
+        entry.outputDir,
+        ...entry.outputs.map((output) => output.outputDir),
+      ]),
     );
     try {
       await desktopApi.saveSettings(settingsRef.current);
@@ -264,7 +293,26 @@ export default function App() {
       return;
     }
     if (job.status === "completed") {
-      patchItem(active.id, { status: "done", error: null });
+      const completedOutput = job.outputRoot ?? active.outputDir;
+      patchItem(active.id, {
+        status: "done",
+        completedAt: job.completedAt,
+        artifactCount: Object.keys(job.artifacts).length,
+        outputs:
+          completedOutput === null
+            ? active.outputs
+            : [
+                ...active.outputs,
+                {
+                  id: job.id ?? `${Date.now()}`,
+                  outputDir: completedOutput,
+                  summary: active.summary,
+                  completedAt: job.completedAt,
+                  artifactCount: Object.keys(job.artifacts).length,
+                },
+              ],
+        error: null,
+      });
       startNext();
     } else if (job.status === "failed") {
       patchItem(active.id, {
@@ -307,6 +355,39 @@ export default function App() {
     return desktopApi.onJobUpdate(setJob);
   }, []);
 
+  /* Refresh queue entries saved by older GUI versions that only stored a
+     duration. Resolution/FPS/frame count feed the wall-clock predictor. */
+  useEffect(() => {
+    if (!settingsLoaded.current) {
+      return;
+    }
+    for (const item of queue) {
+      if (
+        (item.width !== null &&
+          item.height !== null &&
+          item.fps !== null &&
+          item.frameCount !== null) ||
+        probingRef.current.has(item.id)
+      ) {
+        continue;
+      }
+      probingRef.current.add(item.id);
+      void desktopApi
+        .probeVideo(item.path, settings)
+        .then((probe) =>
+          patchItem(item.id, {
+            durationSeconds: probe.durationSeconds,
+            width: probe.width,
+            height: probe.height,
+            fps: probe.fps,
+            frameCount: probe.frameCount,
+            thumbnail: probe.thumbnail ?? item.thumbnail,
+          }),
+        )
+        .catch(() => undefined);
+    }
+  }, [patchItem, queue, settings]);
+
   /* One throughput sample per frame-count change, so the scope traces the run
      rather than the log volume. */
   useEffect(() => {
@@ -320,6 +401,43 @@ export default function App() {
       setFpsHistory((current) => [...current, fps].slice(-180));
     }
   }, [job]);
+
+  /* Hardware telemetry is intentionally independent from workflow logs. A
+     one-second, non-overlapping poll is responsive enough for a resource graph
+     and has negligible impact on inference or log size. */
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      try {
+        const sample = await desktopApi.sampleHardware();
+        if (!cancelled) {
+          setHardwareHistories((current) => ({
+            gpu: appendSample(current.gpu, sample.gpuPercent),
+            cpu: appendSample(current.cpu, sample.cpuPercent),
+            vram: appendSample(current.vram, sample.vramPercent),
+            memory: appendSample(current.memory, sample.memoryPercent),
+            temperature: appendSample(
+              current.temperature,
+              sample.gpuTemperatureC,
+            ),
+          }));
+        }
+      } catch {
+        // Monitoring must never interrupt a workflow.
+      }
+      if (!cancelled) {
+        timer = window.setTimeout(() => void poll(), 1_000);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem("mask-studio-draft", JSON.stringify(draft));
@@ -413,11 +531,16 @@ export default function App() {
       const items = fresh.map(newQueueItem);
       setQueue((current) => [...current, ...items]);
       for (const item of items) {
+        probingRef.current.add(item.id);
         void desktopApi
           .probeVideo(item.path, settingsRef.current)
           .then((probe) =>
             patchItem(item.id, {
               durationSeconds: probe.durationSeconds,
+              width: probe.width,
+              height: probe.height,
+              fps: probe.fps,
+              frameCount: probe.frameCount,
               thumbnail: probe.thumbnail,
             }),
           )
@@ -456,6 +579,8 @@ export default function App() {
           status: "pending",
           outputDir: null,
           summary: null,
+          completedAt: null,
+          artifactCount: null,
           error: null,
         }),
       openOutput: (id) => {
@@ -464,6 +589,13 @@ export default function App() {
           return;
         }
         void desktopApi.openOutput(item.outputDir).then((message) => {
+          if (message) {
+            setToast({ text: message, error: true });
+          }
+        });
+      },
+      openOutputPath: (outputPath) => {
+        void desktopApi.openOutput(outputPath).then((message) => {
           if (message) {
             setToast({ text: message, error: true });
           }
@@ -709,6 +841,9 @@ export default function App() {
   /* ── derived ──────────────────────────────────────────────────────── */
 
   const activeItem = queue.find((item) => item.status === "processing") ?? null;
+  const currentBatchPosition = batchPosition(queue);
+  const monitoredItem =
+    activeItem ?? queue.find((item) => item.status === "pending") ?? null;
 
   const elapsedSeconds = job.startedAt
     ? Math.max(
@@ -718,6 +853,16 @@ export default function App() {
           1_000,
       )
     : 0;
+  const progressEstimate = useMemo(
+    () =>
+      estimatePipelineProgress(
+        draft,
+        job,
+        monitoredItem,
+        elapsedSeconds,
+      ),
+    [draft, elapsedSeconds, job, monitoredItem],
+  );
 
   const summary = useMemo(() => {
     switch (job.status) {
@@ -770,14 +915,10 @@ export default function App() {
         queuePending={pendingCount}
         outputRoot={draft.outputRoot}
         job={job}
-        settings={settings}
         busy={busy}
         canRun={canRun}
         onRun={(isDryRun) => (isDryRun ? void dryRun() : runQueue())}
         onCancel={cancelAll}
-        onRuntime={() =>
-          setSections((current) => ({ ...current, runtime: !current.runtime }))
-        }
       />
 
       <div className="main">
@@ -785,7 +926,7 @@ export default function App() {
           queue={queue}
           outputRoot={draft.outputRoot}
           busy={busy}
-          activeProgress={job.telemetry.progress}
+          activeProgress={progressEstimate.overall}
           actions={queueActions}
         />
         <div {...left.handleProps} />
@@ -795,12 +936,15 @@ export default function App() {
           queueInfo={{
             total: queue.length,
             pending: pendingCount,
+            position: currentBatchPosition,
             activeTitle: activeItem?.title ?? null,
           }}
           elapsedSeconds={elapsedSeconds}
+          progressEstimate={progressEstimate}
           statusLabel={STATUS_LABELS[job.status]}
           summary={summary}
           fpsHistory={fpsHistory}
+          hardwareHistories={hardwareHistories}
         />
         <div {...right.handleProps} />
         <InspectorPanel

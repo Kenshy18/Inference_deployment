@@ -66,6 +66,8 @@ def transform_detection_jsonl(
     input_path: Path,
     output_path: Path,
     transform: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    on_record: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
 ) -> dict[str, int]:
     """Stream a canonical JSONL artifact through one feature transformation."""
 
@@ -85,6 +87,8 @@ def transform_detection_jsonl(
             if not isinstance(detections, list):
                 raise ValueError("transformed detections must be a list")
             handle.write(dumps_json_line(transformed))
+            if on_record is not None:
+                on_record(record, transformed)
             frames += 1
             detections_out += len(detections)
     return {

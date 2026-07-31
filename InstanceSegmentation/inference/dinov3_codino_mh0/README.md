@@ -59,6 +59,31 @@ python infer.py \
   --output /path/to/reference.sqlite
 ```
 
+## Three-class classifier
+
+MH0 detector自体は1クラス`foreground`です。その後、mask ROIの
+`192x14x14`特徴をMH0専用Spatial-GAP分類器へ渡し、
+`女性器`、`男性器`、`結合部分`へ分類します。検出器クラスと分類器クラスは
+SQLite内で分離され、既存の共通schema v3を変更しません。
+
+既定checkpointは次です。
+
+```text
+artifacts/classifier/best.pt
+```
+
+現在のローカルartifactは接続確認用の暫定重みです。巨大Co-DINO分類器の
+Spatial-GAP構造と学習済みブロックを維持し、256チャネル入力射影だけを
+192チャネルへ決定論的に変換しています。分類精度は未検証です。学習後は、
+同一のクラス契約・入力shape・checkpoint schemaで作成した`best.pt`へ
+置き換えるだけで、CLI、SQLite schema、後処理を変更せず差し替えられます。
+
+暫定artifactを再生成する場合:
+
+```bash
+python tools/create_bootstrap_classifier.py --overwrite
+```
+
 ## Artifacts
 
 既定checkpoint:

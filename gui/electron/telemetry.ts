@@ -1,4 +1,28 @@
-import type { JobTelemetry } from "../shared/types";
+import type {
+  JobTelemetry,
+  PhaseProgress,
+  ProgressPhase,
+  ProgressPhaseState,
+} from "../shared/types";
+
+const PHASES: ProgressPhase[] = [
+  "segmentation_inference",
+  "face_inference",
+  "postprocess",
+  "overlay",
+];
+
+function emptyPhase(): PhaseProgress {
+  return {
+    state: "pending",
+    completed: 0,
+    total: null,
+    progress: null,
+    estimated: false,
+    detail: "",
+    fps: null,
+  };
+}
 
 export function emptyTelemetry(totalFrames: number | null = null): JobTelemetry {
   return {
@@ -11,6 +35,12 @@ export function emptyTelemetry(totalFrames: number | null = null): JobTelemetry 
     faces: 0,
     elapsedSeconds: 0,
     progress: null,
+    phases: {
+      segmentation_inference: emptyPhase(),
+      face_inference: emptyPhase(),
+      postprocess: emptyPhase(),
+      overlay: emptyPhase(),
+    },
   };
 }
 
@@ -27,6 +57,80 @@ export function parseTelemetryLine(
   line: string,
 ): JobTelemetry {
   let next = { ...current };
+
+  const marker = "[phase-progress]";
+  const markerIndex = line.indexOf(marker);
+  if (markerIndex >= 0) {
+    try {
+      const payload = JSON.parse(
+        line.slice(markerIndex + marker.length).trim(),
+      ) as {
+        phase?: string;
+        state?: string;
+        completed?: number;
+        total?: number | null;
+        display_progress?: number | null;
+        estimated?: boolean;
+        detail?: string;
+        fps?: number | null;
+      };
+      if (
+        PHASES.includes(payload.phase as ProgressPhase) &&
+        ["pending", "running", "complete", "failed"].includes(
+          payload.state ?? "",
+        )
+      ) {
+        const phase = payload.phase as ProgressPhase;
+        const state = payload.state as ProgressPhaseState;
+        const completed = Math.max(0, Number(payload.completed ?? 0));
+        const total =
+          payload.total === null || payload.total === undefined
+            ? null
+            : Math.max(0, Number(payload.total));
+        const exactProgress =
+          total !== null && total > 0
+            ? Math.min(1, completed / total)
+            : state === "complete"
+              ? 1
+              : null;
+        const displayProgress =
+          state === "complete"
+            ? 1
+            : typeof payload.display_progress === "number" &&
+                Number.isFinite(payload.display_progress)
+              ? Math.min(
+                  1,
+                  Math.max(exactProgress ?? 0, payload.display_progress),
+                )
+              : exactProgress;
+        const updated: PhaseProgress = {
+          state,
+          completed,
+          total,
+          progress: displayProgress,
+          estimated: Boolean(payload.estimated),
+          detail: String(payload.detail ?? ""),
+          fps:
+            payload.fps === null || payload.fps === undefined
+              ? next.phases[phase].fps
+              : Math.max(0, Number(payload.fps)),
+        };
+        next.phases = {
+          ...next.phases,
+          [phase]: updated,
+        };
+        next.processedFrames = completed;
+        next.totalFrames = total;
+        next.progress = displayProgress;
+        if (updated.fps !== null) {
+          next.fps = updated.fps;
+        }
+        return next;
+      }
+    } catch {
+      // A malformed control event is ignored and remains visible in the log.
+    }
+  }
 
   const progress = /\[progress]\s+processed=(\d+)\/(\d+|\?)\s+detections=(\d+)\s+fps=([\d.]+)/.exec(
     line,
@@ -64,6 +168,14 @@ export function parseTelemetryLine(
     next.processedFrames = Number(orchestrator[1]);
     next.detections = Number(orchestrator[2]);
     next.masks = Number(orchestrator[3]);
+  }
+
+  // The unified inference writer reports faces separately from generic
+  // detections. Fast native overlays do not necessarily print the legacy
+  // `[overlay] ... faces=` summary, so this is the authoritative face count.
+  const faceObservations = /face_observations=(\d+)/.exec(line);
+  if (faceObservations) {
+    next.faces = Number(faceObservations[1]);
   }
 
   const overlay =

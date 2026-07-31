@@ -42,6 +42,57 @@ def _read_frame(path: Path, frame_index: int) -> np.ndarray:
 
 
 class RenderTests(unittest.TestCase):
+    def test_keyframe_highlight_is_detailed_only(self) -> None:
+        polygon = (
+            (12.0, 12.0),
+            (48.0, 12.0),
+            (48.0, 48.0),
+            (12.0, 48.0),
+        )
+        ordinary = OverlayItem(
+            identity="track:1",
+            color_key="track:1",
+            kind="mask",
+            track_id="1",
+            polygons=(polygon,),
+        )
+        keyframe = OverlayItem(
+            identity="track:1",
+            color_key="track:1",
+            kind="mask",
+            track_id="1",
+            polygons=(polygon,),
+            is_keyframe=True,
+        )
+
+        simple_ordinary = np.full((64, 64, 3), 40, dtype=np.uint8)
+        simple_keyframe = simple_ordinary.copy()
+        simple_options = RenderOptions(
+            mode="final",
+            display_style="simple",
+            mask_alpha=0.45,
+        )
+        _draw_items(simple_ordinary, (ordinary,), simple_options)
+        _draw_items(simple_keyframe, (keyframe,), simple_options)
+        np.testing.assert_array_equal(simple_ordinary, simple_keyframe)
+
+        detailed_ordinary = np.full((64, 64, 3), 40, dtype=np.uint8)
+        detailed_keyframe = detailed_ordinary.copy()
+        detailed_options = RenderOptions(
+            mode="final",
+            display_style="detailed",
+            mask_alpha=0.32,
+        )
+        _draw_items(detailed_ordinary, (ordinary,), detailed_options)
+        _draw_items(detailed_keyframe, (keyframe,), detailed_options)
+        # A keyframe changes only the exterior annotation. The filled mask
+        # remains stable so it cannot flash as playback crosses a keyframe.
+        np.testing.assert_array_equal(
+            detailed_ordinary[20:40, 20:40],
+            detailed_keyframe[20:40, 20:40],
+        )
+        self.assertFalse(np.array_equal(detailed_ordinary, detailed_keyframe))
+
     def test_overlapping_mask_components_are_filled_as_a_union(self) -> None:
         frame = np.full((64, 64, 3), 40, dtype=np.uint8)
         item = OverlayItem(

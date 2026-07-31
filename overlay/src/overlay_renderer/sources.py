@@ -562,6 +562,11 @@ def iter_mask_frames(
             if audit_join
             else "NULL AS source_score"
         )
+        keyframe_expression = (
+            "COALESCE(m.is_keyframe, 0) AS is_keyframe"
+            if "is_keyframe" in columns
+            else "0 AS is_keyframe"
+        )
         domain_join = ""
         domain_where = ""
         parameters: tuple[object, ...] = ()
@@ -580,7 +585,7 @@ def iter_mask_frames(
         rows = connection.execute(
             f"""
             SELECT m.frame, m.track_id, m.polygons, {label_expression},
-                   {score_expression}
+                   {score_expression}, {keyframe_expression}
             FROM {mask_table} m
             {domain_join}
             {audit_join}
@@ -625,6 +630,7 @@ def iter_mask_frames(
                         if display_style == "detailed"
                         else None
                     ),
+                    is_keyframe=bool(row["is_keyframe"]),
                 )
 
         for frame_index, grouped in itertools.groupby(
