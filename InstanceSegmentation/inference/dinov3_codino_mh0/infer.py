@@ -26,7 +26,7 @@ try:
     from .adapter import Mh0Adapter
     from .model import (
         DEFAULT_CHECKPOINT,
-        DEFAULT_CLASSIFIER_CHECKPOINT,
+        DEFAULT_CLASSIFIER_MANIFEST,
         DEFAULT_CONFIG,
         DEFAULT_TRT_BUNDLE,
         build_runtime,
@@ -36,7 +36,7 @@ except ImportError:
     from adapter import Mh0Adapter
     from model import (
         DEFAULT_CHECKPOINT,
-        DEFAULT_CLASSIFIER_CHECKPOINT,
+        DEFAULT_CLASSIFIER_MANIFEST,
         DEFAULT_CONFIG,
         DEFAULT_TRT_BUNDLE,
         build_runtime,
@@ -77,9 +77,12 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     value.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     value.add_argument(
+        "--classifier-manifest",
         "--classifier-checkpoint",
+        dest="classifier_manifest",
         type=Path,
-        default=DEFAULT_CLASSIFIER_CHECKPOINT,
+        default=DEFAULT_CLASSIFIER_MANIFEST,
+        help="backbone ROI classifier manifest (legacy option name is accepted)",
     )
     value.add_argument("--trt-bundle", type=Path, default=DEFAULT_TRT_BUNDLE)
     value.add_argument(
@@ -137,7 +140,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         trt_bundle=args.trt_bundle.expanduser().resolve(),
         trt_verify=args.trt_verify,
         cuda_graph=cuda_graph,
-        classifier_checkpoint=args.classifier_checkpoint.expanduser().resolve(),
+        classifier_manifest=args.classifier_manifest.expanduser().resolve(),
     )
     batch_size = (
         runtime.fixed_batch_size
@@ -172,8 +175,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "backend": args.backend,
             "config": str(args.config.expanduser().resolve()),
             "checkpoint": str(args.checkpoint.expanduser().resolve()),
-            "classifier_checkpoint": str(
-                args.classifier_checkpoint.expanduser().resolve()
+            "classifier_manifest": str(
+                args.classifier_manifest.expanduser().resolve()
             ),
             "classifier_classes": list(runtime.class_names),
             "classifier_status": runtime.classifier_status,

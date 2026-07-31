@@ -10,6 +10,7 @@ from dinov3_cascade.output import (
     drop_auxiliary_instance_fields,
     instances_to_rows as dinov3_instances_to_rows,
 )
+from dinov3_codino.postprocessing import detections_to_rows as codino_rows
 from eva02_cascade.output import (
     drop_auxiliary_fields,
     instances_to_rows as eva02_instances_to_rows,
@@ -108,6 +109,25 @@ class ClassifierProbabilityOutputTest(unittest.TestCase):
             score_threshold=0.0,
         )
         self._assert_contract_probabilities(rows)
+
+    def test_codino_keeps_detector_and_classifier_classes_separate(self) -> None:
+        rows = codino_rows(
+            [
+                np.asarray(
+                    [[1.0, 2.0, 11.0, 12.0, 0.8, 1.0, 0.7, 0.1, 0.7, 0.2]],
+                    dtype=np.float32,
+                )
+            ],
+            None,
+            class_names=["女性器", "男性器", "結合部分"],
+            class_ids=[1, 2, 3],
+            score_threshold=0.0,
+        )
+        self.assertEqual(rows[0]["class_name"], "foreground")
+        self.assertEqual(rows[0]["category_id"], 0)
+        self.assertEqual(rows[0]["classifier_class_name"], "男性器")
+        self.assertEqual(rows[0]["classifier_class_id"], 2)
+        self.assertAlmostEqual(sum(rows[0]["class_probs"]), 1.0, places=6)
 
 
 if __name__ == "__main__":

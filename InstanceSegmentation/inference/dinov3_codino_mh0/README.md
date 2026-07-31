@@ -61,46 +61,42 @@ python infer.py \
 
 ## Three-class classifier
 
-MH0 detector自体は1クラス`foreground`です。その後、mask ROIの
-`192x14x14`特徴をMH0専用Spatial-GAP分類器へ渡し、
+MH0 detector自体は1クラス`foreground`です。その後、検出器が計算済みの
+DINOv3 ViT-S+最終backbone特徴へROIAlign 4x4を適用し、MH0専用
+Spatial-GAP分類器へ渡して、
 `女性器`、`男性器`、`結合部分`へ分類します。検出器クラスと分類器クラスは
 SQLite内で分離され、既存の共通schema v3を変更しません。
 
 既定checkpointは次です。
 
 ```text
-artifacts/classifier/best.pt
+artifacts/classifier/backbone/manifest.json
 ```
 
-現在のローカルartifactは接続確認用の暫定重みです。巨大Co-DINO分類器の
-Spatial-GAP構造と学習済みブロックを維持し、256チャネル入力射影だけを
-192チャネルへ決定論的に変換しています。分類精度は未検証です。学習後は、
-同一のクラス契約・入力shape・checkpoint schemaで作成した`best.pt`へ
-置き換えるだけで、CLI、SQLite schema、後処理を変更せず差し替えられます。
-
-暫定artifactを再生成する場合:
-
-```bash
-python tools/create_bootstrap_classifier.py --overwrite
-```
+分類器はMH0 epoch 7のbackbone特徴で学習済みです。内部クラス順
+`male / female / junction`は読込時にSQLiteの固定順
+`女性器 / 男性器 / 結合部分`へ変換します。score 0.65以上のheld-out testで
+Macro-F1 0.954748、accuracy 0.961834です。分類器変更によってSQLite schemaは
+変更していません。
 
 ## Artifacts
 
 既定checkpoint:
 
 ```text
-artifacts/detector/video_pseudo_mh0_epoch6_ema_deploy.pth
-SHA-256 755345eb1d5d252f630371c7d7895397e03a6aca0ee7f3e3d323d0b7bdc0bd9c
+artifacts/detector/best_segm_mAP_epoch_7_deploy.pth
+SHA-256 391f83fdeda4bd60ffede5f3b12068d657334b8bb5a91b403722806689f3c6b7
 ```
 
-これはepoch 6のEMA tensorsを選び、optimizerを除いたdeploy checkpointです。
+これはepoch 7の通常`state_dict`からoptimizerと`ema_*` backupを除いたdeploy
+checkpointです。
 重みの量子化はしていません。元checkpointからの変換情報は
 `artifacts/detector/checkpoint_provenance.json`にあります。
 
 TensorRT bundle:
 
 ```text
-artifacts/trt/fast-sm120-fixed-b16-v1/manifest.json
+artifacts/trt/fast-sm120-fixed-b16-epoch7-v1/manifest.json
 ```
 
 起動時にはengine/pluginのサイズとSHA-256を検証します。engine、checkpoint、
@@ -133,8 +129,8 @@ buffers. Convert it to a compact deploy checkpoint first:
 
 ```bash
 python tools/convert_ema_checkpoint.py \
-  /path/to/video_pseudo_mh0_epoch6.pth \
-  artifacts/detector/video_pseudo_mh0_epoch6_ema_deploy.pth
+  /path/to/best_segm_mAP_epoch_7.pth \
+  artifacts/detector/best_segm_mAP_epoch_7_deploy.pth
 ```
 
 The converter removes optimizer state and `ema_*` backup buffers, normalizes
@@ -151,7 +147,7 @@ established.
 python trt/build_fast_engines.py \
   --runtime-python /path/to/python3.10 \
   --config artifacts/detector/resolved_config.py \
-  --checkpoint artifacts/detector/video_pseudo_mh0_epoch6_ema_deploy.pth \
+  --checkpoint artifacts/detector/best_segm_mAP_epoch_7_deploy.pth \
   --output-dir artifacts/trt/fast-sm120-fixed-b16-rebuild
 ```
 
@@ -176,6 +172,11 @@ CPU契約変換のoverlapを有効にしたモデル推論部分が149.734 FPS�
 decode・polygon化・SQLite enqueueを含む推論ループが146.201 FPSでした。
 プロセス起動とengine検証を含む全体は44.15秒です。
 固定入力100 iterationでは153.452 images/sです。
+
+2026-08-01のepoch 7検出器、学習済みbackbone ROI分類器、新TensorRT bundleでは、
+同じ1920x1080動画の1,600フレームでcompute 164.565 img/s、推論ループ
+150.481 fpsでした。320フレームの共通CLI実測はcompute 146.124 img/sで、
+329検出すべてに3クラス確率を保存しました。
 動画全域から5フレーム間隔で1,058フレームをPyTorch版と比較した結果:
 
 - detection-count agreement: 98.866%

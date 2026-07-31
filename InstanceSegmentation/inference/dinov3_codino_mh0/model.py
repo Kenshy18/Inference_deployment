@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from .classifier import classifier_from_checkpoint
+    from .classifier import classifier_from_manifest
 except ImportError:
-    from classifier import classifier_from_checkpoint
+    from classifier import classifier_from_manifest
 
 try:
     from .optimization.fast_model import (
@@ -32,17 +32,17 @@ DEFAULT_CHECKPOINT = (
     FAMILY_ROOT
     / "artifacts"
     / "detector"
-    / "video_pseudo_mh0_epoch6_ema_deploy.pth"
+    / "best_segm_mAP_epoch_7_deploy.pth"
 )
 DEFAULT_TRT_BUNDLE = (
     FAMILY_ROOT
     / "artifacts"
     / "trt"
-    / "fast-sm120-fixed-b16-v1"
+    / "fast-sm120-fixed-b16-epoch7-v1"
     / "manifest.json"
 )
-DEFAULT_CLASSIFIER_CHECKPOINT = (
-    FAMILY_ROOT / "artifacts" / "classifier" / "best.pt"
+DEFAULT_CLASSIFIER_MANIFEST = (
+    FAMILY_ROOT / "artifacts" / "classifier" / "backbone" / "manifest.json"
 )
 
 
@@ -52,7 +52,7 @@ class Mh0Runtime:
     classifier: object | None
     class_names: tuple[str, ...]
     class_ids: tuple[int, ...]
-    classifier_checkpoint: Path | None
+    classifier_manifest: Path | None
     classifier_status: str | None
     backend: str
     device: str
@@ -69,7 +69,7 @@ def build_runtime(
     trt_bundle: Path = DEFAULT_TRT_BUNDLE,
     trt_verify: str = "engines",
     cuda_graph: bool = False,
-    classifier_checkpoint: Path | None = DEFAULT_CLASSIFIER_CHECKPOINT,
+    classifier_manifest: Path | None = DEFAULT_CLASSIFIER_MANIFEST,
 ) -> Mh0Runtime:
     if not config.is_file():
         raise FileNotFoundError(f"MH0 config not found: {config}")
@@ -98,32 +98,23 @@ def build_runtime(
     classifier_payload: dict[str, object] = {}
     resolved_classifier = (
         None
-        if classifier_checkpoint is None
-        else Path(classifier_checkpoint).expanduser().resolve()
+        if classifier_manifest is None
+        else Path(classifier_manifest).expanduser().resolve()
     )
     if resolved_classifier is not None:
         if not resolved_classifier.is_file():
             raise FileNotFoundError(
                 f"MH0 classifier checkpoint not found: {resolved_classifier}"
             )
-        classifier, classifier_payload = classifier_from_checkpoint(
-            resolved_classifier,
-            map_location=device,
+        classifier, classifier_payload = classifier_from_manifest(
+            resolved_classifier
         )
         classifier.to(device).eval()
     class_names = tuple(
-        str(value)
-        for value in classifier_payload.get(
-            "class_names",
-            ["foreground"],
-        )
+        getattr(classifier, "class_names", ("foreground",))
     )
     class_ids = tuple(
-        int(value)
-        for value in classifier_payload.get(
-            "class_ids",
-            list(range(len(class_names))),
-        )
+        getattr(classifier, "class_ids", tuple(range(len(class_names))))
     )
     if len(class_ids) != len(class_names):
         raise ValueError(
@@ -133,7 +124,7 @@ def build_runtime(
         model._mh0_classifier = classifier
         model._mh0_classifier_class_count = len(class_names)
     classifier_status = (
-        str(classifier_payload.get("artifact_status", "trained"))
+        str(classifier_payload.get("mode", "trained"))
         if classifier is not None
         else None
     )
@@ -142,7 +133,7 @@ def build_runtime(
         classifier=classifier,
         class_names=class_names,
         class_ids=class_ids,
-        classifier_checkpoint=resolved_classifier,
+        classifier_manifest=resolved_classifier,
         classifier_status=classifier_status,
         backend=backend,
         device=device,
@@ -160,7 +151,7 @@ def infer(runtime: Mh0Runtime, frames):
 
 __all__ = [
     "DEFAULT_CHECKPOINT",
-    "DEFAULT_CLASSIFIER_CHECKPOINT",
+    "DEFAULT_CLASSIFIER_MANIFEST",
     "DEFAULT_CONFIG",
     "DEFAULT_TRT_BUNDLE",
     "Mh0Runtime",

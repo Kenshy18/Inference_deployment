@@ -73,7 +73,7 @@ decode/preprocessを一体として使用します。起動時はbundle内の実
   --overwrite
 ```
 
-PyTorch版は同じconfig、検出checkpoint、分類checkpointを直接読み込みます。
+PyTorch版は同じconfig、検出checkpoint、分類器manifestを直接読み込みます。
 TensorRT engineやSM120 pluginには依存しないため、fast版の比較基準および安全な
 fallbackとして維持します。GPUメモリに余裕があればbatch sizeは変更できます。
 
@@ -88,6 +88,11 @@ fallbackとして維持します。GPUメモリに余裕があればbatch size�
 | `tensorrt-fast`（deployment shell） | 5,290 | 23.29 fps | 23.58 img/s | 4,069 |
 | `tensorrt-fast`（checkpointから再生成） | 300 | 18.35 fps | 22.48 img/s | 267 |
 | `pytorch` | 10 | 2.20 fps | 3.16 img/s | 0 |
+
+2026-08-01のepoch 6検出器とbackbone ROI分類器への更新後、同一動画・同一
+1,500フレームの比較では旧版23.36 img/s、新版22.34 img/sでした。検出数は
+814から822へ変化しています。検出後処理を除く固定core 150反復では旧24.15、
+新24.06 img/sで、モデル本体の差は0.4%です。
 
 「25 fps」は主にGPU計算区間の目標値です。動画デコード、起動時のモデル構築、
 契約変換、SQLite保存を含むプロセス全体で常に25 fpsを保証する意味ではありません。
@@ -120,7 +125,7 @@ engine生成だけで25 img/sを保証せず、動画ごとの品質・速度gat
 6. 完全なbundleだけをatomicに公開
 
 RTX 5090（compute capability 12.0）、TensorRT 10.13、CUDA compiler、G++、Ninjaが
-必要です。分類器checkpointもbundleの再現性に含めるため必須です。既存engineや
+必要です。分類器manifestもbundleの再現性に含めるため必須です。既存engineや
 既存timing cacheは入力として受け取りません。出力先には存在しないディレクトリを
 指定します。
 
@@ -128,8 +133,8 @@ RTX 5090（compute capability 12.0）、TensorRT 10.13、CUDA compiler、G++、N
 /path/to/python trt/build_fast_engines.py \
   --runtime-python /path/to/python \
   --config artifacts/detector/resolved_config.py \
-  --checkpoint artifacts/detector/epoch_2.pth \
-  --classifier-checkpoint artifacts/classifier/best.pt \
+  --checkpoint artifacts/detector/teacher_vitl_codino_epoch6_deploy.pth \
+  --classifier-checkpoint artifacts/classifier/backbone/manifest.json \
   --environment-lock .runtime/environment-lock.json \
   --output-dir /path/to/new-fast-sm120-fixed-b2-v1
 ```
@@ -159,8 +164,8 @@ portable engineを生成する場合も、4 engineは一括で作成します。
 /path/to/python trt/build_engines.py \
   --runtime-python /path/to/python \
   --config artifacts/detector/resolved_config.py \
-  --checkpoint artifacts/detector/epoch_2.pth \
-  --classifier-checkpoint artifacts/classifier/best.pt \
+  --checkpoint artifacts/detector/teacher_vitl_codino_epoch6_deploy.pth \
+  --classifier-checkpoint artifacts/classifier/backbone/manifest.json \
   --environment-lock .runtime/environment-lock.json \
   --output-dir artifacts/trt/new-portable-fixed-b2-v1
 ```

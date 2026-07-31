@@ -1,0 +1,44 @@
+{
+  "name": "DINOv3 ViT-L Co-DINO backbone ROI classifier",
+  "class_names": ["male", "female", "junction"],
+  "detector_minimum_score": 0.65,
+  "input": {
+    "shape": [1024, 4, 4],
+    "stride": 16,
+    "metadata": "geo_v2"
+  },
+  "fast": {
+    "type": "spatial_gap",
+    "checkpoint": "checkpoints/backbone_gap320_k3_seed44.pt",
+    "checkpoint_sha256": "0c592f91decec7b2d972bc8bd929e066b4ffbd1928bf1caf772729c64d5bda1e",
+    "held_out_test_macro_f1": 0.9709319150617378
+  },
+  "accuracy": {
+    "type": "weighted_logit_ensemble",
+    "checkpoints": [
+      "checkpoints/backbone_conv_seed45.pt",
+      "checkpoints/backbone_gap256_k3_seed42.pt",
+      "checkpoints/backbone_gap320_k3_seed44.pt",
+      "checkpoints/backbone_gap384_k5_seed43.pt",
+      "checkpoints/backbone_stats512_seed46.pt",
+      "checkpoints/backbone_stats768_seed47.pt"
+    ],
+    "weights": [
+      0.034381840378046036,
+      0.02160963974893093,
+      0.43650034070014954,
+      0.1707165390253067,
+      0.30750033259391785,
+      0.029291296377778053
+    ],
+    "checkpoint_sha256": [
+      "e0f62accf6bc3580bb074211283fab1a0db288f0a07d9a68310ce9e782d6f36c",
+      "16fcb7b1930a42ef727b72311f31a81da7445b97607def9135ee5ec43d225f8b",
+      "0c592f91decec7b2d972bc8bd929e066b4ffbd1928bf1caf772729c64d5bda1e",
+      "55e7499a94662bad1c99fe188a3c53062f50a4e9be5c1663a5518e5a1c018556",
+      "71eb68be0d92561ccb89c2bcdd54fc48ee3835f680d64f0d506094e7e1cae948",
+      "b8e95a732c7cddcbaf81690f84aab0807d0eb99d614e9779da2b50a93f4d5fca"
+    ],
+    "held_out_test_macro_f1": 0.9735582677767253
+  }
+}

@@ -59,8 +59,11 @@ class BackboneNeckExportWrapper(torch.nn.Module):
         self.omit_p6 = bool(omit_p6)
 
     def forward(self, value: torch.Tensor):
-        outputs = tuple(self.neck(self.backbone(value)))
-        return outputs[:-1] if self.omit_p6 else outputs
+        backbone = self.backbone(value)
+        raw = backbone[-1] if isinstance(backbone, (tuple, list)) else backbone
+        outputs = tuple(self.neck(backbone))
+        pyramid = outputs[:-1] if self.omit_p6 else outputs
+        return (raw, *pyramid)
 
 
 def sha256(path: Path) -> str:
@@ -106,9 +109,9 @@ def export_onnx(args: argparse.Namespace) -> dict[str, object]:
             model.backbone, model.neck, omit_p6=args.omit_p6
         ).to(args.device).eval()
         output_names = (
-            ["p2", "p3", "p4", "p5"]
+            ["last_feat", "p2", "p3", "p4", "p5"]
             if args.omit_p6
-            else ["p2", "p3", "p4", "p5", "p6"]
+            else ["last_feat", "p2", "p3", "p4", "p5", "p6"]
         )
     else:
         wrapper = BackboneExportWrapper(model.backbone).to(args.device).eval()

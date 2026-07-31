@@ -17,12 +17,18 @@ DEFAULT_ARTIFACT_ROOT = FAMILY_ROOT / "artifacts"
 DEFAULT_RUNTIME_SOURCE = FAMILY_ROOT / ".runtime" / "src" / "codino"
 DEFAULT_DINOV3_SOURCE = FAMILY_ROOT / ".runtime" / "src" / "dinov3_root"
 DEFAULT_CONFIG = DEFAULT_ARTIFACT_ROOT / "detector" / "resolved_config.py"
-DEFAULT_CHECKPOINT = DEFAULT_ARTIFACT_ROOT / "detector" / "epoch_2.pth"
-DEFAULT_CLASSIFIER_CHECKPOINT = DEFAULT_ARTIFACT_ROOT / "classifier" / "best.pt"
+DEFAULT_CHECKPOINT = (
+    DEFAULT_ARTIFACT_ROOT
+    / "detector"
+    / "teacher_vitl_codino_epoch6_deploy.pth"
+)
+DEFAULT_CLASSIFIER_MANIFEST = (
+    DEFAULT_ARTIFACT_ROOT / "classifier" / "backbone" / "manifest.json"
+)
 DEFAULT_TRT_BUNDLE = (
     DEFAULT_ARTIFACT_ROOT
     / "trt"
-    / "fast-sm120-fixed-b2-v1"
+    / "fast-sm120-fixed-b2-epoch6-v1"
     / "manifest.json"
 )
 DEFAULT_SHARED_ROOT = FAMILY_ROOT / ".runtime" / "shared"
@@ -74,7 +80,7 @@ class CodinoCandidateArtifacts:
     config_path: Path
     checkpoint: Path
     runtime_checkpoint: Path
-    classifier_checkpoint: Path | None
+    classifier_manifest: Path | None
     bundle_manifest: Path | None
     bundle_profile: str | None
     backbone_engine: Path | None
@@ -116,8 +122,8 @@ def resolve_codino_io(args: Any) -> CodinoCandidateIo:
 def resolve_codino_artifacts(args: Any) -> CodinoCandidateArtifacts:
     config_path = require_codino_file(args.config, label="Co-DINO config")
     checkpoint = require_codino_file(args.checkpoint, label="Co-DINO checkpoint")
-    classifier_checkpoint = (
-        require_codino_file(args.classifier_checkpoint, label="classifier checkpoint")
+    classifier_manifest = (
+        require_codino_file(args.classifier_manifest, label="classifier manifest")
         if bool(args.classifier)
         else None
     )
@@ -126,7 +132,7 @@ def resolve_codino_artifacts(args: Any) -> CodinoCandidateArtifacts:
             config_path=config_path,
             checkpoint=checkpoint,
             runtime_checkpoint=checkpoint,
-            classifier_checkpoint=classifier_checkpoint,
+            classifier_manifest=classifier_manifest,
             bundle_manifest=None,
             bundle_profile=None,
             backbone_engine=None,
@@ -145,12 +151,12 @@ def resolve_codino_artifacts(args: Any) -> CodinoCandidateArtifacts:
         verify=str(args.trt_verify),
         config_path=config_path,
         checkpoint_path=checkpoint,
-        classifier_checkpoint=classifier_checkpoint,
+        classifier_checkpoint=classifier_manifest,
         runtime_python=Path(sys.executable),
     )
     if bundle.runtime_profile != "fast-b2":
         raise ValueError(
-            "the tensorrt-fast backend requires a fast-sm120-fixed-b2-v1 bundle"
+            "the tensorrt-fast backend requires a compatible fixed-B2 bundle"
         )
     if bundle.runtime_checkpoint is None:
         raise ValueError(
@@ -160,7 +166,7 @@ def resolve_codino_artifacts(args: Any) -> CodinoCandidateArtifacts:
         config_path=config_path,
         checkpoint=checkpoint,
         runtime_checkpoint=bundle.runtime_checkpoint,
-        classifier_checkpoint=classifier_checkpoint,
+        classifier_manifest=classifier_manifest,
         bundle_manifest=bundle.manifest_path,
         bundle_profile=bundle.profile,
         backbone_engine=bundle.backbone_engine,
@@ -261,7 +267,8 @@ def run_native_codino(args: Any) -> int:
             trt_deployment_shell=str(args.backend) == "tensorrt-fast",
         ),
         trt_settings=trt_settings,
-        classifier_checkpoint=artifacts.classifier_checkpoint,
+        classifier_manifest=artifacts.classifier_manifest,
+        classifier_mode=str(args.classifier_mode),
         device=str(args.device),
         fixed_batch_size=batch_size,
         disable_mask_iou_head=bool(args.disable_mask_iou_head),
@@ -283,11 +290,12 @@ def run_native_codino(args: Any) -> int:
     )
     run_metadata = {
         "checkpoint": str(artifacts.checkpoint),
-        "classifier_checkpoint": (
+        "classifier_manifest": (
             None
-            if artifacts.classifier_checkpoint is None
-            else str(artifacts.classifier_checkpoint)
+            if artifacts.classifier_manifest is None
+            else str(artifacts.classifier_manifest)
         ),
+        "classifier_mode": str(args.classifier_mode),
         "config": str(artifacts.config_path),
         "backend": str(args.backend),
         "trt_bundle": (
@@ -363,7 +371,16 @@ def build_codino_parser() -> argparse.ArgumentParser:
         "--classifier", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
-        "--classifier-checkpoint", default=str(DEFAULT_CLASSIFIER_CHECKPOINT)
+        "--classifier-manifest",
+        "--classifier-checkpoint",
+        dest="classifier_manifest",
+        default=str(DEFAULT_CLASSIFIER_MANIFEST),
+        help="backbone ROI classifier manifest (legacy option name is accepted)",
+    )
+    parser.add_argument(
+        "--classifier-mode",
+        choices=("fast", "accuracy"),
+        default="fast",
     )
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--checkpoint", default=str(DEFAULT_CHECKPOINT))

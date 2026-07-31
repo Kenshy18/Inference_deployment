@@ -52,7 +52,7 @@ class FastB2Executor:
             max_workers=1,
             thread_name_prefix="codino-tail",
         )
-        self.slots: list[tuple[Any, ...] | None] = [None, None]
+        self.slots: list[FastCorePayload | None] = [None, None]
         self.slot_index = 0
 
     def _submit(self, decoded: FrameBatch, prepared_data) -> _PendingBatch:
@@ -64,7 +64,7 @@ class FastB2Executor:
             prepared_data=prepared_data,
             destination=self.slots[slot],
         )
-        self.slots[slot] = payload.query_outputs
+        self.slots[slot] = payload
         ready = torch.cuda.Event()
         ready.record(torch.cuda.current_stream())
 
@@ -73,10 +73,7 @@ class FastB2Executor:
                 self.worker_stream.wait_event(ready)
                 return infer_fast_b2_tail(
                     self.model,
-                    payload=FastCorePayload(
-                        query_outputs=self.slots[slot],
-                        image_metadata=payload.image_metadata,
-                    ),
+                    payload=payload,
                     target_size=self.target_size,
                     classifier=self.classifier,
                     num_classifier_classes=self.num_classifier_classes,

@@ -7,4 +7,6 @@ artifacts/**/*.engine
 artifacts/**/*.so
 artifacts/**/onnx/
 artifacts/**/metadata/
+artifacts/**/native-build/
+artifacts/**/native-preprocess-build/
 *.sqlite

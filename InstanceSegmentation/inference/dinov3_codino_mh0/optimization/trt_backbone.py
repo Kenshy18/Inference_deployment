@@ -162,7 +162,7 @@ class TensorRTBackbone(torch.nn.Module):
 class TensorRTBackboneNeck(torch.nn.Module):
     """Expose a fixed-shape fused backbone+neck TensorRT engine."""
 
-    OUTPUT_NAMES = ("p2", "p3", "p4", "p5", "p6")
+    OUTPUT_NAMES = ("last_feat", "p2", "p3", "p4", "p5", "p6")
 
     def __init__(self, engine_path: Path) -> None:
         super().__init__()
@@ -234,6 +234,7 @@ class TensorRTBackboneNeck(torch.nn.Module):
         }
         self._outputs: dict[str, torch.Tensor] = {}
         self._retained_input: torch.Tensor | None = None
+        self.last_backbone_feature: torch.Tensor | None = None
 
     def forward(self, value: torch.Tensor) -> tuple[torch.Tensor, ...]:
         if not value.is_cuda:
@@ -274,7 +275,12 @@ class TensorRTBackboneNeck(torch.nn.Module):
             raise RuntimeError(
                 f"TensorRT execution failed: {self.engine_path}"
             )
-        outputs = tuple(self._outputs[name] for name in self.output_names)
+        self.last_backbone_feature = self._outputs["last_feat"]
+        outputs = tuple(
+            self._outputs[name]
+            for name in self.output_names
+            if name != "last_feat"
+        )
         # The MH0 query and mask paths consume P2-P5 only, but the detector's
         # fixed index layout retains a fifth unused slot.
         return outputs if len(outputs) == 5 else outputs + (None,)

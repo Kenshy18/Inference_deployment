@@ -13,6 +13,8 @@ from typing import Any, Mapping
 import torch
 import torch.nn as nn
 
+from backbone_roi_classifier import BackboneRoiClassifier
+
 try:
     from dinov3_codino.classifier import (
         RoiSpatialGapClassifier,
@@ -94,6 +96,14 @@ def classifier_from_checkpoint(
     return model, checkpoint
 
 
+def classifier_from_manifest(
+    manifest_path: Path,
+) -> tuple[BackboneRoiClassifier, dict[str, object]]:
+    """Load the trained backbone classifier in canonical SQLite order."""
+
+    return BackboneRoiClassifier.from_manifest(manifest_path, mode="fast")
+
+
 __all__ = [
     "CLASS_IDS",
     "CLASS_NAMES",
@@ -101,5 +111,6 @@ __all__ = [
     "POOLER_CHANNELS",
     "POOLER_SIZE",
     "classifier_from_checkpoint",
+    "classifier_from_manifest",
     "validate_checkpoint",
 ]

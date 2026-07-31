@@ -27,12 +27,17 @@ LOCK_OUTPUT = RUNTIME_ROOT / "environment-lock.json"
 REQUIREMENTS = FAMILY_ROOT / "requirements.txt"
 ARTIFACT_ROOT = FAMILY_ROOT / "artifacts"
 FAST_TRT_BUNDLE = (
-    ARTIFACT_ROOT / "trt" / "fast-sm120-fixed-b2-v1" / "manifest.json"
+    ARTIFACT_ROOT
+    / "trt"
+    / "fast-sm120-fixed-b2-epoch6-v1"
+    / "manifest.json"
 )
 ARTIFACTS = {
     "config": ARTIFACT_ROOT / "detector" / "resolved_config.py",
-    "detector": ARTIFACT_ROOT / "detector" / "epoch_2.pth",
-    "classifier": ARTIFACT_ROOT / "classifier" / "best.pt",
+    "detector": (
+        ARTIFACT_ROOT / "detector" / "teacher_vitl_codino_epoch6_deploy.pth"
+    ),
+    "classifier": ARTIFACT_ROOT / "classifier" / "backbone" / "manifest.json",
     "fast_trt_manifest": FAST_TRT_BUNDLE,
 }
 MODULES = (

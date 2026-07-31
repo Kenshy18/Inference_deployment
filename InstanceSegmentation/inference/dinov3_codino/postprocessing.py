@@ -115,12 +115,12 @@ def detections_to_rows(
                 continue
             if detection.shape[0] >= 7 and class_names:
                 class_index = int(round(float(detection[5])))
-                class_name = (
+                classifier_class_name = (
                     class_names[class_index]
                     if 0 <= class_index < len(class_names)
                     else str(class_index)
                 )
-                category_id = (
+                classifier_class_id = (
                     int(class_ids[class_index])
                     if 0 <= class_index < len(class_ids)
                     else class_index
@@ -136,16 +136,16 @@ def detections_to_rows(
                 )
             else:
                 class_index = 0
-                class_name = class_names[0] if class_names else "foreground"
-                category_id = int(class_ids[0]) if class_ids else 0
+                classifier_class_name = None
+                classifier_class_id = None
                 class_score = None
                 class_probabilities = None
             (x1, y1, x2, y2) = (float(value) for value in detection[:4])
             row: dict[str, object] = {
-                "label": class_name,
-                "class_name": class_name,
-                "category_id": category_id,
-                "category_index": class_index,
+                "label": "foreground",
+                "class_name": "foreground",
+                "category_id": int(detector_class),
+                "category_index": int(detector_class),
                 "bbox_xyxy": [x1, y1, x2, y2],
                 "bbox": [x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)],
                 "score": detector_score,
@@ -153,6 +153,8 @@ def detections_to_rows(
             }
             if class_score is not None:
                 row["class_score"] = class_score
+                row["classifier_class_id"] = classifier_class_id
+                row["classifier_class_name"] = classifier_class_name
             if class_probabilities is not None:
                 row["class_probs"] = class_probabilities
             if detection_index < len(masks) and masks[detection_index] is not None:

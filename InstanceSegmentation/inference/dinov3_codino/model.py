@@ -10,11 +10,11 @@ from typing import Any
 import torch
 
 try:
-    from .classifier import classifier_from_checkpoint
+    from .classifier import classifier_from_manifest
     from .preprocessing import prepare_batch_direct
     from .trt.runtime import FixedTrtPartitionSettings, install_fixed_partitions
 except ImportError:
-    from classifier import classifier_from_checkpoint
+    from classifier import classifier_from_manifest
     from preprocessing import prepare_batch_direct
     from trt.runtime import FixedTrtPartitionSettings, install_fixed_partitions
 
@@ -251,7 +251,8 @@ def build_runtime(
     *,
     segmenter_settings: InstanceSegmentationSettings,
     trt_settings: FixedTrtPartitionSettings | None,
-    classifier_checkpoint: Path | None,
+    classifier_manifest: Path | None,
+    classifier_mode: str = "fast",
     device: str,
     fixed_batch_size: int,
     disable_mask_iou_head: bool = True,
@@ -264,19 +265,17 @@ def build_runtime(
         install_fixed_partitions(model, trt_settings)
     classifier = None
     checkpoint: dict[str, Any] = {}
-    if classifier_checkpoint is not None:
-        (classifier, checkpoint) = classifier_from_checkpoint(
-            classifier_checkpoint, map_location=device
+    if classifier_manifest is not None:
+        (classifier, checkpoint) = classifier_from_manifest(
+            classifier_manifest,
+            mode=classifier_mode,
         )
         classifier.to(device).eval()
     class_names = tuple(
-        (str(value) for value in checkpoint.get("class_names", ["foreground"]))
+        getattr(classifier, "class_names", ("foreground",))
     )
     class_ids = tuple(
-        (
-            int(value)
-            for value in checkpoint.get("class_ids", list(range(len(class_names))))
-        )
+        getattr(classifier, "class_ids", tuple(range(len(class_names))))
     )
     return (
         CoDinoRuntime(

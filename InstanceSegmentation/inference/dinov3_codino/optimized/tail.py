@@ -9,16 +9,18 @@ import torch
 
 try:
     from ..classifier import (
+        boxes_to_model_coordinates,
         classifier_metadata,
-        classify_mask_features,
+        classify_backbone_features,
         paste_boxes_for_masks,
         refine_stage_instance_predictions,
         scale_factor_tensor,
     )
 except ImportError:
     from classifier import (
+        boxes_to_model_coordinates,
         classifier_metadata,
-        classify_mask_features,
+        classify_backbone_features,
         paste_boxes_for_masks,
         refine_stage_instance_predictions,
         scale_factor_tensor,
@@ -28,6 +30,7 @@ except ImportError:
 @dataclass(slots=True)
 class FastCorePayload:
     query_outputs: tuple[Any, ...]
+    backbone_feature: torch.Tensor
     image_metadata: list[dict[str, Any]]
 
 
@@ -75,9 +78,14 @@ def capture_fast_core(
         for metadata in image_metadata:
             height, width = metadata["batch_input_shape"]
             metadata["img_shape"] = [height, width, 3]
-    query_outputs, _ = detector_graph.run_host(image, image_metadata)
+    query_outputs, backbone_feature = detector_graph.run_host(
+        image, image_metadata
+    )
+    previous_query = destination.query_outputs if destination is not None else None
+    previous_backbone = destination.backbone_feature if destination is not None else None
     return FastCorePayload(
-        query_outputs=_copy_tree(query_outputs, destination),
+        query_outputs=_copy_tree(query_outputs, previous_query),
+        backbone_feature=_copy_tree(backbone_feature, previous_backbone),
         image_metadata=image_metadata,
     )
 
@@ -191,10 +199,29 @@ def infer_fast_b2_tail(
             )
         ]
     )
-    classes, scores, probabilities = classify_mask_features(
+    boxes_model = torch.cat(
+        [
+            boxes_to_model_coordinates(boxes, metadata, target_size)
+            for boxes, metadata in zip(boxes_by_image, image_metadata)
+        ]
+    )
+    batch_indices = torch.cat(
+        [
+            torch.full(
+                (len(boxes),),
+                index,
+                device=boxes.device,
+                dtype=boxes.dtype,
+            )
+            for index, boxes in enumerate(boxes_by_image)
+        ]
+    )
+    classes, scores, probabilities = classify_backbone_features(
         classifier,
-        mask_result["mask_feats"],
+        payload.backbone_feature,
+        boxes_model,
         metadata_features,
+        batch_indices=batch_indices,
     )
 
     outputs = []

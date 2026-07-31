@@ -102,16 +102,28 @@ def build_backend_model(
             decoder_engine=trt_artifacts["decoder"],
             plugin=trt_artifacts["plugin"],
         )
-        install_batched_bbox_test(model)
         model.mask_head = TensorRTMaskHead(
             model.mask_head,
             trt_artifacts["mask_head"],
         ).eval()
-        install_batched_mask_test(model)
         # This auxiliary head only emits mask-quality scores; it neither
         # changes boxes nor masks and is not consumed by the local renderer.
         if hasattr(model, "mask_iou_head"):
             delattr(model, "mask_iou_head")
+
+    def retain_backbone_feature(module, _inputs, output):
+        retained = getattr(module, "last_backbone_feature", None)
+        if retained is None:
+            retained = output[-1] if isinstance(output, (list, tuple)) else output
+        model._mh0_backbone_feature = retained
+
+    model._mh0_backbone_feature_hook = model.backbone.register_forward_hook(
+        retain_backbone_feature
+    )
+    # The shared batched tail is also the only path that attaches canonical
+    # classifier columns, so use it for both eager and TensorRT backends.
+    install_batched_bbox_test(model)
+    install_batched_mask_test(model)
 
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True

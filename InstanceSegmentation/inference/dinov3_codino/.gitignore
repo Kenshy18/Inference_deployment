@@ -5,5 +5,9 @@ artifacts/**/*.pth
 artifacts/**/*.pt
 artifacts/**/*.engine
 artifacts/**/*.so
+artifacts/**/build-onnx/
+artifacts/**/metadata/
+artifacts/**/native-build/
+artifacts/**/onnx/
 output/
 *.sqlite

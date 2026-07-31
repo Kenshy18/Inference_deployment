@@ -30,7 +30,7 @@ DEFAULT_CHECKPOINT = (
     FAMILY_ROOT
     / "artifacts"
     / "detector"
-    / "video_pseudo_mh0_epoch6_ema_deploy.pth"
+    / "best_segm_mAP_epoch_7_deploy.pth"
 )
 BUILD_SOURCES = (
     Path(__file__).resolve(),

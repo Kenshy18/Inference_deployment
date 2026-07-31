@@ -136,13 +136,18 @@ class FixedB2DetectorGraph:
         self._stream: torch.cuda.Stream | None = None
         self._static_input: torch.Tensor | None = None
         self._outputs: tuple[Any, ...] | None = None
-        self._features: Any = None
+        self._backbone_feature: torch.Tensor | None = None
         self._capture_constants: list[torch.Tensor] = []
 
     def _forward(self, image: torch.Tensor, image_metadata):
-        features = self.model.extract_feat(image, image_metadata)
+        backbone_features = self.model.backbone(image)
+        features = (
+            self.model.neck(backbone_features)
+            if getattr(self.model, "with_neck", False)
+            else backbone_features
+        )
         outputs = self.model.query_head.forward(features, image_metadata)
-        return outputs, outputs[-1]
+        return outputs, backbone_features[-1]
 
     def _capture(self, image: torch.Tensor, image_metadata) -> None:
         if not image.is_cuda or int(image.shape[0]) != 2:
@@ -176,7 +181,7 @@ class FixedB2DetectorGraph:
                     dtype=dtype,
                     enabled=self.amp != "off",
                 ):
-                    outputs, features = self._forward(
+                    outputs, backbone_feature = self._forward(
                         static_input,
                         image_metadata,
                     )
@@ -184,7 +189,7 @@ class FixedB2DetectorGraph:
         self._stream = stream
         self._graph = graph
         self._outputs = outputs
-        self._features = features
+        self._backbone_feature = backbone_feature
         graph.replay()
 
     def run(self, image: torch.Tensor, image_metadata):
@@ -203,7 +208,8 @@ class FixedB2DetectorGraph:
             self._static_input.copy_(image)
             self._graph.replay()
         assert self._outputs is not None
-        return self._outputs, self._features
+        assert self._backbone_feature is not None
+        return self._outputs, self._backbone_feature
 
     def run_host(self, image: torch.Tensor, image_metadata):
         """Copy a pinned host batch directly into the captured input buffer."""
@@ -230,7 +236,8 @@ class FixedB2DetectorGraph:
         self._static_input.copy_(image, non_blocking=True)
         self._graph.replay()
         assert self._outputs is not None
-        return self._outputs, self._features
+        assert self._backbone_feature is not None
+        return self._outputs, self._backbone_feature
 
 
 __all__ = ["FixedB2DetectorGraph"]

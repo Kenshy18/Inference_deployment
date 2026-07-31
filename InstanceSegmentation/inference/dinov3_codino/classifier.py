@@ -1,4 +1,4 @@
-"""Optional Co-DINO mask-feature classifier."""
+"""Co-DINO mask generation and DINOv3-backbone ROI classification."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as functional
+
+from backbone_roi_classifier import BackboneRoiClassifier
 
 try:
     from .preprocessing import letterbox_params, prepare_batch_direct
@@ -301,6 +303,16 @@ def classifier_from_checkpoint(
     return (model, checkpoint)
 
 
+def classifier_from_manifest(
+    manifest_path: Path,
+    *,
+    mode: str = "fast",
+) -> tuple[BackboneRoiClassifier, dict[str, object]]:
+    """Load the delivered classifier while preserving canonical SQLite classes."""
+
+    return BackboneRoiClassifier.from_manifest(manifest_path, mode=mode)
+
+
 def restore_boxes_for_classifier_metadata(
     boxes: np.ndarray, image_metadata: dict[str, Any], target_size: tuple[int, int]
 ) -> np.ndarray:
@@ -318,6 +330,30 @@ def restore_boxes_for_classifier_metadata(
     restored[:, [0, 2]] = np.clip(restored[:, [0, 2]], 0, max(original_width - 1, 0))
     restored[:, [1, 3]] = np.clip(restored[:, [1, 3]], 0, max(original_height - 1, 0))
     return restored
+
+
+def boxes_to_model_coordinates(
+    boxes_original_xyxy: torch.Tensor,
+    image_metadata: dict[str, Any],
+    target_size: tuple[int, int],
+) -> torch.Tensor:
+    """Map rescaled detector boxes into the letterboxed stride-16 input space."""
+
+    original_height = int(image_metadata["ori_shape"][0])
+    original_width = int(image_metadata["ori_shape"][1])
+    target_height, target_width = target_size
+    scale, _, _, pad_top, pad_left = letterbox_params(
+        original_height,
+        original_width,
+        target_height,
+        target_width,
+    )
+    boxes = boxes_original_xyxy[:, :4].clone()
+    boxes[:, 0::2].mul_(float(scale)).add_(float(pad_left))
+    boxes[:, 1::2].mul_(float(scale)).add_(float(pad_top))
+    boxes[:, 0::2].clamp_(0, float(target_width))
+    boxes[:, 1::2].clamp_(0, float(target_height))
+    return boxes
 
 
 def classifier_metadata(
@@ -374,6 +410,22 @@ def classify_mask_features(
     return (classes, scores, probabilities)
 
 
+def classify_backbone_features(
+    classifier: BackboneRoiClassifier,
+    backbone_feature: torch.Tensor,
+    boxes_model_xyxy: torch.Tensor,
+    metadata: torch.Tensor,
+    *,
+    batch_indices: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    return classifier.classify_backbone(
+        backbone_feature,
+        boxes_model_xyxy,
+        metadata,
+        batch_indices=batch_indices,
+    )
+
+
 def infer_batch_with_classifier(
     model,
     frames,
@@ -413,7 +465,13 @@ def infer_batch_with_classifier(
         with torch.cuda.amp.autocast(
             dtype=amp_dtype, enabled=amp != "off" and use_cuda
         ):
-            features = model.extract_feat(image, image_metadata)
+            backbone_features = model.backbone(image)
+            features = (
+                model.neck(backbone_features)
+                if getattr(model, "with_neck", False)
+                else backbone_features
+            )
+            backbone_feature = backbone_features[-1]
             (results, features) = model.query_head.simple_test(
                 features, image_metadata, rescale=True, return_encoder_output=True
             )
@@ -469,9 +527,14 @@ def infer_batch_with_classifier(
                     )
                     for (class_id, segmentation) in zip(labels[start:end], chunk_masks):
                         segmentations[int(class_id)].append(segmentation)
-                    (classes, scores, probabilities) = classify_mask_features(
+                    (classes, scores, probabilities) = classify_backbone_features(
                         classifier,
-                        mask_result["mask_feats"],
+                        backbone_feature[
+                            image_index : image_index + 1
+                        ],
+                        boxes_to_model_coordinates(
+                            boxes[start:end], metadata, target_size
+                        ),
                         classifier_metadata(
                             boxes[start:end],
                             list(chunk_masks),

@@ -1,0 +1,18 @@
+{
+  "name": "Best Pseudo MH0 DINOv3 ViT-S+ backbone ROI classifier",
+  "class_names": ["male", "female", "junction"],
+  "detector_minimum_score": 0.65,
+  "input": {
+    "shape": [384, 4, 4],
+    "stride": 16,
+    "metadata": "geo_v2"
+  },
+  "classifier": {
+    "type": "spatial_gap",
+    "checkpoint": "checkpoint/best.pt",
+    "checkpoint_sha256": "0696f6e92572ba48d534caebb49f1a10282efc247ab470d49dabd8eace429f29",
+    "parameters": 236178,
+    "held_out_test_macro_f1": 0.9547484491402232,
+    "held_out_test_accuracy": 0.9618341570565623
+  }
+}

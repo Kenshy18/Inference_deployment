@@ -11,11 +11,10 @@ import torch
 
 def _store_classifier_results(
     model,
-    mask_features: torch.Tensor,
     entries: list[dict[str, Any]],
     mask_coverages: torch.Tensor,
 ) -> None:
-    """Classify every RoI without scanning pasted full-resolution masks."""
+    """Classify every RoI from the detector's retained backbone feature."""
 
     classifier = getattr(model, "_mh0_classifier", None)
     if classifier is None:
@@ -23,10 +22,6 @@ def _store_classifier_results(
         return
     counts = [int(entry["count"]) for entry in entries]
     total = sum(counts)
-    if int(mask_features.shape[0]) != total:
-        raise RuntimeError(
-            "MH0 classifier mask-feature count does not match detections"
-        )
     class_count = int(model._mh0_classifier_class_count)
     if total == 0:
         model._mh0_last_classifications = tuple(
@@ -78,18 +73,26 @@ def _store_classifier_results(
         ),
         dim=1,
     )
-    parameter = next(classifier.parameters())
-    features = mask_features.to(
-        device=parameter.device,
-        dtype=parameter.dtype,
+    feature_boxes = torch.cat(
+        [entry["feature_boxes"] for entry in entries if entry["count"]],
+        dim=0,
     )
-    metadata = metadata.to(
-        device=parameter.device,
-        dtype=parameter.dtype,
+    batch_indices = torch.cat(
+        [
+            feature_boxes.new_full((int(entry["count"]),), image_index)
+            for image_index, entry in enumerate(entries)
+            if entry["count"]
+        ]
     )
-    logits = classifier(features, metadata)
-    probabilities = torch.softmax(logits.float(), dim=1)
-    scores_out, classes = probabilities.max(dim=1)
+    backbone_feature = getattr(model, "_mh0_backbone_feature", None)
+    if backbone_feature is None:
+        raise RuntimeError("MH0 backbone feature was not retained for classification")
+    classes, scores_out, probabilities = classifier.classify_backbone(
+        backbone_feature,
+        feature_boxes,
+        metadata,
+        batch_indices=batch_indices,
+    )
     packed = torch.cat(
         (
             classes.to(dtype=probabilities.dtype).unsqueeze(1),
@@ -183,6 +186,7 @@ def simple_test_mask_batched(
                 "labels": labels,
                 "paste_boxes": paste_boxes,
                 "output_boxes": output_boxes,
+                "feature_boxes": feature_boxes,
                 "mask_out_shape": mask_out_shape,
                 "mask_scale_factor": mask_scale_factor,
             }
@@ -235,7 +239,6 @@ def simple_test_mask_batched(
         cropped_masks = (cropped_masks >= threshold).to(torch.bool)
         _store_classifier_results(
             self,
-            mask_results["mask_feats"],
             entries,
             mask_coverages,
         )
@@ -302,7 +305,6 @@ def simple_test_mask_batched(
         ).float().mean(dim=(1, 2, 3))
         _store_classifier_results(
             self,
-            mask_results["mask_feats"],
             entries,
             mask_coverages,
         )
