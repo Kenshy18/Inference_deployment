@@ -168,11 +168,14 @@ def _draw_face_mask(
         mask.height,
         mask.width,
     )
-    probability = cv2.resize(
-        probability,
-        (x2 - x1, y2 - y1),
-        interpolation=cv2.INTER_LINEAR,
-    ).astype(np.float32) / 255.0
+    probability = (
+        cv2.resize(
+            probability,
+            (x2 - x1, y2 - y1),
+            interpolation=cv2.INTER_LINEAR,
+        ).astype(np.float32)
+        / 255.0
+    )
     alpha = (probability * 0.32)[..., None]
     region = canvas[y1:y2, x1:x2].astype(np.float32)
     color = np.empty_like(region)
@@ -287,7 +290,7 @@ class LivePreviewSink:
         # deferred to this worker so a 24-thread OpenCV resize cannot pause the
         # inference producer or the GUI progress stream.
         self._pending: deque[_PendingPreview] = deque(maxlen=2)
-        self._last_submit = 0.0
+        self._next_submit = 0.0
         self._closed = False
         self._dropped = 0
         self._thread = threading.Thread(
@@ -337,9 +340,16 @@ class LivePreviewSink:
         if self.control_path is not None and not self.control_path.is_file():
             return
         now = time.monotonic()
-        if now - self._last_submit < 1.0 / self.max_fps:
+        interval = 1.0 / self.max_fps
+        if now < self._next_submit:
             return
-        self._last_submit = now
+        # Advance a virtual deadline rather than resetting it to `now`.
+        # Fixed-B2 inference arrives in ~86 ms bursts; resetting to wall time
+        # made a 10 fps cap accept only every other batch (~6 fps).
+        if self._next_submit <= 0.0 or now - self._next_submit > interval * 2:
+            self._next_submit = now + interval
+        else:
+            self._next_submit += interval
         pending = _PendingPreview(
             frame_index=frame.index,
             timestamp_sec=frame.timestamp_sec,
@@ -385,9 +395,7 @@ class LivePreviewSink:
         elif isinstance(pending.result, DetectionFrame):
             _draw_detections(canvas, transform, pending.result)
         else:
-            raise TypeError(
-                f"unsupported preview result: {type(pending.result)!r}"
-            )
+            raise TypeError(f"unsupported preview result: {type(pending.result)!r}")
         success, encoded = cv2.imencode(
             ".jpg",
             canvas,

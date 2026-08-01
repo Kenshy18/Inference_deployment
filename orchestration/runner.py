@@ -258,6 +258,10 @@ class OrchestrationRunner:
                     settings.eye_mask_shape,
                     "--minimum-eye-confidence",
                     str(settings.minimum_eye_confidence),
+                    "--face-detection-score-threshold",
+                    str(settings.face_detection_score_threshold),
+                    "--head-detection-score-threshold",
+                    str(settings.head_detection_score_threshold),
                     "--face-tracking-max-gap-frames",
                     str(settings.face_tracking_max_gap_frames),
                     "--face-tracking-high-score-threshold",
@@ -315,6 +319,10 @@ class OrchestrationRunner:
             settings.eye_mask_shape,
             "--minimum-eye-confidence",
             str(settings.minimum_eye_confidence),
+            "--face-detection-score-threshold",
+            str(self.config.postprocess.face_detection_score_threshold),
+            "--head-detection-score-threshold",
+            str(self.config.postprocess.head_detection_score_threshold),
         ]
         if settings.ffmpeg_bin is not None:
             command.extend(["--ffmpeg-bin", str(settings.ffmpeg_bin)])
@@ -437,6 +445,10 @@ class OrchestrationRunner:
                     self.config.postprocess.eye_mask_shape,
                     "--minimum-eye-confidence",
                     str(self.config.postprocess.minimum_eye_confidence),
+                    "--face-detection-score-threshold",
+                    str(self.config.postprocess.face_detection_score_threshold),
+                    "--head-detection-score-threshold",
+                    str(self.config.postprocess.head_detection_score_threshold),
                     "--face-tracking-max-gap-frames",
                     str(self.config.postprocess.face_tracking_max_gap_frames),
                     "--face-tracking-high-score-threshold",

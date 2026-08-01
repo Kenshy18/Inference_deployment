@@ -156,6 +156,33 @@ function phaseDetail(value: string): string {
   if (labels[value]) {
     return labels[value];
   }
+  const [stage, state] = value.split(":", 2);
+  const stageLabels: Record<string, string> = {
+    preparing: "入力準備",
+    normalize: "入力正規化",
+    score_policy: "確信度フィルタ",
+    nms: "NMS",
+    cut_detection: "カット検出",
+    tracking: "トラッキング・短命削除",
+    classwise_postprocess: "クラス別形状・キーフレーム",
+    output_validation: "中間SQLite検証",
+    face_privacy_masks: "顔追跡・プライバシーマスク",
+    face_privacy_merge: "顔・性器マスク統合",
+    combined_output_validation: "統合SQLite検証",
+    integrated_result_sqlite: "最終SQLite構築",
+    integrated_result_validation: "最終SQLite検証",
+  };
+  const stateLabels: Record<string, string> = {
+    "input-validation": "入力検証",
+    running: "処理中",
+    "output-validation": "出力検証",
+    complete: "完了",
+  };
+  if (stageLabels[stage]) {
+    return [stageLabels[stage], state ? stateLabels[state] ?? state : ""]
+      .filter(Boolean)
+      .join(" · ");
+  }
   return value
     .replace(":input-validation", " · 入力検証")
     .replace(":running", " · 処理中")
@@ -210,6 +237,9 @@ function PhaseProgressRow({
         <i>
           {counts}
           {phase.fps !== null ? ` · ${phase.fps.toFixed(1)} fps` : ""}
+          {phase.activeElapsedSeconds !== null
+            ? ` · 工程 ${phase.activeElapsedSeconds.toFixed(1)}秒`
+            : ""}
         </i>
       </div>
     </div>
@@ -254,6 +284,7 @@ export function MonitorPanel({
 }) {
   const [activeTab, setActiveTab] = useState<"status" | "live">("status");
   const [preview, setPreview] = useState<LivePreviewFrame | null>(null);
+  const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
   useEffect(() => desktopApi.onPreviewUpdate(setPreview), []);
   useEffect(() => setPreview(null), [job.id]);
   useEffect(() => {
@@ -262,12 +293,46 @@ export function MonitorPanel({
       void desktopApi.setPreviewEnabled(false);
     };
   }, [activeTab]);
+  useEffect(() => {
+    if (activeTab !== "live") {
+      return;
+    }
+    setLiveNowMs(Date.now());
+    const timer = window.setInterval(() => setLiveNowMs(Date.now()), 200);
+    return () => window.clearInterval(timer);
+  }, [activeTab]);
 
   const stages = plannedStages(draft);
   const states = stageStates(stages, job);
   const stageFraction = job.telemetry.progress;
   const running = job.status === "running" || job.status === "cancelling";
   const overall = progressEstimate.overall;
+  const activePhaseEntry = (
+    Object.entries(job.telemetry.phases) as Array<[string, PhaseProgress]>
+  ).find(([, phase]) => phase.state === "running");
+  const livePhaseName = activePhaseEntry?.[0] ?? preview?.phase ?? "";
+  const livePhase = activePhaseEntry?.[1] ?? null;
+  const livePercent =
+    livePhase?.progress === null || livePhase?.progress === undefined
+      ? null
+      : Math.min(100, Math.max(0, livePhase.progress * 100));
+  const signalAgeSeconds =
+    livePhase?.updatedAtMs === null || livePhase?.updatedAtMs === undefined
+      ? null
+      : Math.max(0, (liveNowMs - livePhase.updatedAtMs) / 1_000);
+  const visualAgeSeconds =
+    preview?.jobId === job.id
+      ? Math.max(0, (liveNowMs - preview.generatedAtMs) / 1_000)
+      : null;
+  const signalHealthy = signalAgeSeconds !== null && signalAgeSeconds < 1.5;
+  const liveActivityLabel =
+    job.status === "completed"
+      ? "処理完了"
+      : livePhase !== null
+        ? signalHealthy
+          ? "処理継続中"
+          : "進捗信号を待機中"
+        : "処理開始を待機中";
 
   const overlayCount =
     draft.overlay.presets.length +
@@ -633,12 +698,45 @@ export function MonitorPanel({
               <div className="live-preview__empty">
                 <span>LIVE PREVIEW</span>
                 <b>処理結果を待っています</b>
-                <i>最大5fps / 960 × 540 / 非同期プレビュー</i>
+                <i>最大10fps / 960 × 540 / 非同期・最新優先</i>
               </div>
             )}
-            <div className="live-preview__scan" />
             <div className="live-preview__badge">
-              <i /> LIVE
+              <i /> LIVE · MAX 10 FPS
+            </div>
+            <div
+              className={`live-preview__activity ${
+                signalHealthy ? "is-active" : "is-waiting"
+              }`}
+            >
+              <div>
+                <span>
+                  {livePhaseName
+                    ? previewPhaseLabel(livePhaseName).toUpperCase()
+                    : "PIPELINE"}
+                </span>
+                <strong>{liveActivityLabel}</strong>
+                <b>
+                  {livePercent === null
+                    ? "—"
+                    : `${livePhase?.estimated ? "約 " : ""}${livePercent.toFixed(1)}%`}
+                </b>
+              </div>
+              <div>
+                <span>{livePhase ? phaseDetail(livePhase.detail) : "待機中"}</span>
+                <i>
+                  {livePhase?.activeElapsedSeconds !== null &&
+                  livePhase?.activeElapsedSeconds !== undefined
+                    ? `この工程 ${livePhase.activeElapsedSeconds.toFixed(1)}秒 · `
+                    : ""}
+                  {signalAgeSeconds !== null
+                    ? `進捗信号 ${signalAgeSeconds.toFixed(1)}秒前`
+                    : "進捗信号なし"}
+                  {visualAgeSeconds !== null
+                    ? ` · 映像 ${visualAgeSeconds.toFixed(1)}秒前`
+                    : ""}
+                </i>
+              </div>
             </div>
           </div>
           <div className="live-preview__meta">

@@ -21,6 +21,8 @@ function emptyPhase(): PhaseProgress {
     estimated: false,
     detail: "",
     fps: null,
+    activeElapsedSeconds: null,
+    updatedAtMs: null,
   };
 }
 
@@ -73,6 +75,7 @@ export function parseTelemetryLine(
         estimated?: boolean;
         detail?: string;
         fps?: number | null;
+        active_elapsed_seconds?: number | null;
       };
       if (
         PHASES.includes(payload.phase as ProgressPhase) &&
@@ -114,7 +117,21 @@ export function parseTelemetryLine(
             payload.fps === null || payload.fps === undefined
               ? next.phases[phase].fps
               : Math.max(0, Number(payload.fps)),
+          activeElapsedSeconds:
+            payload.active_elapsed_seconds === null ||
+            payload.active_elapsed_seconds === undefined
+              ? null
+              : Math.max(0, Number(payload.active_elapsed_seconds)),
+          updatedAtMs: Date.now(),
         };
+        const previousProgress = next.phases[phase].progress;
+        if (
+          updated.progress !== null &&
+          previousProgress !== null &&
+          state === "running"
+        ) {
+          updated.progress = Math.max(previousProgress, updated.progress);
+        }
         next.phases = {
           ...next.phases,
           [phase]: updated,

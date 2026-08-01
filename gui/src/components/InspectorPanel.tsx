@@ -755,6 +755,36 @@ export function InspectorPanel({
                   />
                 </Row>
               )}
+              <Row
+                label="顔検出下限"
+                hint="Face領域を後処理マスクへ採用する最低スコア"
+              >
+                <Slider
+                  value={postprocess.faceDetectionScoreThreshold}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  disabled={busy || !facePostprocessActive}
+                  onChange={(faceDetectionScoreThreshold) =>
+                    actions.postprocess({ faceDetectionScoreThreshold })
+                  }
+                />
+              </Row>
+              <Row
+                label="頭部検出下限"
+                hint="Head boxを追跡へ採用する最低スコア"
+              >
+                <Slider
+                  value={postprocess.headDetectionScoreThreshold}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  disabled={busy || !facePostprocessActive}
+                  onChange={(headDetectionScoreThreshold) =>
+                    actions.postprocess({ headDetectionScoreThreshold })
+                  }
+                />
+              </Row>
             </>
           )}
 

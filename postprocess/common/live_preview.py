@@ -101,9 +101,7 @@ def geometry_from_detection_record(
         if isinstance(bbox, Mapping):
             try:
                 boxes.append(
-                    tuple(
-                        float(bbox[key]) for key in ("x1", "y1", "x2", "y2")
-                    )
+                    tuple(float(bbox[key]) for key in ("x1", "y1", "x2", "y2"))
                 )
             except (KeyError, TypeError, ValueError):
                 pass
@@ -118,14 +116,14 @@ def geometry_from_detection_record(
         boxes=tuple(boxes),
         track_id=track,
         detail=(
-            f"{detail} / classes {','.join(sorted(classes))}"
-            if classes
-            else detail
+            f"{detail} / classes {','.join(sorted(classes))}" if classes else detail
         ),
     )
 
 
-def _fit_canvas(image: np.ndarray, width: int, height: int) -> tuple[np.ndarray, float, int, int]:
+def _fit_canvas(
+    image: np.ndarray, width: int, height: int
+) -> tuple[np.ndarray, float, int, int]:
     source_h, source_w = image.shape[:2]
     scale = min(width / source_w, height / source_h)
     resized_w = max(1, round(source_w * scale))
@@ -141,7 +139,9 @@ def _fit_canvas(image: np.ndarray, width: int, height: int) -> tuple[np.ndarray,
     return canvas, scale, ox, oy
 
 
-def _draw(canvas: np.ndarray, item: PreviewGeometry, scale: float, ox: int, oy: int) -> None:
+def _draw(
+    canvas: np.ndarray, item: PreviewGeometry, scale: float, ox: int, oy: int
+) -> None:
     def point(value: tuple[float, float]) -> tuple[int, int]:
         return round(ox + value[0] * scale), round(oy + value[1] * scale)
 
@@ -171,7 +171,9 @@ def _draw(canvas: np.ndarray, item: PreviewGeometry, scale: float, ox: int, oy: 
             cv2.LINE_AA,
         )
     for x1, y1, x2, y2 in item.boxes:
-        cv2.rectangle(canvas, point((x1, y1)), point((x2, y2)), (70, 220, 160), 2, cv2.LINE_AA)
+        cv2.rectangle(
+            canvas, point((x1, y1)), point((x2, y2)), (70, 220, 160), 2, cv2.LINE_AA
+        )
     for value in item.points:
         cv2.circle(canvas, point(value), 3, (70, 235, 255), -1, cv2.LINE_AA)
     if item.is_removed:
@@ -180,8 +182,19 @@ def _draw(canvas: np.ndarray, item: PreviewGeometry, scale: float, ox: int, oy: 
     text = item.label
     if item.track_id:
         text += f"  ID {item.track_id}"
-    cv2.rectangle(canvas, (12, 12), (min(canvas.shape[1] - 12, 620), 64), (8, 12, 20), -1)
-    cv2.putText(canvas, text[:72], (24, 37), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (245, 248, 255), 1, cv2.LINE_AA)
+    cv2.rectangle(
+        canvas, (12, 12), (min(canvas.shape[1] - 12, 620), 64), (8, 12, 20), -1
+    )
+    cv2.putText(
+        canvas,
+        text[:72],
+        (24, 37),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.62,
+        (245, 248, 255),
+        1,
+        cv2.LINE_AA,
+    )
     flags = []
     if item.is_keyframe:
         flags.append("KEYFRAME")
@@ -190,7 +203,16 @@ def _draw(canvas: np.ndarray, item: PreviewGeometry, scale: float, ox: int, oy: 
     if item.is_removed:
         flags.append("REMOVED")
     detail = " / ".join(filter(None, [item.detail, *flags]))
-    cv2.putText(canvas, detail[:92], (24, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
+    cv2.putText(
+        canvas,
+        detail[:92],
+        (24, 56),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.42,
+        color,
+        1,
+        cv2.LINE_AA,
+    )
 
 
 class PostprocessPreviewSink:
@@ -220,11 +242,15 @@ class PostprocessPreviewSink:
         self.control_path = control_path.resolve() if control_path else None
         self._condition = threading.Condition()
         # One newest value per stage.  There is no per-frame or per-track growth.
-        self._pending: OrderedDict[str, PreviewGeometry | _ArtifactPreview] = OrderedDict()
+        self._pending: OrderedDict[
+            str, PreviewGeometry | _ArtifactPreview
+        ] = OrderedDict()
         self._closed = False
         self._dropped = 0
-        self._last_offer: dict[str, float] = {}
-        self._thread = threading.Thread(target=self._run, name="postprocess-preview", daemon=True)
+        self._next_offer: dict[str, float] = {}
+        self._thread = threading.Thread(
+            target=self._run, name="postprocess-preview", daemon=True
+        )
         self._thread.start()
 
     @classmethod
@@ -240,7 +266,11 @@ class PostprocessPreviewSink:
                 height=max(64, int(os.environ.get(_HEIGHT_ENV, "540"))),
                 quality=min(100, max(1, int(os.environ.get(_QUALITY_ENV, "85")))),
                 max_fps=float(os.environ.get(_FPS_ENV, "5")),
-                control_path=(Path(value) if (value := os.environ.get(_CONTROL_ENV, "").strip()) else None),
+                control_path=(
+                    Path(value)
+                    if (value := os.environ.get(_CONTROL_ENV, "").strip())
+                    else None
+                ),
             )
         except ValueError:
             return None
@@ -254,10 +284,15 @@ class PostprocessPreviewSink:
         if not self.enabled():
             return False
         now = time.monotonic()
-        previous = self._last_offer.get(stage, 0.0)
-        if now - previous < 1.0 / self.max_fps:
+        interval = 1.0 / self.max_fps
+        deadline = self._next_offer.get(stage, 0.0)
+        if now < deadline:
             return False
-        self._last_offer[stage] = now
+        self._next_offer[stage] = (
+            now + interval
+            if deadline <= 0.0 or now - deadline > interval * 2
+            else deadline + interval
+        )
         return True
 
     def submit(self, item: PreviewGeometry) -> None:
@@ -367,10 +402,15 @@ class PostprocessPreviewSink:
             self._condition.notify()
         self._thread.join(timeout=0.2)
 
-    def _sample_artifacts(self, stage: str, label: str, artifacts: Mapping[str, Path]) -> PreviewGeometry | None:
+    def _sample_artifacts(
+        self, stage: str, label: str, artifacts: Mapping[str, Path]
+    ) -> PreviewGeometry | None:
         for name in (
-            "face_masks_sqlite", "predictions_sqlite", "keyframes_sqlite",
-            "approximated_sqlite", "tracked_sqlite",
+            "face_masks_sqlite",
+            "predictions_sqlite",
+            "keyframes_sqlite",
+            "approximated_sqlite",
+            "tracked_sqlite",
         ):
             path = artifacts.get(name)
             if path is not None:
@@ -383,7 +423,9 @@ class PostprocessPreviewSink:
                 value = json.loads(Path(cuts).read_text(encoding="utf-8"))
                 frames = value.get("frames", [])
                 frame = int(frames[0]) if frames else 0
-                return PreviewGeometry(frame, stage, label, detail=f"{len(frames)} cuts", status="complete")
+                return PreviewGeometry(
+                    frame, stage, label, detail=f"{len(frames)} cuts", status="complete"
+                )
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 pass
         for name in ("interpolated_union_json", "filled_union_json", "keyframes_json"):
@@ -395,12 +437,16 @@ class PostprocessPreviewSink:
         return None
 
     @staticmethod
-    def _sample_masks_sqlite(path: Path, stage: str, label: str) -> PreviewGeometry | None:
+    def _sample_masks_sqlite(
+        path: Path, stage: str, label: str
+    ) -> PreviewGeometry | None:
         try:
             with sqlite3.connect(
                 f"file:{path}?mode=ro&immutable=1", uri=True
             ) as connection:
-                columns = {row[1] for row in connection.execute("PRAGMA table_info(masks)")}
+                columns = {
+                    row[1] for row in connection.execute("PRAGMA table_info(masks)")
+                }
                 if not {"frame", "track_id", "polygons"}.issubset(columns):
                     return None
                 first = connection.execute(
@@ -420,7 +466,15 @@ class PostprocessPreviewSink:
                 polygons.extend(_polygons(raw))
                 track = str(track_id)
                 shape = str(shape_type)
-            return PreviewGeometry(frame, stage, label, tuple(polygons), track_id=track, detail=shape, status="complete")
+            return PreviewGeometry(
+                frame,
+                stage,
+                label,
+                tuple(polygons),
+                track_id=track,
+                detail=shape,
+                status="complete",
+            )
         except (OSError, sqlite3.Error):
             return None
 
@@ -430,7 +484,12 @@ class PostprocessPreviewSink:
             with sqlite3.connect(
                 f"file:{path}?mode=ro&immutable=1", uri=True
             ) as connection:
-                tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                tables = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                }
                 if "raw_tracked_masks" not in tables:
                     return None
                 row = connection.execute(
@@ -448,9 +507,14 @@ class PostprocessPreviewSink:
                 box = json.loads(str(row[3]))
                 boxes = (tuple(float(value) for value in box[:4]),)
             return PreviewGeometry(
-                int(row[0]), "short_track_filter", "short-track deletion",
-                polygons=_polygons(row[2]), boxes=boxes, track_id=str(row[1]),
-                detail="rejected transient detection", status="complete",
+                int(row[0]),
+                "short_track_filter",
+                "short-track deletion",
+                polygons=_polygons(row[2]),
+                boxes=boxes,
+                track_id=str(row[1]),
+                detail="rejected transient detection",
+                status="complete",
                 is_removed=True,
             )
         except (OSError, sqlite3.Error, TypeError, ValueError, json.JSONDecodeError):
@@ -473,10 +537,14 @@ class PostprocessPreviewSink:
             if row is None:
                 return None
             return PreviewGeometry(
-                int(row[0]), "face_short_track_filter", "face short-track deletion",
+                int(row[0]),
+                "face_short_track_filter",
+                "face short-track deletion",
                 boxes=((float(row[2]), float(row[3]), float(row[4]), float(row[5])),),
-                track_id=str(row[1]), detail="rejected transient face",
-                status="complete", is_removed=True,
+                track_id=str(row[1]),
+                detail="rejected transient face",
+                status="complete",
+                is_removed=True,
             )
         except (OSError, sqlite3.Error):
             return None
@@ -500,16 +568,22 @@ class PostprocessPreviewSink:
             if row is None:
                 return None
             return PreviewGeometry(
-                int(row[0]), "face_interpolation", "face gap interpolation",
-                polygons=_polygons(row[2]), track_id=str(row[1]),
-                detail="linear between observations", status="complete",
+                int(row[0]),
+                "face_interpolation",
+                "face gap interpolation",
+                polygons=_polygons(row[2]),
+                track_id=str(row[1]),
+                detail="linear between observations",
+                status="complete",
                 is_interpolated=True,
             )
         except (OSError, sqlite3.Error):
             return None
 
     @staticmethod
-    def _sample_ellipse_json(path: Path, stage: str, label: str) -> PreviewGeometry | None:
+    def _sample_ellipse_json(
+        path: Path, stage: str, label: str
+    ) -> PreviewGeometry | None:
         try:
             rows = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(rows, list) or not rows:
@@ -518,10 +592,16 @@ class PostprocessPreviewSink:
             values = row.get("ellipse_params")
             if values is None and "ellipse" in row:
                 values = [row["ellipse"]]
-            ellipses = tuple(tuple(float(value) for value in ellipse[:5]) for ellipse in values or [])
+            ellipses = tuple(
+                tuple(float(value) for value in ellipse[:5]) for ellipse in values or []
+            )
             return PreviewGeometry(
-                int(row.get("frame", 0)), stage, label, ellipses=ellipses,
-                track_id=str(row.get("track_id", "")), status="complete",
+                int(row.get("frame", 0)),
+                stage,
+                label,
+                ellipses=ellipses,
+                track_id=str(row.get("track_id", "")),
+                status="complete",
                 detail=str(row.get("mode", "ellipse")),
                 is_keyframe=bool(row.get("has_keyframe", "keyframe" in path.name)),
                 is_interpolated=not bool(row.get("has_keyframe", 1)),
@@ -604,23 +684,37 @@ class PostprocessPreviewSink:
                 capture.release()
 
     def _write(self, canvas: np.ndarray, item: PreviewGeometry, fps: float) -> None:
-        ok, encoded = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+        ok, encoded = cv2.imencode(
+            ".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, self.quality]
+        )
         if not ok:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         slot = int(time.monotonic() * self.max_fps) % 3
-        target = self.path.with_name(f"{self.path.stem}-{slot}{self.path.suffix or '.jpg'}")
+        target = self.path.with_name(
+            f"{self.path.stem}-{slot}{self.path.suffix or '.jpg'}"
+        )
         temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
         temporary.write_bytes(encoded.tobytes())
         os.replace(temporary, target)
         payload = {
-            "path": str(target), "phase": "postprocess", "stage": item.stage,
-            "status": item.status, "detail": item.detail, "frame_index": item.frame,
+            "path": str(target),
+            "phase": "postprocess",
+            "stage": item.stage,
+            "status": item.status,
+            "detail": item.detail,
+            "frame_index": item.frame,
             "timestamp_sec": item.frame / fps if fps > 0 else 0.0,
-            "model": item.label, "width": self.width, "height": self.height,
-            "generated_at_ms": int(time.time() * 1000), "dropped": self._dropped,
+            "model": item.label,
+            "width": self.width,
+            "height": self.height,
+            "generated_at_ms": int(time.time() * 1000),
+            "dropped": self._dropped,
         }
-        print(f"{PREVIEW_MARKER} {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}", flush=True)
+        print(
+            f"{PREVIEW_MARKER} {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}",
+            flush=True,
+        )
 
 
 _ACTIVE: PostprocessPreviewSink | None = None
@@ -644,7 +738,10 @@ def close_postprocess_preview() -> None:
 
 
 __all__ = [
-    "PreviewGeometry", "PostprocessPreviewSink", "activate_postprocess_preview",
-    "active_postprocess_preview", "close_postprocess_preview",
+    "PreviewGeometry",
+    "PostprocessPreviewSink",
+    "activate_postprocess_preview",
+    "active_postprocess_preview",
+    "close_postprocess_preview",
     "geometry_from_detection_record",
 ]

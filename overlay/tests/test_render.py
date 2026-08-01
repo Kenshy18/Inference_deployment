@@ -21,7 +21,13 @@ from overlay_renderer.cli import (
     NATIVE_RENDERER,
 )
 from overlay_renderer.models import OverlayItem
-from overlay_renderer.render import RenderOptions, _color, _draw_items
+from overlay_renderer.render import (
+    RenderOptions,
+    _color,
+    _display_class_label,
+    _draw_items,
+    _draw_label,
+)
 
 from helpers import (
     create_mask_sqlite,
@@ -42,6 +48,19 @@ def _read_frame(path: Path, frame_index: int) -> np.ndarray:
 
 
 class RenderTests(unittest.TestCase):
+    def test_canonical_class_names_render_as_bold_japanese_glyphs(self) -> None:
+        self.assertEqual("男性器", _display_class_label("男性器"))
+        self.assertEqual("女性器", _display_class_label("female"))
+        self.assertEqual("結合部分", _display_class_label("junction"))
+
+        frame = np.zeros((48, 240, 3), dtype=np.uint8)
+        color = (180, 105, 255)
+        _draw_label(frame, "男性器  TRACK 7", (2, 30), color)
+        # The embedded glyph atlas writes the requested BGR foreground rather
+        # than passing UTF-8 bytes to OpenCV's ASCII-only Hershey font.
+        foreground = np.all(frame == np.asarray(color, dtype=np.uint8), axis=2)
+        self.assertGreater(int(np.count_nonzero(foreground[:, :52])), 40)
+
     def test_keyframe_highlight_is_detailed_only(self) -> None:
         polygon = (
             (12.0, 12.0),
@@ -203,6 +222,14 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(
             "veryfast",
             command[command.index("--cpu-preset") + 1],
+        )
+        self.assertEqual(
+            "0.55",
+            command[command.index("--face-detection-score-threshold") + 1],
+        )
+        self.assertEqual(
+            "0.55",
+            command[command.index("--head-detection-score-threshold") + 1],
         )
 
     def test_execution_modes_and_overlay_type_alias_are_resolved(self) -> None:

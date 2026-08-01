@@ -26,14 +26,15 @@ YUV420P/NV12へ直接描画します。
 
 - `raw`、`tracked`、`final`、`faces`
 - `final`への顔box追加
-- ASCII label、mask塗り、輪郭、顔box
+- 日本語3クラスの組み込み太字glyph、英数字label、mask塗り、輪郭、顔box
 - libx264またはNVENC出力
 - AAC等の入力音声stream copy
 - atomic動画出力とJSON summary
 - フレーム区間の並列実行と再encodeなしの連結
 
 通常OpenCV版とフォント、アンチエイリアス、境界pixelは完全一致しません。
-GPUラベルは速度優先の組み込みASCII fontです。
+GPUラベルは速度優先の組み込みfontで、性器3クラスに必要な日本語8文字も
+外部fontなしで描画します。
 
 ## Build
 

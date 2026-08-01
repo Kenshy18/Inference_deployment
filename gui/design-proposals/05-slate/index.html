@@ -1,0 +1,1138 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mask Pipeline Studio — Slate</title>
+<style>
+/* ================= SLATE — tokens ================= */
+:root{
+  --bg:#131518; --panel:#191C21; --raised:#1F232A; --well:#14161A;
+  --hair:rgba(200,215,235,.08); --hair2:rgba(200,215,235,.14);
+  --t1:#D9DDE3; --t2:#9AA1AB; --t2b:#7E8792; --t3:#666D78;
+  --acc:#4D7FB8; --acc-h:#5B8FC9; --acc-ink:#EAF1F8; --acc-tx:#7FA6D2;
+  --ok:#5FA97C; --ok-tx:#79B890;
+  --warn:#C99B54;
+  --dgr:#BE6053; --dgr-h:#C96B5E; --dgr-tx:#D98B7F;
+  --trace:#647E9C;
+  --r:5px;
+  --fs-ui:12.5px; --fs-sec:11px; --fs-micro:10px;
+  --ui:"Segoe UI Variable Text","Segoe UI",system-ui,"Helvetica Neue",Arial,"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
+  --mono:"Cascadia Code","Cascadia Mono",Consolas,"SF Mono",ui-monospace,Menlo,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--t1);font:400 var(--fs-ui)/1.45 var(--ui);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:rgba(77,127,184,.4)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,select,textarea{font:inherit;color:var(--t1)}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#262B33;border-radius:5px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#303743}
+::-webkit-scrollbar-corner{background:transparent}
+svg.ic{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.micro{font-size:var(--fs-micro);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t3)}
+.spacer{flex:1 1 auto;min-width:0}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important}
+}
+
+/* ================= frame ================= */
+.viewport{height:100vh;overflow:auto}
+.app{height:100%;min-width:1280px;min-height:720px;display:grid;
+  grid-template-rows:46px minmax(0,1fr) 6px clamp(168px,24vh,236px) 26px}
+.main{display:grid;grid-template-columns:268px 6px minmax(0,1fr) 6px 296px;padding:0 8px;min-height:0}
+
+/* ================= panel chrome (quiet: type on surface, no bars) ================= */
+.panel{background:var(--panel);border-radius:var(--r);display:flex;flex-direction:column;min-height:0;min-width:0}
+.p-head{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;flex:none}
+.p-title{font-size:var(--fs-micro);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t2)}
+.p-meta{font-size:var(--fs-sec);color:var(--t3)}
+.p-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden}
+
+/* ================= topbar ================= */
+.topbar{display:flex;align-items:center;gap:12px;padding:0 16px}
+.logo{width:26px;height:26px;border-radius:var(--r);background:var(--raised);display:grid;place-items:center;color:var(--t2)}
+.fchip{display:flex;align-items:center;gap:7px;height:26px;padding:0 10px;border-radius:var(--r);background:var(--raised)}
+.fchip .k{font-size:var(--fs-micro);font-weight:600;letter-spacing:.06em;color:var(--t3)}
+.fchip .v{font-size:var(--fs-ui);font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:28px;padding:0 14px;
+  border-radius:var(--r);background:var(--raised);border:1px solid var(--hair);color:var(--t1);
+  font-size:var(--fs-ui);font-weight:500;transition:background .15s,border-color .15s}
+.btn:hover{background:#252A32;border-color:var(--hair2)}
+.btn:disabled{opacity:.45;pointer-events:none}
+.btn.danger{background:var(--dgr);border-color:transparent;color:#F8ECE9;font-weight:600}
+.btn.danger:hover{background:var(--dgr-h)}
+.btn svg.ic{width:13px;height:13px}
+.btn.quiet{height:22px;padding:0 8px;background:transparent;border-color:transparent;color:var(--t2);font-size:var(--fs-sec)}
+.btn.quiet:hover{background:var(--raised);color:var(--t1)}
+.btn.quiet svg.ic{width:12px;height:12px}
+
+/* ================= statusbar ================= */
+.statusbar{display:flex;align-items:center;gap:16px;padding:0 16px;font-size:var(--fs-sec);color:var(--t3);
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden}
+.statusbar .grp{display:flex;align-items:center;gap:5px;flex:none}
+.statusbar .grp b{font-weight:500;color:var(--t2);font-family:var(--mono);font-size:var(--fs-sec)}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--acc);flex:none;animation:runpulse 2s ease-in-out infinite}
+@keyframes runpulse{50%{opacity:.45}}
+.statusbar .stat{color:var(--t2);font-weight:600;font-size:var(--fs-sec)}
+.statusbar .rt{margin-left:auto;display:flex;align-items:center;gap:16px;min-width:0}
+.statusbar .path{overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+
+/* ================= generic controls ================= */
+.field{height:26px;background:var(--well);border:1px solid var(--hair);border-radius:var(--r);
+  padding:0 8px;font-size:var(--fs-ui);width:100%;transition:border-color .15s;color:var(--t1)}
+.field:hover{border-color:var(--hair2)}
+.field:focus{border-color:var(--acc)}
+.field::placeholder{color:var(--t3)}
+.field:disabled{opacity:.55}
+.field.mono{font-family:var(--mono);font-size:var(--fs-sec);font-variant-numeric:tabular-nums}
+.field.num{width:60px;flex:none;text-align:right;font-family:var(--mono);font-size:var(--fs-sec);font-variant-numeric:tabular-nums}
+.field.num.wide{width:112px}
+.field.num.sm{width:44px}
+.field.num:placeholder-shown{text-align:left}
+textarea.field{height:auto;min-height:46px;padding:5px 8px;resize:vertical;font-family:var(--mono);font-size:var(--fs-sec);line-height:1.5}
+select.field{appearance:none;-webkit-appearance:none;padding-right:24px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239AA1AB' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center}
+select.field:disabled{cursor:default}
+.unit{font-size:var(--fs-sec);color:var(--t3);margin-left:6px;flex:none}
+.numun{display:flex;align-items:center;flex:none}
+.pathin{display:flex;gap:4px;width:100%}
+.pathin .field{flex:1;min-width:0}
+.pathin>button{width:28px;height:26px;flex:none;display:grid;place-items:center;border-radius:var(--r);
+  background:var(--raised);border:1px solid var(--hair);color:var(--t2)}
+.pathin>button:hover{color:var(--t1);border-color:var(--hair2)}
+.pathin>button:disabled{opacity:.55;pointer-events:none}
+.pathin>button svg.ic{width:13px;height:13px}
+
+.seg{display:inline-flex;background:var(--well);border:1px solid var(--hair);border-radius:var(--r);padding:2px;gap:2px}
+.seg>button{height:20px;padding:0 10px;border-radius:3px;color:var(--t2);font-size:var(--fs-sec);white-space:nowrap;
+  transition:background .15s,color .15s;font-variant-numeric:tabular-nums}
+.seg>button:hover{color:var(--t1)}
+.seg>button.on{background:var(--acc);color:var(--acc-ink)}
+.seg>button:disabled{pointer-events:none}
+.seg.dis{opacity:.55;pointer-events:none}
+.seg.grow{display:flex;width:100%}
+.seg.grow>button{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;padding:0 6px}
+
+.ck{display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-ui);color:var(--t1);cursor:pointer;user-select:none;min-height:20px}
+.ck input{position:absolute;opacity:0;width:0;height:0}
+.ck .bx{width:16px;height:16px;flex:none;border-radius:3px;background:var(--well);border:1px solid var(--hair2);
+  display:grid;place-items:center;transition:background .15s,border-color .15s}
+.ck:hover .bx{border-color:rgba(200,215,235,.24)}
+.ck input:checked+.bx{background:var(--acc);border-color:var(--acc)}
+.ck input:checked+.bx::after{content:"";width:8px;height:5px;border-left:1.6px solid var(--acc-ink);
+  border-bottom:1.6px solid var(--acc-ink);transform:translateY(-1px) rotate(-45deg)}
+.ck input:focus-visible+.bx{outline:2px solid var(--acc);outline-offset:1px}
+.ck.dis{opacity:.55;pointer-events:none}
+
+.sliderrow{display:flex;align-items:center;gap:10px;width:100%}
+.sliderrow output{font-family:var(--mono);font-size:var(--fs-sec);color:var(--t1);width:34px;text-align:right;font-variant-numeric:tabular-nums;flex:none}
+/* static slider: flat 4px track + solid fill, no gradients (mock is non-interactive) */
+.slider{position:relative;flex:1;height:16px;min-width:0}
+.slider .trk{position:absolute;left:0;right:0;top:6px;height:4px;border-radius:2px;background:#262B33}
+.slider .fil{position:absolute;left:0;top:6px;height:4px;border-radius:2px;background:var(--acc);width:var(--p,0%)}
+.slider .th{position:absolute;top:2px;left:var(--p,0%);width:12px;height:12px;margin-left:-6px;border-radius:50%;background:#C3CAD4}
+
+/* ================= SOURCE ================= */
+.src-body{padding:2px 12px 12px;display:flex;flex-direction:column;gap:0}
+.blk-label{font-size:var(--fs-sec);color:var(--t2);margin-bottom:6px}
+.hint{font-size:var(--fs-sec);color:var(--t3);margin-top:4px;line-height:1.4}
+.subhead{display:flex;align-items:center;gap:8px;margin:16px 0 8px;font-size:var(--fs-sec);color:var(--t2);white-space:nowrap;min-width:0}
+.subhead .n{color:var(--t3);font-variant-numeric:tabular-nums;flex:none}
+.subhead .h{font-size:var(--fs-sec);color:var(--t3);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.qlist{display:flex;flex-direction:column;gap:4px}
+.qitem{position:relative;display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:8px;border-radius:var(--r);text-align:left;width:100%;transition:background .15s}
+.qitem:hover{background:var(--raised)}
+.qitem.is-proc{background:var(--raised)}
+.qitem.is-proc::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:1px;background:var(--acc)}
+.thumb{position:relative;width:44px;height:25px;border-radius:3px;overflow:hidden;background:#0E1013;flex:none}
+.thumb .tdur{position:absolute;right:2px;bottom:2px;font:600 8.5px/1 var(--mono);color:#C9D2DD;
+  background:rgba(10,12,15,.72);border-radius:2px;padding:2px 3px;font-variant-numeric:tabular-nums}
+.th1{background:linear-gradient(120deg,#2B333C 0%,#1B2026 55%,#14181D 100%)}
+.th1::before{content:"";position:absolute;inset:0;background:radial-gradient(90% 120% at 30% 20%,rgba(160,180,200,.18),transparent 55%)}
+.th2{background:linear-gradient(150deg,#232B35 0%,#171C22 60%,#111419 100%)}
+.th2::before{content:"";position:absolute;inset:0;background:radial-gradient(70% 100% at 68% 30%,rgba(150,170,195,.2),transparent 52%)}
+.th3{background:linear-gradient(115deg,#272C31 0%,#1A1E23 50%,#131619 100%)}
+.th3::before{content:"";position:absolute;inset:0;background:radial-gradient(100% 90% at 50% 85%,rgba(170,185,200,.14),transparent 60%)}
+.th4{background:linear-gradient(160deg,#1B1F26 0%,#121519 55%,#0E1013 100%)}
+.th4::before{content:"";position:absolute;inset:0;background:radial-gradient(50% 70% at 22% 42%,rgba(140,160,185,.22),transparent 55%)}
+.q-main{min-width:0}
+.q-title{font-size:var(--fs-ui);font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.q-meta{font-size:var(--fs-sec);color:var(--t2b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;margin-top:1px}
+.qbadge{font-size:var(--fs-micro);padding:2px 6px;border-radius:3px;background:rgba(200,215,235,.05);color:var(--t3);flex:none;white-space:nowrap}
+.qbadge.run{color:var(--acc-tx)}
+.qbadge.done{color:var(--ok-tx)}
+.qprog{position:absolute;left:8px;right:8px;bottom:2px;height:3px;border-radius:1.5px;background:rgba(200,215,235,.07);overflow:hidden}
+.qprog>i{display:block;height:100%;background:var(--acc);border-radius:1.5px}
+.oitem{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:8px;border-radius:var(--r);text-align:left;width:100%;transition:background .15s}
+.oitem:hover{background:var(--raised)}
+.oitem .fico{color:var(--t3)}
+.oitem:hover .fico{color:var(--t2)}
+
+/* ================= MONITOR ================= */
+.tabs{display:flex;gap:2px}
+.tab{position:relative;height:24px;padding:0 10px;font-size:var(--fs-micro);font-weight:600;letter-spacing:.06em;color:var(--t3);border-radius:3px}
+.tab:hover{color:var(--t2)}
+.tab.on{color:var(--t1)}
+.tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:2px;border-radius:1px;background:var(--acc)}
+.jobchip{font:500 var(--fs-micro) var(--mono);color:var(--t3);letter-spacing:.03em;font-variant-numeric:tabular-nums}
+.mon-body{padding:2px 12px 0;display:flex;flex-direction:column;gap:10px}
+.hud{display:flex;align-items:center;gap:12px;flex:none}
+.hud .l,.hud .c{font:600 var(--fs-micro) var(--mono);letter-spacing:.06em;color:var(--t3);text-transform:uppercase;font-variant-numeric:tabular-nums}
+.hud .c{color:var(--t2)}
+.hud .r{margin-left:auto;font-size:var(--fs-sec);color:var(--t3)}
+.hud .r b{font-weight:600;color:var(--t2)}
+
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;flex:none}
+.fnode{position:relative;background:var(--raised);border-radius:var(--r);padding:8px 10px;min-width:0}
+.fnode:not(:last-child)::after{content:"";position:absolute;right:-10px;top:50%;width:10px;height:1px;background:var(--hair)}
+.fnode.is-done:not(:last-child)::after{background:rgba(200,215,235,.16)}
+.fnode.is-active::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:1px;background:var(--acc)}
+.fn-top{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.fn-num{font:600 var(--fs-micro) var(--mono);letter-spacing:.06em;color:var(--t3);font-variant-numeric:tabular-nums}
+.fn-dot{width:6px;height:6px;border-radius:50%;background:#3A414B;margin-left:auto;flex:none}
+.is-done .fn-dot{background:var(--ok)}
+.is-active .fn-dot{background:var(--acc)}
+.is-failed .fn-dot{background:var(--dgr)}
+.fn-label{display:flex;align-items:center;gap:6px;font-size:var(--fs-ui);font-weight:600;color:var(--t2);white-space:nowrap;overflow:hidden}
+.is-active .fn-label,.is-done .fn-label{color:var(--t1)}
+.fn-label svg.ic{width:13px;height:13px;color:var(--t3)}
+.is-active .fn-label svg.ic{color:var(--acc-tx)}
+.fn-val{font-size:var(--fs-sec);color:var(--t2b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;font-variant-numeric:tabular-nums}
+.fn-bar{height:3px;border-radius:1.5px;background:rgba(200,215,235,.06);margin-top:8px;overflow:hidden}
+.fn-bar>i{display:block;height:100%;border-radius:1.5px;background:var(--acc)}
+.is-done .fn-bar>i{background:#39424E}
+
+.scopes{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:minmax(72px,1fr);gap:8px;flex:1 1 auto;min-height:150px}
+.scope{background:var(--well);border-radius:var(--r);padding:8px 10px;display:flex;flex-direction:column;min-height:0;min-width:0}
+.sc-top{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+.sc-top .lb{font-size:var(--fs-micro);font-weight:600;letter-spacing:.06em;color:var(--t3);text-transform:uppercase}
+.sc-top .vl{margin-left:auto;font:500 var(--fs-ui) var(--mono);color:var(--t1);font-variant-numeric:tabular-nums}
+.sc-top .vl em{font-style:normal;font-size:var(--fs-micro);color:var(--t3);margin-left:3px}
+.scope svg{flex:1 1 auto;width:100%;min-height:0;display:block}
+.sc-axis{display:flex;margin-top:4px;font:500 var(--fs-micro) var(--mono);color:var(--t2b);letter-spacing:.03em;font-variant-numeric:tabular-nums}
+.sc-axis span:last-child{margin-left:auto}
+
+.readout{display:flex;align-items:center;gap:24px;flex:none}
+.ro-pct{font:600 20px/1.1 var(--mono);color:var(--t1);font-variant-numeric:tabular-nums;flex:none}
+.ro-sum{font-size:var(--fs-sec);color:var(--t2);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eta{margin-left:auto;display:flex;gap:24px;flex:none}
+.eta-c{text-align:right}
+.eta-v{display:block;font:500 14px/1.2 var(--mono);color:var(--t1);font-variant-numeric:tabular-nums}
+.eta-l{display:block;font-size:var(--fs-sec);color:var(--t3);margin-top:1px}
+
+.tl{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;flex:none}
+.tl-c{position:relative;height:26px;background:var(--raised);border-radius:3px;overflow:hidden;
+  display:flex;align-items:center;padding:0 10px}
+.tl-c span{position:relative;font:500 var(--fs-sec) var(--mono);letter-spacing:.03em;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-c.is-active span{color:var(--t1)}
+.tl-c.is-active i{position:absolute;left:0;bottom:0;height:3px;background:var(--acc)}
+.tl-c.is-done span{color:var(--t2)}
+
+.phases{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;flex:none}
+.phase{padding:2px 0}
+.ph-top{display:flex;align-items:baseline;gap:8px}
+.ph-name{font-size:var(--fs-ui);font-weight:600;color:var(--t2)}
+.phase.is-run .ph-name{color:var(--t1)}
+.ph-pct{margin-left:auto;font:500 var(--fs-sec) var(--mono);color:var(--t3);font-variant-numeric:tabular-nums}
+.phase.is-run .ph-pct{color:var(--t1)}
+.ph-track{height:4px;border-radius:2px;background:rgba(200,215,235,.06);margin:4px 0;overflow:hidden}
+.ph-track>i{display:block;height:100%;border-radius:2px;background:var(--acc)}
+.phase.is-done .ph-track>i{background:#39424E}
+.ph-meta{display:flex;gap:8px;font-size:var(--fs-sec);color:var(--t2b);font-variant-numeric:tabular-nums}
+.ph-meta span:last-child{margin-left:auto;white-space:nowrap}
+
+.mstrip{display:grid;grid-template-columns:repeat(7,auto);justify-content:space-between;gap:12px;
+  border-top:1px solid var(--hair);padding:8px 2px 10px;flex:none}
+.m .lb{display:block;font-size:var(--fs-micro);font-weight:600;letter-spacing:.06em;color:var(--t3);text-transform:uppercase}
+.m .vl{display:block;font:500 var(--fs-ui) var(--mono);color:var(--t1);margin-top:2px;font-variant-numeric:tabular-nums}
+.m .vl.na{color:var(--t3)}
+
+/* ================= LIVE tab ================= */
+.live-body{padding:2px 12px 0;display:flex;flex-direction:column;gap:10px}
+.stage{flex:1 1 auto;min-height:0;display:grid;place-items:center;background:var(--well);border-radius:var(--r);padding:12px}
+.frame{position:relative;aspect-ratio:16/9;max-width:100%;max-height:100%;width:min(100%,1000px);border-radius:3px;overflow:hidden;
+  background:linear-gradient(140deg,#22272E 0%,#181C22 45%,#101318 100%)}
+.frame::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(80% 90% at 34% 30%,rgba(150,170,195,.16),transparent 55%),
+             radial-gradient(120% 100% at 50% 118%,rgba(8,10,13,.8),transparent 60%)}
+.mbox{position:absolute;border:1.5px solid rgba(127,166,210,.6);border-radius:3px}
+.mbox .tag{position:absolute;left:-1px;top:-15px;font:600 8.5px var(--mono);color:rgba(127,166,210,.85);letter-spacing:.04em}
+.mell{position:absolute;border:1.5px solid rgba(121,184,144,.55);border-radius:50%}
+.livechip{position:absolute;left:8px;top:8px;display:inline-flex;align-items:center;gap:5px;
+  font:600 var(--fs-micro) var(--mono);letter-spacing:.08em;color:#E3E8EF;background:rgba(10,12,15,.72);border-radius:3px;padding:3px 7px}
+.livechip i{width:6px;height:6px;border-radius:50%;background:var(--dgr-h)}
+.lmeta{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;flex:none}
+.lm{background:var(--raised);border-radius:var(--r);padding:6px 10px;min-width:0}
+.lm .lb{display:block;font-size:var(--fs-micro);font-weight:600;letter-spacing:.06em;color:var(--t3);text-transform:uppercase}
+.lm .vl{display:block;font:500 var(--fs-ui) var(--mono);color:var(--t1);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+
+/* ================= INSPECTOR ================= */
+.insp-body{padding:0 0 10px}
+.sec{padding:0 12px}
+.sec + .sec{border-top:1px solid var(--hair)}
+.sec-h{display:flex;align-items:center;gap:7px;width:100%;height:34px;text-align:left}
+.sec-h .chev{width:12px;height:12px;color:var(--t3);transition:transform .15s}
+.sec.is-open .sec-h .chev{transform:rotate(90deg)}
+.sec-name{font-size:var(--fs-ui);font-weight:600;color:var(--t1)}
+.sec-badge{margin-left:auto;font:600 var(--fs-micro) var(--mono);letter-spacing:.04em;color:var(--t3);
+  background:rgba(200,215,235,.05);border-radius:3px;padding:2px 6px}
+.sec-badge.ok{color:var(--ok-tx)}
+.sec-b{display:none;padding:2px 0 14px}
+.sec.is-open .sec-b{display:block}
+.row{display:flex;align-items:center;gap:8px;min-height:28px;padding:1px 0}
+.rl{width:96px;flex:none;font-size:var(--fs-sec);color:var(--t2);line-height:1.3}
+.rc{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+.row.stack{display:block}
+.row.stack .rl{display:block;width:auto;margin:6px 0 5px}
+.row-hint{font-size:var(--fs-sec);color:var(--t3);padding:1px 0 4px 104px;line-height:1.4}
+.row.stack + .row-hint,.row-hint.full{padding-left:0}
+.subh{font-size:var(--fs-sec);color:var(--t3);margin:12px 0 4px;padding-top:10px;border-top:1px solid var(--hair)}
+.ckcol{display:flex;flex-direction:column;gap:6px;padding:2px 0}
+.ckgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;padding:2px 0}
+.minitable{width:100%}
+.minitable .mt-h{display:grid;grid-template-columns:1fr 96px 60px;gap:6px;font-size:var(--fs-micro);font-weight:600;
+  letter-spacing:.02em;color:var(--t3);padding:0 0 4px}
+.minitable .mt-r{display:grid;grid-template-columns:1fr 96px 60px;gap:6px;align-items:center;padding:3px 0}
+.minitable .mt-r .cn{font-size:var(--fs-sec);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.minitable .seg>button{padding:0 6px;font-size:var(--fs-micro)}
+.minitable .numun{width:100%}
+.minitable .numun .field.num{flex:1 1 auto;width:auto;min-width:0}
+/* クラス別ルール editor (詳細のみ) */
+.rules{width:100%}
+.rules .ru-h{display:grid;grid-template-columns:minmax(0,1fr) 84px 44px 44px 20px;gap:4px;font-size:var(--fs-micro);
+  font-weight:600;letter-spacing:.02em;color:var(--t3);padding:0 0 4px}
+.rules .ru-r{display:grid;grid-template-columns:minmax(0,1fr) 84px 44px 44px 20px;gap:4px;align-items:center;padding:3px 0}
+.rules .ru-r .cn{font-size:var(--fs-sec);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rules .field{width:100%;padding:0 6px;font-size:var(--fs-sec)}
+.rules .field.num{width:100%}
+.rules .seg{display:flex;width:100%}
+.rules .seg>button{flex:1;padding:0 4px;font-size:var(--fs-micro)}
+.rules .rm{width:20px;height:22px;display:grid;place-items:center;border-radius:3px;color:var(--t3);font-size:var(--fs-sec)}
+.rules .rm:hover{background:var(--raised);color:var(--t1)}
+.rules .ru-add{padding:4px 0 0}
+.insp .is-busy .seg:not(.viewseg),.insp .is-busy .ck,.insp .is-busy .field,.insp .is-busy .pathin>button,
+.insp .is-busy .slider,.insp .is-busy .rm,.insp .is-busy .btn.quiet{opacity:.55;pointer-events:none}
+.insp:not(.show-adv) .adv{display:none!important}
+.insp.show-adv .simple-only{display:none}
+
+/* ================= CONSOLE ================= */
+.console{margin:0 8px}
+.con-head{display:flex;align-items:center;gap:12px;height:32px;padding:0 12px;flex:none}
+.con-head .filter{width:132px;height:22px;font-size:var(--fs-sec)}
+.con-head .lines{font:500 var(--fs-sec) var(--mono);color:var(--t3);font-variant-numeric:tabular-nums}
+.con-head .ck{font-size:var(--fs-sec);color:var(--t2)}
+.con-body{flex:1 1 auto;min-height:0;margin:0 12px 10px;background:var(--well);border-radius:var(--r);
+  padding:6px 10px;overflow:auto;font:400 var(--fs-sec)/15px var(--mono);color:var(--t2);font-variant-numeric:tabular-nums}
+.cl{display:flex;gap:12px;white-space:pre}
+.cl .ln{flex:none;width:28px;text-align:right;color:#4A515C;user-select:none}
+.cl .tag{color:var(--trace);font-weight:500}
+.cl.cmd .tx{color:var(--t1)}
+
+/* drag handles (invisible, cursor only) */
+.vgap{cursor:col-resize}
+.hgap{cursor:row-resize}
+</style>
+</head>
+<body>
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M16 4v16M3 9h5M3 15h5M16 9h5M16 15h5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5L19 7"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><rect x="10" y="10" width="4" height="4"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></symbol>
+</svg>
+
+<div class="viewport">
+<div class="app">
+
+  <!-- ============ TOPBAR ============ -->
+  <header class="topbar">
+    <div class="logo"><svg class="ic"><use href="#i-film"/></svg></div>
+    <div class="fchip" title="入力キューの状態"><span class="k">QUEUE</span><span class="v">4本 · 残り2</span></div>
+    <div class="fchip" title="/home/user/videos/mask_out"><span class="k">OUT</span><span class="v">mask_out</span></div>
+    <div class="spacer"></div>
+    <button class="btn" disabled title="設定と入力だけを検証 (Ctrl+D)"><svg class="ic"><use href="#i-check"/></svg>Dry Run</button>
+    <button class="btn danger" title="キューの処理を停止 (Esc)"><svg class="ic"><use href="#i-stop"/></svg>停止</button>
+  </header>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+
+    <!-- SOURCE -->
+    <section class="panel">
+      <div class="p-head"><span class="p-title">Source</span><span class="p-meta">4本</span></div>
+      <div class="p-body src-body">
+        <div>
+          <div class="blk-label">出力リポジトリ</div>
+          <div class="pathin">
+            <input class="field mono" value="/home/user/videos/mask_out" disabled>
+            <button title="参照…" disabled><svg class="ic"><use href="#i-folder"/></svg></button>
+          </div>
+          <div class="hint">処理中は変更できません</div>
+        </div>
+
+        <div class="subhead">入力キュー<span class="n">残り2</span><span class="spacer"></span>
+          <button class="btn quiet" title="動画ファイルを選択して追加"><svg class="ic"><use href="#i-plus"/></svg>追加</button>
+        </div>
+        <div class="qlist">
+          <div class="qitem" tabindex="0" title="/home/user/videos/interview_a_1080p.mp4&#10;右クリックで操作">
+            <div class="thumb th1"></div>
+            <div class="q-main">
+              <div class="q-title">interview_a_1080p</div>
+              <div class="q-meta">V3 + Face V2 · ポリゴン · overlay fast</div>
+            </div>
+            <span class="qbadge done">処理済み</span>
+          </div>
+          <div class="qitem is-proc" tabindex="0" title="/home/user/videos/studio_b_4k.mp4&#10;右クリックで操作">
+            <div class="thumb th2"></div>
+            <div class="q-main">
+              <div class="q-title">studio_b_4k</div>
+              <div class="q-meta">V3 + Face V2 · ポリゴン · overlay fast</div>
+            </div>
+            <span class="qbadge run">処理中</span>
+            <div class="qprog"><i style="width:46%"></i></div>
+          </div>
+          <div class="qitem" tabindex="0" title="/home/user/videos/daily_scrum_720p.mp4&#10;右クリックで操作">
+            <div class="thumb th3"><span class="tdur">05:21</span></div>
+            <div class="q-main">
+              <div class="q-title">daily_scrum_720p</div>
+              <div class="q-meta">05:21 · 1280×720 · 30.00 fps</div>
+            </div>
+            <span class="qbadge">未処理</span>
+          </div>
+          <div class="qitem" tabindex="0" title="/home/user/videos/night_walk_b_1080p.mp4&#10;右クリックで操作">
+            <div class="thumb th4"><span class="tdur">03:47</span></div>
+            <div class="q-main">
+              <div class="q-title">night_walk_b_1080p</div>
+              <div class="q-meta">03:47 · 1920×1080 · 59.94 fps</div>
+            </div>
+            <span class="qbadge">未処理</span>
+          </div>
+        </div>
+
+        <div class="subhead">出力キュー<span class="n">1本完了</span><span class="spacer"></span><span class="h">クリックでフォルダを開く</span></div>
+        <div class="qlist">
+          <button class="oitem" title="/home/user/videos/mask_out/interview_a_1080p&#10;クリックして出力フォルダを開く">
+            <div class="thumb th1"></div>
+            <div class="q-main">
+              <div class="q-title">interview_a_1080p</div>
+              <div class="q-meta">08/01 10:52 · 9成果物 · V3 + Face V2 · ポリゴン · overlay fast</div>
+            </div>
+            <span class="fico" aria-label="出力フォルダを開く"><svg class="ic"><use href="#i-folder"/></svg></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <div class="vgap"></div>
+
+    <!-- MONITOR -->
+    <section class="panel">
+      <div class="p-head">
+        <span class="p-title">Monitor</span><span class="p-meta">性器 + 顔</span>
+        <div class="spacer"></div>
+        <div class="tabs" role="tablist" aria-label="Monitor view">
+          <button class="tab on" id="tab-status" role="tab" aria-selected="true">STATUS</button>
+          <button class="tab" id="tab-live" role="tab" aria-selected="false">LIVE</button>
+        </div>
+        <span class="jobchip">JOB 2026-08-01T10-58-24</span>
+      </div>
+
+      <!-- STATUS tab -->
+      <div class="p-body mon-body" id="pane-status" role="tabpanel">
+        <div class="hud">
+          <span class="l">PIPELINE · 6 STEPS</span>
+          <span class="c">BATCH 2 / 4</span>
+          <span class="r"><b>実行中</b> · 性器推論</span>
+        </div>
+
+        <div class="flow">
+          <div class="fnode is-done">
+            <div class="fn-top"><span class="fn-num">01</span><span class="fn-dot"></span></div>
+            <div class="fn-label"><svg class="ic"><use href="#i-video"/></svg>入力</div>
+            <div class="fn-val">studio_b_4k</div>
+            <div class="fn-bar"><i style="width:100%"></i></div>
+          </div>
+          <div class="fnode is-active">
+            <div class="fn-top"><span class="fn-num">02</span><span class="fn-dot"></span></div>
+            <div class="fn-label"><svg class="ic"><use href="#i-cpu"/></svg>性器推論</div>
+            <div class="fn-val">V3</div>
+            <div class="fn-bar"><i style="width:45%"></i></div>
+          </div>
+          <div class="fnode is-done">
+            <div class="fn-top"><span class="fn-num">03</span><span class="fn-dot"></span></div>
+            <div class="fn-label"><svg class="ic"><use href="#i-eye"/></svg>顔推論</div>
+            <div class="fn-val">Face V2</div>
+            <div class="fn-bar"><i style="width:100%"></i></div>
+          </div>
+          <div class="fnode">
+            <div class="fn-top"><span class="fn-num">04</span><span class="fn-dot"></span></div>
+            <div class="fn-label"><svg class="ic"><use href="#i-layers"/></svg>後処理</div>
+            <div class="fn-val">3クラス個別 · カット先行</div>
+            <div class="fn-bar"></div>
+          </div>
+          <div class="fnode">
+            <div class="fn-top"><span class="fn-num">05</span><span class="fn-dot"></span></div>
+            <div class="fn-label"><svg class="ic"><use href="#i-film"/></svg>オーバーレイ</div>
+            <div class="fn-val">2本 · 高速</div>
+            <div class="fn-bar"></div>
+          </div>
+          <div class="fnode">
+            <div class="fn-top"><span class="fn-num">06</span><span class="fn-dot"></span></div>
+            <div class="fn-label"><svg class="ic"><use href="#i-db"/></svg>出力</div>
+            <div class="fn-val">SQLite + 動画</div>
+            <div class="fn-bar"></div>
+          </div>
+        </div>
+
+        <div class="scopes">
+          <div class="scope">
+            <div class="sc-top"><span class="lb">FPS</span><span class="vl">21.4<em>fps</em></span></div>
+            <svg viewBox="0 0 180 40" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="0" y1="10" x2="180" y2="10" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="20" x2="180" y2="20" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="30" x2="180" y2="30" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <path d="M0.0,7.0 L2.0,6.7 L4.0,6.8 L6.1,7.0 L8.1,7.2 L10.1,7.0 L12.1,7.3 L14.2,7.7 L16.2,7.8 L18.2,8.0 L20.2,8.4 L22.2,8.2 L24.3,8.2 L26.3,8.3 L28.3,7.9 L30.3,8.1 L32.4,7.9 L34.4,7.9 L36.4,7.3 L38.4,7.3 L40.4,7.2 L42.5,7.2 L44.5,7.7 L46.5,7.4 L48.5,7.4 L50.6,8.3 L52.6,8.7 L54.6,10.1 L56.6,10.2 L58.7,10.4 L60.7,9.6 L62.7,8.9 L64.7,8.8 L66.7,8.6 L68.8,8.4 L70.8,8.5 L72.8,8.0 L74.8,7.6 L76.9,7.9 L78.9,7.7 L80.9,7.3 L82.9,7.1 L84.9,7.2 L87.0,7.6 L89.0,7.4 L91.0,7.3 L93.0,7.5 L95.1,8.0 L97.1,7.9 L99.1,7.7 L101.1,7.8 L103.1,8.2 L105.2,8.2 L107.2,8.1 L109.2,8.2 L111.2,7.5 L113.3,7.8 L115.3,7.6 L117.3,7.3 L119.3,7.6 L121.3,8.1 L123.4,8.5 L125.4,7.7 L127.4,7.1 L129.4,7.3 L131.5,6.9 L133.5,7.4 L135.5,7.0 L137.5,7.5 L139.6,7.8 L141.6,7.8 L143.6,8.0 L145.6,8.0 L147.6,8.3 L149.7,7.8 L151.7,7.9 L153.7,7.9 L155.7,7.4 L157.8,7.1 L159.8,7.4 L161.8,7.4 L163.8,7.1 L165.8,7.2 L167.9,7.0 L169.9,7.1 L171.9,7.3 L173.9,7.5 L176.0,8.0 L178.0,8.0 L180.0,7.6 L180,40 L0,40 Z" fill="rgba(100,126,156,.12)"/>
+              <path d="M0.0,7.0 L2.0,6.7 L4.0,6.8 L6.1,7.0 L8.1,7.2 L10.1,7.0 L12.1,7.3 L14.2,7.7 L16.2,7.8 L18.2,8.0 L20.2,8.4 L22.2,8.2 L24.3,8.2 L26.3,8.3 L28.3,7.9 L30.3,8.1 L32.4,7.9 L34.4,7.9 L36.4,7.3 L38.4,7.3 L40.4,7.2 L42.5,7.2 L44.5,7.7 L46.5,7.4 L48.5,7.4 L50.6,8.3 L52.6,8.7 L54.6,10.1 L56.6,10.2 L58.7,10.4 L60.7,9.6 L62.7,8.9 L64.7,8.8 L66.7,8.6 L68.8,8.4 L70.8,8.5 L72.8,8.0 L74.8,7.6 L76.9,7.9 L78.9,7.7 L80.9,7.3 L82.9,7.1 L84.9,7.2 L87.0,7.6 L89.0,7.4 L91.0,7.3 L93.0,7.5 L95.1,8.0 L97.1,7.9 L99.1,7.7 L101.1,7.8 L103.1,8.2 L105.2,8.2 L107.2,8.1 L109.2,8.2 L111.2,7.5 L113.3,7.8 L115.3,7.6 L117.3,7.3 L119.3,7.6 L121.3,8.1 L123.4,8.5 L125.4,7.7 L127.4,7.1 L129.4,7.3 L131.5,6.9 L133.5,7.4 L135.5,7.0 L137.5,7.5 L139.6,7.8 L141.6,7.8 L143.6,8.0 L145.6,8.0 L147.6,8.3 L149.7,7.8 L151.7,7.9 L153.7,7.9 L155.7,7.4 L157.8,7.1 L159.8,7.4 L161.8,7.4 L163.8,7.1 L165.8,7.2 L167.9,7.0 L169.9,7.1 L171.9,7.3 L173.9,7.5 L176.0,8.0 L178.0,8.0 L180.0,7.6" fill="none" stroke="var(--trace)" stroke-width="1.1" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <div class="sc-axis"><span>peak 23.9</span><span>180 pt</span></div>
+          </div>
+          <div class="scope">
+            <div class="sc-top"><span class="lb">GPU</span><span class="vl">97<em>%</em></span></div>
+            <svg viewBox="0 0 180 40" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="0" y1="10" x2="180" y2="10" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="20" x2="180" y2="20" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="30" x2="180" y2="30" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <path d="M0.0,5.3 L2.0,5.1 L4.0,4.8 L6.1,4.8 L8.1,4.6 L10.1,5.0 L12.1,5.2 L14.2,5.4 L16.2,5.6 L18.2,5.6 L20.2,5.7 L22.2,5.3 L24.3,5.1 L26.3,5.2 L28.3,4.7 L30.3,4.7 L32.4,4.5 L34.4,4.8 L36.4,4.7 L38.4,5.1 L40.4,5.4 L42.5,5.5 L44.5,5.9 L46.5,5.9 L48.5,5.7 L50.6,5.5 L52.6,5.9 L54.6,6.5 L56.6,6.5 L58.7,6.0 L60.7,5.8 L62.7,5.1 L64.7,5.4 L66.7,5.4 L68.8,5.7 L70.8,5.5 L72.8,5.5 L74.8,5.4 L76.9,5.5 L78.9,5.3 L80.9,5.1 L82.9,4.9 L84.9,5.0 L87.0,4.7 L89.0,4.8 L91.0,4.7 L93.0,5.3 L95.1,5.2 L97.1,5.5 L99.1,5.5 L101.1,5.6 L103.1,5.6 L105.2,5.4 L107.2,5.3 L109.2,5.0 L111.2,4.7 L113.3,4.5 L115.3,4.7 L117.3,5.2 L119.3,5.4 L121.3,6.2 L123.4,6.7 L125.4,6.7 L127.4,6.3 L129.4,5.6 L131.5,5.3 L133.5,5.2 L135.5,5.1 L137.5,4.7 L139.6,4.6 L141.6,4.7 L143.6,4.8 L145.6,4.9 L147.6,5.0 L149.7,5.6 L151.7,5.4 L153.7,5.6 L155.7,5.8 L157.8,5.4 L159.8,5.1 L161.8,5.2 L163.8,4.7 L165.8,4.9 L167.9,5.0 L169.9,4.5 L171.9,4.8 L173.9,5.2 L176.0,5.3 L178.0,5.3 L180.0,5.0 L180,40 L0,40 Z" fill="rgba(100,126,156,.12)"/>
+              <path d="M0.0,5.3 L2.0,5.1 L4.0,4.8 L6.1,4.8 L8.1,4.6 L10.1,5.0 L12.1,5.2 L14.2,5.4 L16.2,5.6 L18.2,5.6 L20.2,5.7 L22.2,5.3 L24.3,5.1 L26.3,5.2 L28.3,4.7 L30.3,4.7 L32.4,4.5 L34.4,4.8 L36.4,4.7 L38.4,5.1 L40.4,5.4 L42.5,5.5 L44.5,5.9 L46.5,5.9 L48.5,5.7 L50.6,5.5 L52.6,5.9 L54.6,6.5 L56.6,6.5 L58.7,6.0 L60.7,5.8 L62.7,5.1 L64.7,5.4 L66.7,5.4 L68.8,5.7 L70.8,5.5 L72.8,5.5 L74.8,5.4 L76.9,5.5 L78.9,5.3 L80.9,5.1 L82.9,4.9 L84.9,5.0 L87.0,4.7 L89.0,4.8 L91.0,4.7 L93.0,5.3 L95.1,5.2 L97.1,5.5 L99.1,5.5 L101.1,5.6 L103.1,5.6 L105.2,5.4 L107.2,5.3 L109.2,5.0 L111.2,4.7 L113.3,4.5 L115.3,4.7 L117.3,5.2 L119.3,5.4 L121.3,6.2 L123.4,6.7 L125.4,6.7 L127.4,6.3 L129.4,5.6 L131.5,5.3 L133.5,5.2 L135.5,5.1 L137.5,4.7 L139.6,4.6 L141.6,4.7 L143.6,4.8 L145.6,4.9 L147.6,5.0 L149.7,5.6 L151.7,5.4 L153.7,5.6 L155.7,5.8 L157.8,5.4 L159.8,5.1 L161.8,5.2 L163.8,4.7 L165.8,4.9 L167.9,5.0 L169.9,4.5 L171.9,4.8 L173.9,5.2 L176.0,5.3 L178.0,5.3 L180.0,5.0" fill="none" stroke="var(--trace)" stroke-width="1.1" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <div class="sc-axis"><span>scale 100%</span><span>180 pt</span></div>
+          </div>
+          <div class="scope">
+            <div class="sc-top"><span class="lb">CPU</span><span class="vl">34<em>%</em></span></div>
+            <svg viewBox="0 0 180 40" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="0" y1="10" x2="180" y2="10" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="20" x2="180" y2="20" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="30" x2="180" y2="30" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <path d="M0.0,26.3 L2.0,26.0 L4.0,26.0 L6.1,25.3 L8.1,25.6 L10.1,25.3 L12.1,25.6 L14.2,26.3 L16.2,25.6 L18.2,26.6 L20.2,26.5 L22.2,26.2 L24.3,26.5 L26.3,27.3 L28.3,27.5 L30.3,27.5 L32.4,27.3 L34.4,27.5 L36.4,27.8 L38.4,28.0 L40.4,27.9 L42.5,27.3 L44.5,27.0 L46.5,27.5 L48.5,27.3 L50.6,27.0 L52.6,25.3 L54.6,25.6 L56.6,24.3 L58.7,24.9 L60.7,24.9 L62.7,25.2 L64.7,25.7 L66.7,26.1 L68.8,25.8 L70.8,25.5 L72.8,25.3 L74.8,26.3 L76.9,25.8 L78.9,26.3 L80.9,26.5 L82.9,26.3 L84.9,27.1 L87.0,27.4 L89.0,27.3 L91.0,27.3 L93.0,27.5 L95.1,27.6 L97.1,27.6 L99.1,27.4 L101.1,27.7 L103.1,27.4 L105.2,27.2 L107.2,27.1 L109.2,26.7 L111.2,26.7 L113.3,27.1 L115.3,26.3 L117.3,26.1 L119.3,25.0 L121.3,25.1 L123.4,25.0 L125.4,24.3 L127.4,24.6 L129.4,25.1 L131.5,25.4 L133.5,26.0 L135.5,25.5 L137.5,25.7 L139.6,25.8 L141.6,26.8 L143.6,26.7 L145.6,26.7 L147.6,26.5 L149.7,26.6 L151.7,27.3 L153.7,27.3 L155.7,27.1 L157.8,27.6 L159.8,27.5 L161.8,28.0 L163.8,27.5 L165.8,27.0 L167.9,27.1 L169.9,27.2 L171.9,26.8 L173.9,26.2 L176.0,26.5 L178.0,26.4 L180.0,26.4 L180,40 L0,40 Z" fill="rgba(100,126,156,.12)"/>
+              <path d="M0.0,26.3 L2.0,26.0 L4.0,26.0 L6.1,25.3 L8.1,25.6 L10.1,25.3 L12.1,25.6 L14.2,26.3 L16.2,25.6 L18.2,26.6 L20.2,26.5 L22.2,26.2 L24.3,26.5 L26.3,27.3 L28.3,27.5 L30.3,27.5 L32.4,27.3 L34.4,27.5 L36.4,27.8 L38.4,28.0 L40.4,27.9 L42.5,27.3 L44.5,27.0 L46.5,27.5 L48.5,27.3 L50.6,27.0 L52.6,25.3 L54.6,25.6 L56.6,24.3 L58.7,24.9 L60.7,24.9 L62.7,25.2 L64.7,25.7 L66.7,26.1 L68.8,25.8 L70.8,25.5 L72.8,25.3 L74.8,26.3 L76.9,25.8 L78.9,26.3 L80.9,26.5 L82.9,26.3 L84.9,27.1 L87.0,27.4 L89.0,27.3 L91.0,27.3 L93.0,27.5 L95.1,27.6 L97.1,27.6 L99.1,27.4 L101.1,27.7 L103.1,27.4 L105.2,27.2 L107.2,27.1 L109.2,26.7 L111.2,26.7 L113.3,27.1 L115.3,26.3 L117.3,26.1 L119.3,25.0 L121.3,25.1 L123.4,25.0 L125.4,24.3 L127.4,24.6 L129.4,25.1 L131.5,25.4 L133.5,26.0 L135.5,25.5 L137.5,25.7 L139.6,25.8 L141.6,26.8 L143.6,26.7 L145.6,26.7 L147.6,26.5 L149.7,26.6 L151.7,27.3 L153.7,27.3 L155.7,27.1 L157.8,27.6 L159.8,27.5 L161.8,28.0 L163.8,27.5 L165.8,27.0 L167.9,27.1 L169.9,27.2 L171.9,26.8 L173.9,26.2 L176.0,26.5 L178.0,26.4 L180.0,26.4" fill="none" stroke="var(--trace)" stroke-width="1.1" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <div class="sc-axis"><span>scale 100%</span><span>180 pt</span></div>
+          </div>
+          <div class="scope">
+            <div class="sc-top"><span class="lb">VRAM</span><span class="vl">78<em>%</em></span></div>
+            <svg viewBox="0 0 180 40" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="0" y1="10" x2="180" y2="10" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="20" x2="180" y2="20" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="30" x2="180" y2="30" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <path d="M0.0,13.7 L2.0,13.6 L4.0,13.5 L6.1,13.6 L8.1,13.5 L10.1,13.4 L12.1,13.3 L14.2,13.4 L16.2,13.4 L18.2,13.4 L20.2,13.4 L22.2,13.4 L24.3,13.4 L26.3,13.5 L28.3,13.5 L30.3,13.5 L32.4,13.5 L34.4,13.4 L36.4,13.4 L38.4,13.2 L40.4,13.1 L42.5,13.1 L44.5,13.0 L46.5,13.0 L48.5,12.9 L50.6,12.9 L52.6,12.7 L54.6,12.8 L56.6,12.8 L58.7,12.8 L60.7,12.8 L62.7,12.8 L64.7,12.8 L66.7,13.0 L68.8,12.8 L70.8,12.9 L72.8,12.8 L74.8,12.9 L76.9,12.8 L78.9,12.8 L80.9,12.6 L82.9,12.6 L84.9,12.5 L87.0,12.5 L89.0,12.4 L91.0,12.3 L93.0,12.2 L95.1,12.2 L97.1,12.3 L99.1,12.3 L101.1,12.3 L103.1,12.2 L105.2,12.3 L107.2,12.3 L109.2,12.3 L111.2,12.3 L113.3,12.4 L115.3,12.3 L117.3,12.2 L119.3,12.2 L121.3,12.2 L123.4,12.1 L125.4,12.1 L127.4,12.0 L129.4,11.8 L131.5,11.8 L133.5,11.8 L135.5,11.6 L137.5,11.7 L139.6,11.6 L141.6,11.6 L143.6,11.7 L145.6,11.7 L147.6,11.6 L149.7,11.7 L151.7,11.8 L153.7,11.8 L155.7,11.8 L157.8,11.7 L159.8,11.8 L161.8,11.7 L163.8,11.8 L165.8,11.7 L167.9,11.6 L169.9,11.6 L171.9,11.5 L173.9,11.4 L176.0,11.5 L178.0,11.4 L180.0,11.5 L180,40 L0,40 Z" fill="rgba(100,126,156,.12)"/>
+              <path d="M0.0,13.7 L2.0,13.6 L4.0,13.5 L6.1,13.6 L8.1,13.5 L10.1,13.4 L12.1,13.3 L14.2,13.4 L16.2,13.4 L18.2,13.4 L20.2,13.4 L22.2,13.4 L24.3,13.4 L26.3,13.5 L28.3,13.5 L30.3,13.5 L32.4,13.5 L34.4,13.4 L36.4,13.4 L38.4,13.2 L40.4,13.1 L42.5,13.1 L44.5,13.0 L46.5,13.0 L48.5,12.9 L50.6,12.9 L52.6,12.7 L54.6,12.8 L56.6,12.8 L58.7,12.8 L60.7,12.8 L62.7,12.8 L64.7,12.8 L66.7,13.0 L68.8,12.8 L70.8,12.9 L72.8,12.8 L74.8,12.9 L76.9,12.8 L78.9,12.8 L80.9,12.6 L82.9,12.6 L84.9,12.5 L87.0,12.5 L89.0,12.4 L91.0,12.3 L93.0,12.2 L95.1,12.2 L97.1,12.3 L99.1,12.3 L101.1,12.3 L103.1,12.2 L105.2,12.3 L107.2,12.3 L109.2,12.3 L111.2,12.3 L113.3,12.4 L115.3,12.3 L117.3,12.2 L119.3,12.2 L121.3,12.2 L123.4,12.1 L125.4,12.1 L127.4,12.0 L129.4,11.8 L131.5,11.8 L133.5,11.8 L135.5,11.6 L137.5,11.7 L139.6,11.6 L141.6,11.6 L143.6,11.7 L145.6,11.7 L147.6,11.6 L149.7,11.7 L151.7,11.8 L153.7,11.8 L155.7,11.8 L157.8,11.7 L159.8,11.8 L161.8,11.7 L163.8,11.8 L165.8,11.7 L167.9,11.6 L169.9,11.6 L171.9,11.5 L173.9,11.4 L176.0,11.5 L178.0,11.4 L180.0,11.5" fill="none" stroke="var(--trace)" stroke-width="1.1" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <div class="sc-axis"><span>scale 100% · 24.9 / 32 GB</span><span>180 pt</span></div>
+          </div>
+          <div class="scope">
+            <div class="sc-top"><span class="lb">MEMORY</span><span class="vl">41<em>%</em></span></div>
+            <svg viewBox="0 0 180 40" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="0" y1="10" x2="180" y2="10" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="20" x2="180" y2="20" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="30" x2="180" y2="30" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <path d="M0.0,24.1 L2.0,24.0 L4.0,24.0 L6.1,23.9 L8.1,24.0 L10.1,24.0 L12.1,23.9 L14.2,23.9 L16.2,24.0 L18.2,23.9 L20.2,24.0 L22.2,24.1 L24.3,24.0 L26.3,24.1 L28.3,24.2 L30.3,24.1 L32.4,24.2 L34.4,24.3 L36.4,24.4 L38.4,24.2 L40.4,24.3 L42.5,24.3 L44.5,24.3 L46.5,24.4 L48.5,24.4 L50.6,24.4 L52.6,24.5 L54.6,24.5 L56.6,24.3 L58.7,24.3 L60.7,24.4 L62.7,24.3 L64.7,24.3 L66.7,24.3 L68.8,24.3 L70.8,24.3 L72.8,24.2 L74.8,24.1 L76.9,24.1 L78.9,24.2 L80.9,24.2 L82.9,24.0 L84.9,24.1 L87.0,24.1 L89.0,24.1 L91.0,23.9 L93.0,23.9 L95.1,24.1 L97.1,24.0 L99.1,23.9 L101.1,23.9 L103.1,24.0 L105.2,23.9 L107.2,24.0 L109.2,24.0 L111.2,24.0 L113.3,24.1 L115.3,24.1 L117.3,24.1 L119.3,24.3 L121.3,24.2 L123.4,24.3 L125.4,24.4 L127.4,24.4 L129.4,24.3 L131.5,24.3 L133.5,24.3 L135.5,24.3 L137.5,24.3 L139.6,24.4 L141.6,24.4 L143.6,24.4 L145.6,24.5 L147.6,24.5 L149.7,24.4 L151.7,24.4 L153.7,24.4 L155.7,24.3 L157.8,24.3 L159.8,24.2 L161.8,24.2 L163.8,24.3 L165.8,24.3 L167.9,24.2 L169.9,24.2 L171.9,24.0 L173.9,24.2 L176.0,24.1 L178.0,24.0 L180.0,24.1 L180,40 L0,40 Z" fill="rgba(100,126,156,.12)"/>
+              <path d="M0.0,24.1 L2.0,24.0 L4.0,24.0 L6.1,23.9 L8.1,24.0 L10.1,24.0 L12.1,23.9 L14.2,23.9 L16.2,24.0 L18.2,23.9 L20.2,24.0 L22.2,24.1 L24.3,24.0 L26.3,24.1 L28.3,24.2 L30.3,24.1 L32.4,24.2 L34.4,24.3 L36.4,24.4 L38.4,24.2 L40.4,24.3 L42.5,24.3 L44.5,24.3 L46.5,24.4 L48.5,24.4 L50.6,24.4 L52.6,24.5 L54.6,24.5 L56.6,24.3 L58.7,24.3 L60.7,24.4 L62.7,24.3 L64.7,24.3 L66.7,24.3 L68.8,24.3 L70.8,24.3 L72.8,24.2 L74.8,24.1 L76.9,24.1 L78.9,24.2 L80.9,24.2 L82.9,24.0 L84.9,24.1 L87.0,24.1 L89.0,24.1 L91.0,23.9 L93.0,23.9 L95.1,24.1 L97.1,24.0 L99.1,23.9 L101.1,23.9 L103.1,24.0 L105.2,23.9 L107.2,24.0 L109.2,24.0 L111.2,24.0 L113.3,24.1 L115.3,24.1 L117.3,24.1 L119.3,24.3 L121.3,24.2 L123.4,24.3 L125.4,24.4 L127.4,24.4 L129.4,24.3 L131.5,24.3 L133.5,24.3 L135.5,24.3 L137.5,24.3 L139.6,24.4 L141.6,24.4 L143.6,24.4 L145.6,24.5 L147.6,24.5 L149.7,24.4 L151.7,24.4 L153.7,24.4 L155.7,24.3 L157.8,24.3 L159.8,24.2 L161.8,24.2 L163.8,24.3 L165.8,24.3 L167.9,24.2 L169.9,24.2 L171.9,24.0 L173.9,24.2 L176.0,24.1 L178.0,24.0 L180.0,24.1" fill="none" stroke="var(--trace)" stroke-width="1.1" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <div class="sc-axis"><span>scale 100% · 26.2 / 64 GB</span><span>180 pt</span></div>
+          </div>
+          <div class="scope">
+            <div class="sc-top"><span class="lb">GPU TEMP</span><span class="vl">68<em>°C</em></span></div>
+            <svg viewBox="0 0 180 40" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="0" y1="10" x2="180" y2="10" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="20" x2="180" y2="20" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <line x1="0" y1="30" x2="180" y2="30" stroke="rgba(200,215,235,.05)" stroke-width="1"/>
+              <path d="M0.0,16.5 L2.0,16.4 L4.0,16.5 L6.1,16.4 L8.1,16.3 L10.1,16.4 L12.1,16.3 L14.2,16.4 L16.2,16.3 L18.2,16.4 L20.2,16.4 L22.2,16.4 L24.3,16.4 L26.3,16.3 L28.3,16.4 L30.3,16.3 L32.4,16.3 L34.4,16.2 L36.4,16.1 L38.4,16.1 L40.4,16.1 L42.5,16.0 L44.5,16.1 L46.5,16.1 L48.5,16.0 L50.6,16.1 L52.6,16.0 L54.6,16.1 L56.6,16.1 L58.7,16.1 L60.7,16.1 L62.7,16.0 L64.7,16.0 L66.7,16.0 L68.8,16.0 L70.8,15.9 L72.8,15.8 L74.8,15.7 L76.9,15.8 L78.9,15.7 L80.9,15.8 L82.9,15.8 L84.9,15.7 L87.0,15.8 L89.0,15.7 L91.0,15.8 L93.0,15.8 L95.1,15.8 L97.1,15.7 L99.1,15.7 L101.1,15.7 L103.1,15.6 L105.2,15.5 L107.2,15.5 L109.2,15.4 L111.2,15.4 L113.3,15.4 L115.3,15.5 L117.3,15.5 L119.3,15.4 L121.3,15.5 L123.4,15.5 L125.4,15.5 L127.4,15.5 L129.4,15.5 L131.5,15.4 L133.5,15.4 L135.5,15.3 L137.5,15.3 L139.6,15.3 L141.6,15.2 L143.6,15.2 L145.6,15.1 L147.6,15.1 L149.7,15.1 L151.7,15.2 L153.7,15.1 L155.7,15.1 L157.8,15.2 L159.8,15.2 L161.8,15.2 L163.8,15.2 L165.8,15.2 L167.9,15.2 L169.9,15.1 L171.9,15.0 L173.9,15.0 L176.0,14.9 L178.0,14.8 L180.0,14.9 L180,40 L0,40 Z" fill="rgba(100,126,156,.12)"/>
+              <path d="M0.0,16.5 L2.0,16.4 L4.0,16.5 L6.1,16.4 L8.1,16.3 L10.1,16.4 L12.1,16.3 L14.2,16.4 L16.2,16.3 L18.2,16.4 L20.2,16.4 L22.2,16.4 L24.3,16.4 L26.3,16.3 L28.3,16.4 L30.3,16.3 L32.4,16.3 L34.4,16.2 L36.4,16.1 L38.4,16.1 L40.4,16.1 L42.5,16.0 L44.5,16.1 L46.5,16.1 L48.5,16.0 L50.6,16.1 L52.6,16.0 L54.6,16.1 L56.6,16.1 L58.7,16.1 L60.7,16.1 L62.7,16.0 L64.7,16.0 L66.7,16.0 L68.8,16.0 L70.8,15.9 L72.8,15.8 L74.8,15.7 L76.9,15.8 L78.9,15.7 L80.9,15.8 L82.9,15.8 L84.9,15.7 L87.0,15.8 L89.0,15.7 L91.0,15.8 L93.0,15.8 L95.1,15.8 L97.1,15.7 L99.1,15.7 L101.1,15.7 L103.1,15.6 L105.2,15.5 L107.2,15.5 L109.2,15.4 L111.2,15.4 L113.3,15.4 L115.3,15.5 L117.3,15.5 L119.3,15.4 L121.3,15.5 L123.4,15.5 L125.4,15.5 L127.4,15.5 L129.4,15.5 L131.5,15.4 L133.5,15.4 L135.5,15.3 L137.5,15.3 L139.6,15.3 L141.6,15.2 L143.6,15.2 L145.6,15.1 L147.6,15.1 L149.7,15.1 L151.7,15.2 L153.7,15.1 L155.7,15.1 L157.8,15.2 L159.8,15.2 L161.8,15.2 L163.8,15.2 L165.8,15.2 L167.9,15.2 L169.9,15.1 L171.9,15.0 L173.9,15.0 L176.0,14.9 L178.0,14.8 L180.0,14.9" fill="none" stroke="var(--trace)" stroke-width="1.1" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <div class="sc-axis"><span>scale 100%</span><span>180 pt</span></div>
+          </div>
+        </div>
+
+        <div class="readout">
+          <span class="ro-pct">45.8%</span>
+          <span class="ro-sum">studio_b_4k — inference を処理中</span>
+          <div class="eta">
+            <div class="eta-c"><span class="eta-v">06:12</span><span class="eta-l">経過時間</span></div>
+            <div class="eta-c"><span class="eta-v">07:20</span><span class="eta-l">予測残り</span></div>
+            <div class="eta-c"><span class="eta-v">13:32</span><span class="eta-l">予測所要</span></div>
+          </div>
+        </div>
+
+        <div class="tl">
+          <div class="tl-c is-active"><i style="width:45%"></i><span>inference</span></div>
+          <div class="tl-c"><span>postprocess</span></div>
+          <div class="tl-c"><span>ovl combined_simple</span></div>
+          <div class="tl-c"><span>ovl combined_detailed</span></div>
+        </div>
+
+        <div class="phases">
+          <div class="phase is-run">
+            <div class="ph-top"><span class="ph-name">性器推論</span><span class="ph-pct">45.0%</span></div>
+            <div class="ph-track"><i style="width:45%"></i></div>
+            <div class="ph-meta"><span>フレーム処理</span><span>6,480 / 14,400 フレーム · 21.4 fps</span></div>
+          </div>
+          <div class="phase is-done">
+            <div class="ph-top"><span class="ph-name">顔推論</span><span class="ph-pct">100.0%</span></div>
+            <div class="ph-track"><i style="width:100%"></i></div>
+            <div class="ph-meta"><span>完了</span><span>14,400 / 14,400 フレーム · 181.3 fps</span></div>
+          </div>
+          <div class="phase">
+            <div class="ph-top"><span class="ph-name">後処理</span><span class="ph-pct">—</span></div>
+            <div class="ph-track"></div>
+            <div class="ph-meta"><span>待機中</span><span>—</span></div>
+          </div>
+          <div class="phase">
+            <div class="ph-top"><span class="ph-name">オーバーレイ</span><span class="ph-pct">—</span></div>
+            <div class="ph-track"></div>
+            <div class="ph-meta"><span>待機中</span><span>—</span></div>
+          </div>
+        </div>
+
+        <div class="mstrip">
+          <div class="m"><span class="lb">wall fps</span><span class="vl">21.41</span></div>
+          <div class="m"><span class="lb">frames</span><span class="vl">6,480 / 14,400</span></div>
+          <div class="m"><span class="lb">detections</span><span class="vl">18,204</span></div>
+          <div class="m"><span class="lb">masks</span><span class="vl na">—</span></div>
+          <div class="m"><span class="lb">faces</span><span class="vl">21,347</span></div>
+          <div class="m"><span class="lb">device</span><span class="vl">cuda:0</span></div>
+          <div class="m"><span class="lb">codec</span><span class="vl">h264_nvenc</span></div>
+        </div>
+      </div>
+
+      <!-- LIVE tab -->
+      <div class="p-body live-body" id="pane-live" role="tabpanel" hidden>
+        <div class="stage">
+          <div class="frame" role="img" aria-label="処理フレーム 6480">
+            <span class="livechip"><i></i>LIVE</span>
+            <div class="mbox" style="left:31%;top:24%;width:17%;height:34%"><span class="tag">track 0142 · 0.94</span></div>
+            <div class="mbox" style="left:57%;top:31%;width:13%;height:26%"><span class="tag">track 0147 · 0.88</span></div>
+            <div class="mell" style="left:34.5%;top:27%;width:10%;height:12%"></div>
+          </div>
+        </div>
+        <div class="lmeta">
+          <div class="lm"><span class="lb">Phase</span><span class="vl">性器推論</span></div>
+          <div class="lm"><span class="lb">Frame</span><span class="vl">6,480</span></div>
+          <div class="lm"><span class="lb">Timecode</span><span class="vl">04:30</span></div>
+          <div class="lm"><span class="lb">Model</span><span class="vl">dinov3_codino</span></div>
+          <div class="lm"><span class="lb">Detail</span><span class="vl">frames</span></div>
+          <div class="lm"><span class="lb">Coalesced</span><span class="vl">3</span></div>
+        </div>
+        <div class="mstrip">
+          <div class="m"><span class="lb">wall fps</span><span class="vl">21.41</span></div>
+          <div class="m"><span class="lb">frames</span><span class="vl">6,480 / 14,400</span></div>
+          <div class="m"><span class="lb">detections</span><span class="vl">18,204</span></div>
+          <div class="m"><span class="lb">masks</span><span class="vl na">—</span></div>
+          <div class="m"><span class="lb">faces</span><span class="vl">21,347</span></div>
+          <div class="m"><span class="lb">device</span><span class="vl">cuda:0</span></div>
+          <div class="m"><span class="lb">codec</span><span class="vl">h264_nvenc</span></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="vgap"></div>
+
+    <!-- INSPECTOR -->
+    <section class="panel insp" id="inspector">
+      <div class="p-head">
+        <span class="p-title">Inspector</span>
+        <div class="spacer"></div>
+        <div class="seg viewseg" id="viewseg" title="実機では処理中は無効">
+          <button class="on" data-view="simple">簡単</button>
+          <button data-view="adv">詳細</button>
+        </div>
+      </div>
+      <div class="p-body insp-body">
+
+        <!-- 推論 -->
+        <section class="sec is-open">
+          <button class="sec-h" aria-expanded="true"><svg class="ic chev"><use href="#i-chev"/></svg>
+            <span class="sec-name">推論</span><span class="sec-badge ok">on</span></button>
+          <div class="sec-b is-busy">
+            <div class="row"><span class="rl">推論</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>新規に実行</label>
+            </div></div>
+            <div class="row"><span class="rl">処理モード</span><div class="rc">
+              <div class="seg"><button disabled>性器</button><button class="on" disabled>両方</button><button disabled>顔</button></div>
+            </div></div>
+            <div class="row"><span class="rl">性器モデル</span><div class="rc">
+              <select class="field" disabled><option>V3</option></select>
+            </div></div>
+            <div class="row"><span class="rl">推論エンジン</span><div class="rc">
+              <select class="field" disabled><option>高速（デフォルト）</option></select>
+            </div></div>
+            <div class="row"><span class="rl">顔モデル</span><div class="rc">
+              <select class="field" disabled><option>Face V2</option></select>
+            </div></div>
+            <div class="row" title="選択中の顔モデルを実行するバックエンドです。現行モデルは新顔=TensorRT、旧顔=PyTorchに固定されています。">
+              <span class="rl">顔推論エンジン</span><div class="rc">
+              <select class="field" disabled><option>高速（デフォルト）</option></select>
+            </div></div>
+
+            <div class="subh adv">モデル入力・実行範囲</div>
+            <div class="row stack adv" title="顔モデルの出力からSQLiteへ保存する対象です。Headは頭部box、Faceは顔領域です。少なくとも1つを選択します。">
+              <span class="rl">顔検出の保存対象</span>
+              <div class="ckcol">
+                <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>Head（頭部box）</label>
+                <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>Face（顔領域）</label>
+              </div>
+            </div>
+            <div class="row stack adv" title="新顔モデルのTensorRT bundleだけを上書きします。">
+              <span class="rl">顔TRT bundle</span>
+              <input class="field mono" placeholder="空欄: 自動選択" disabled>
+            </div>
+            <div class="row adv"><span class="rl">推論デバイス</span><div class="rc">
+              <input class="field mono" value="cuda:0" disabled>
+            </div></div>
+            <div class="row adv"><span class="rl">処理上限</span><div class="rc">
+              <input class="field num wide" placeholder="空欄: 全フレーム" disabled>
+            </div></div>
+            <div class="row adv"><span class="rl">速度計測除外</span><div class="rc">
+              <div class="numun"><input class="field num" value="0" disabled><span class="unit">f</span></div>
+            </div></div>
+            <div class="row adv"><span class="rl">顔ウォームアップ</span><div class="rc">
+              <div class="numun"><input class="field num" value="3" disabled><span class="unit">回</span></div>
+            </div></div>
+
+            <div class="subh adv">性能</div>
+            <div class="row adv"><span class="rl">モデル同時推論</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>性器・顔モデルを同時実行</label>
+            </div></div>
+            <div class="row-hint adv">現在の組合せでは不可</div>
+            <div class="row adv"><span class="rl">SQLite書き込み</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>速度優先モード</label>
+            </div></div>
+            <div class="row-hint adv">高速化する代わりに異常終了時の耐性が低下</div>
+
+            <div class="subh adv">専門設定</div>
+            <div class="row stack adv" title="将来の未型付け引数を1トークン1行で指定します。主要引数の上書きは禁止されます。">
+              <span class="rl">追加引数</span>
+              <textarea class="field" placeholder="--future-option&#10;value" disabled></textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- 後処理 -->
+        <section class="sec is-open">
+          <button class="sec-h" aria-expanded="true"><svg class="ic chev"><use href="#i-chev"/></svg>
+            <span class="sec-name">後処理</span><span class="sec-badge ok">性器 on</span></button>
+          <div class="sec-b is-busy">
+            <div class="row"><span class="rl">性器後処理</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>追跡・整形を実行</label>
+            </div></div>
+
+            <div class="simple-only">
+              <div class="subh">クラス別形状・キーフレーム</div>
+              <div class="row stack"><span class="rl">クラス別設定</span>
+                <div class="minitable">
+                  <div class="mt-h"><span>クラス</span><span>形状</span><span>KF間隔</span></div>
+                  <div class="mt-r"><span class="cn">男性器</span>
+                    <div class="seg grow"><button class="on" disabled>ポリゴン</button><button disabled>楕円</button></div>
+                    <div class="numun"><input class="field num" value="2" disabled><span class="unit">f</span></div>
+                  </div>
+                  <div class="mt-r"><span class="cn">女性器</span>
+                    <div class="seg grow"><button disabled>ポリゴン</button><button class="on" disabled>楕円</button></div>
+                    <div class="numun"><input class="field num" value="2" disabled><span class="unit">f</span></div>
+                  </div>
+                  <div class="mt-r"><span class="cn">結合部分</span>
+                    <div class="seg grow"><button disabled>ポリゴン</button><button class="on" disabled>楕円</button></div>
+                    <div class="numun"><input class="field num" value="2" disabled><span class="unit">f</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="row"><span class="rl">検出スコア下限</span><div class="rc">
+              <input class="field num" value="0.6" placeholder="設定既定値" disabled>
+            </div></div>
+            <div class="row" title="最終result.sqliteへ保存するプライバシーマスクです。"><span class="rl">保存する顔マスク</span><div class="rc">
+              <div class="seg"><button disabled>なし</button><button disabled>顔全体</button><button class="on" disabled>目元</button></div>
+            </div></div>
+            <div class="row"><span class="rl">目元形状</span><div class="rc">
+              <div class="seg"><button disabled>楕円</button><button class="on" disabled>長方形</button></div>
+            </div></div>
+
+            <div class="row adv"><span class="rl">既定KF間隔</span><div class="rc">
+              <div class="numun"><input class="field num" value="2" placeholder="設定既定値" disabled><span class="unit">f</span></div>
+            </div></div>
+            <div class="row adv"><span class="rl">カット検出</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>カット位置を保存し、trackを分割</label>
+            </div></div>
+
+            <div class="subh adv">性器後処理 — 構成</div>
+            <div class="row stack adv"><span class="rl">パイプラインJSON</span>
+              <input class="field mono" placeholder="空欄: 標準パイプライン" disabled>
+            </div>
+            <div class="row stack adv"><span class="rl">クラス別スコアJSON</span>
+              <input class="field mono" placeholder="空欄: 共通の検出スコア下限" disabled>
+            </div>
+            <div class="row adv"><span class="rl">形状・KF・補完</span><div class="rc">
+              <select class="field" disabled><option>クラス別GUI</option></select>
+            </div></div>
+            <div class="row stack adv"><span class="rl">クラス別ルール</span>
+              <div class="rules">
+                <div class="ru-h"><span>確定クラス名</span><span>形状</span><span>KF間隔</span><span>補完上限</span><span></span></div>
+                <div class="ru-r"><span class="cn" title="その他（未指定）">その他（未指定）</span>
+                  <div class="seg"><button class="on" disabled>ポリゴン</button><button disabled>楕円</button></div>
+                  <input class="field num" value="2" disabled><input class="field num" value="0" disabled>
+                  <span></span>
+                </div>
+                <div class="ru-r"><input class="field" value="男性器" disabled>
+                  <div class="seg"><button class="on" disabled>ポリゴン</button><button disabled>楕円</button></div>
+                  <input class="field num" value="2" disabled><input class="field num" value="0" disabled>
+                  <button class="rm" title="削除" disabled>−</button>
+                </div>
+                <div class="ru-r"><input class="field" value="女性器" disabled>
+                  <div class="seg"><button disabled>ポリゴン</button><button class="on" disabled>楕円</button></div>
+                  <input class="field num" value="2" disabled><input class="field num" value="0" disabled>
+                  <button class="rm" title="削除" disabled>−</button>
+                </div>
+                <div class="ru-r"><input class="field" value="結合部分" disabled>
+                  <div class="seg"><button disabled>ポリゴン</button><button class="on" disabled>楕円</button></div>
+                  <input class="field num" value="2" disabled><input class="field num" value="0" disabled>
+                  <button class="rm" title="削除" disabled>−</button>
+                </div>
+                <div class="ru-add"><button class="btn quiet" disabled><svg class="ic"><use href="#i-plus"/></svg>クラスを追加</button></div>
+              </div>
+            </div>
+
+            <div class="subh adv">カット検出</div>
+            <div class="row adv"><span class="rl">検出方式</span><div class="rc">
+              <select class="field" disabled><option>高精度（推奨・FFmpeg）</option></select>
+            </div></div>
+            <div class="row adv" title="別のFFmpeg縮小decodeをCPUで動かし、GPU推論時間へ重ねます。"><span class="rl">推論と同時検出</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>CPU検出をGPU推論と並行</label>
+            </div></div>
+
+            <div class="subh adv">性器後処理 — 追跡・補完</div>
+            <div class="row adv"><span class="rl">短命track上限</span><div class="rc">
+              <div class="numun"><input class="field num" value="10" disabled><span class="unit">f</span></div>
+            </div></div>
+            <div class="row-hint adv">指定フレーム以下のtrackを除去</div>
+            <div class="row adv"><span class="rl">既定補完上限</span><div class="rc">
+              <div class="numun"><input class="field num" value="0" disabled><span class="unit">f</span></div>
+            </div></div>
+
+            <div class="subh adv">楕円近似（K2）</div>
+            <div class="row stack adv"><span class="rl">モデルroot</span>
+              <input class="field mono" placeholder="空欄: 自動検出" disabled>
+            </div>
+            <div class="row stack adv"><span class="rl">K2 run directory</span>
+              <input class="field mono" placeholder="空欄: model root/k2_v5" disabled>
+            </div>
+            <div class="row adv"><span class="rl">GPUバッチ数</span><div class="rc">
+              <input class="field num" value="128" disabled>
+            </div></div>
+            <div class="row adv"><span class="rl">CPU前処理worker</span><div class="rc">
+              <input class="field num" value="4" disabled>
+            </div></div>
+            <div class="row adv"><span class="rl">計算精度</span><div class="rc">
+              <select class="field" disabled><option>パイプライン既定</option></select>
+            </div></div>
+            <div class="row adv"><span class="rl">計算範囲</span><div class="rc">
+              <select class="field" disabled><option>必要値のみ（推奨）</option></select>
+            </div></div>
+            <div class="row adv"><span class="rl">内部時間計測</span><div class="rc">
+              <select class="field" disabled><option>計測しない（推奨）</option></select>
+            </div></div>
+            <div class="row adv"><span class="rl">cuDNN autotune</span><div class="rc">
+              <select class="field" disabled><option>有効</option></select>
+            </div></div>
+            <div class="row adv"><span class="rl">TF32</span><div class="rc">
+              <select class="field" disabled><option>パイプライン既定</option></select>
+            </div></div>
+            <div class="row adv"><span class="rl">K2デバイス</span><div class="rc">
+              <input class="field mono" value="cuda:0" disabled>
+            </div></div>
+
+            <div class="subh adv">互換出力</div>
+            <div class="row adv"><span class="rl">旧形式SQLite</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>旧形式も追加</label>
+            </div></div>
+
+            <div class="subh adv">顔後処理 — 追跡・プライバシーマスク</div>
+            <div class="row adv"><span class="rl">目キーポイント下限</span><div class="rc">
+              <div class="sliderrow"><div class="slider" style="--p:35%"><i class="trk"></i><i class="fil"></i><i class="th"></i></div><output>0.35</output></div>
+            </div></div>
+            <div class="row adv"><span class="rl">追跡保持gap</span><div class="rc">
+              <div class="numun"><input class="field num" value="5" disabled><span class="unit">f</span></div>
+            </div></div>
+            <div class="row-hint adv">未検出を許容する最大フレーム数</div>
+            <div class="row adv"><span class="rl">追跡high閾値</span><div class="rc">
+              <div class="sliderrow"><div class="slider" style="--p:50%"><i class="trk"></i><i class="fil"></i><i class="th"></i></div><output>0.50</output></div>
+            </div></div>
+            <div class="row adv"><span class="rl">追跡low閾値</span><div class="rc">
+              <div class="sliderrow"><div class="slider" style="--p:5%"><i class="trk"></i><i class="fil"></i><i class="th"></i></div><output>0.05</output></div>
+            </div></div>
+            <div class="row adv"><span class="rl">短命track上限</span><div class="rc">
+              <input class="field num" value="2" disabled>
+            </div></div>
+            <div class="row-hint adv">観測回数（hits）で判定</div>
+            <div class="row adv"><span class="rl">短命保持スコア</span><div class="rc">
+              <div class="sliderrow"><div class="slider" style="--p:90%"><i class="trk"></i><i class="fil"></i><i class="th"></i></div><output>0.90</output></div>
+            </div></div>
+            <div class="row adv"><span class="rl">補完gap上限</span><div class="rc">
+              <div class="numun"><input class="field num" value="3" disabled><span class="unit">f</span></div>
+            </div></div>
+
+            <div class="subh adv">専門設定</div>
+            <div class="row stack adv" title="未型付けの将来オプション用です。上の管理済み引数は上書きできません。">
+              <span class="rl">追加CLI引数</span>
+              <textarea class="field" placeholder="--future-option&#10;value" disabled></textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- オーバーレイ -->
+        <section class="sec is-open">
+          <button class="sec-h" aria-expanded="true"><svg class="ic chev"><use href="#i-chev"/></svg>
+            <span class="sec-name">オーバーレイ</span><span class="sec-badge">fast</span></button>
+          <div class="sec-b is-busy">
+            <div class="row"><span class="rl">確認動画</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>オーバーレイを生成</label>
+            </div></div>
+            <div class="row stack"><span class="rl">表示プリセット</span>
+              <div class="ckgrid">
+                <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>性器・詳細</label>
+                <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>性器・簡易</label>
+                <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>顔・詳細</label>
+                <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>顔・簡易</label>
+                <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>両方・詳細</label>
+                <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>両方・簡易</label>
+              </div>
+            </div>
+            <div class="row"><span class="rl">エンコード</span><div class="rc">
+              <div class="seg"><button disabled>CPU</button><button disabled>NVENC</button><button class="on" disabled>高速</button></div>
+            </div></div>
+            <div class="row"><span class="rl">マスク濃度</span><div class="rc">
+              <div class="sliderrow"><div class="slider" style="--p:32%"><i class="trk"></i><i class="fil"></i><i class="th"></i></div><output>0.32</output></div>
+            </div></div>
+
+            <div class="subh adv">旧形式の追加オーバーレイ（任意）</div>
+            <div class="row stack adv" title="通常の表示プリセットとは別に、旧ソフト互換の工程別MP4を追加生成します。SQLiteの内容は増えません。">
+              <span class="rl">追加動画</span>
+              <div class="ckcol">
+                <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>AI生出力（raw.mp4）</label>
+                <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>追跡後（tracked.mp4）</label>
+                <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>最終後処理（final.mp4）</label>
+                <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>顔box（faces.mp4）</label>
+              </div>
+            </div>
+            <div class="row adv"><span class="rl">finalへ顔を追加</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>互換finalへ顔boxを合成</label>
+            </div></div>
+
+            <div class="subh adv">描画内容</div>
+            <div class="row stack adv"><span class="rl">性器の描画データ</span>
+              <div class="seg grow"><button disabled>AI生マスク（後処理前）</button><button class="on" disabled>最終マスク（後処理後）</button></div>
+            </div>
+            <div class="row adv" title="確認動画だけに顔/目元マスクを追加します。result.sqliteの保存内容は変更しません。"><span class="rl">描画時追加マスク</span><div class="rc">
+              <div class="seg"><button disabled>なし</button><button disabled>顔全体</button><button class="on" disabled>目元</button></div>
+            </div></div>
+            <div class="row adv"><span class="rl">追加目元マスク形状</span><div class="rc">
+              <div class="seg"><button disabled>楕円</button><button class="on" disabled>長方形</button></div>
+            </div></div>
+            <div class="row adv"><span class="rl">目キーポイント下限</span><div class="rc">
+              <div class="sliderrow"><div class="slider" style="--p:35%"><i class="trk"></i><i class="fil"></i><i class="th"></i></div><output>0.35</output></div>
+            </div></div>
+            <div class="row stack adv"><span class="rl">顔詳細要素</span>
+              <div class="ckgrid">
+                <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>確率マスク</label>
+                <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>キーポイント</label>
+                <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>顔楕円</label>
+              </div>
+            </div>
+            <div class="row adv"><span class="rl">線幅</span><div class="rc">
+              <div class="numun"><input class="field num sm" value="2" disabled><span class="unit">マスク</span></div>
+              <div class="numun"><input class="field num sm" value="2" disabled><span class="unit">box</span></div>
+            </div></div>
+            <div class="row adv"><span class="rl">ラベル</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" checked disabled><span class="bx"></span>クラス・確信度・track ID</label>
+            </div></div>
+
+            <div class="subh adv">エンコード品質・速度</div>
+            <div class="row adv"><span class="rl">CPU preset</span><div class="rc">
+              <select class="field" disabled><option>veryfast</option></select>
+            </div></div>
+            <div class="row adv"><span class="rl">NVENC preset</span><div class="rc">
+              <select class="field" disabled><option>p1</option></select>
+            </div></div>
+            <div class="row adv"><span class="rl">NVENC GPU</span><div class="rc">
+              <input class="field num" value="0" disabled>
+            </div></div>
+            <div class="row stack adv"><span class="rl">FFmpeg実行ファイル</span>
+              <input class="field mono" placeholder="空欄: 同梱FFmpeg" disabled>
+            </div>
+            <div class="row adv"><span class="rl">目標ビットレート</span><div class="rc">
+              <div class="numun"><input class="field num" value="8.0" placeholder="8.0" disabled><span class="unit">Mbps</span></div>
+            </div></div>
+            <div class="row-hint adv">高速モードでは必須（空欄時8 Mbps）</div>
+            <div class="row adv"><span class="rl">分割worker総数</span><div class="rc">
+              <input class="field num" value="6" disabled>
+            </div></div>
+            <div class="row adv"><span class="rl">CPU割当数</span><div class="rc">
+              <input class="field num" value="0" disabled>
+            </div></div>
+            <div class="row-hint adv">残りをNVENCへ割当</div>
+            <div class="row adv"><span class="rl">音声保持</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>元音声をコピー</label>
+            </div></div>
+            <div class="row adv"><span class="rl">MP4 faststart</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>Web再生用に最適化</label>
+            </div></div>
+
+            <div class="subh adv">処理範囲・ログ</div>
+            <div class="row adv"><span class="rl">フレーム範囲</span><div class="rc">
+              <input class="field num" value="0" disabled>
+              <input class="field num" placeholder="終端" disabled>
+            </div></div>
+            <div class="row-hint adv">開始 / 終了</div>
+            <div class="row adv"><span class="rl">進捗ログ間隔</span><div class="rc">
+              <div class="numun"><input class="field num" value="300" disabled><span class="unit">f</span></div>
+            </div></div>
+            <div class="row-hint adv">分割高速モードでは内部管理</div>
+
+            <div class="subh adv">専門設定</div>
+            <div class="row stack adv"><span class="rl">追加CLI引数</span>
+              <textarea class="field" placeholder="--future-option&#10;value" disabled></textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- 実行環境 -->
+        <section class="sec">
+          <button class="sec-h" aria-expanded="false"><svg class="ic chev"><use href="#i-chev"/></svg>
+            <span class="sec-name">実行環境</span><span class="sec-badge">native</span></button>
+          <div class="sec-b is-busy">
+            <div class="row adv"><span class="rl">再開</span><div class="rc">
+              <label class="ck dis"><input type="checkbox" disabled><span class="bx"></span>完了済みstageを再利用</label>
+            </div></div>
+            <div class="row"><span class="rl">バックエンド</span><div class="rc">
+              <div class="seg"><button class="on" disabled>Native</button><button disabled>WSL2</button></div>
+            </div></div>
+            <div class="row stack"><span class="rl">リポジトリroot</span>
+              <div class="pathin">
+                <input class="field mono" value="/home/user/inference_backend2" disabled>
+                <button title="参照…" disabled><svg class="ic"><use href="#i-folder"/></svg></button>
+              </div>
+            </div>
+            <div class="row stack"><span class="rl">実行Python</span>
+              <div class="pathin">
+                <input class="field mono" value="/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10" disabled>
+                <button title="参照…" disabled><svg class="ic"><use href="#i-folder"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </section>
+  </div>
+
+  <div class="hgap"></div>
+
+  <!-- ============ CONSOLE ============ -->
+  <section class="panel console">
+    <div class="con-head">
+      <span class="p-title">Console</span><span class="p-meta mono">inference</span>
+      <div class="spacer"></div>
+      <label class="ck"><input type="checkbox" checked><span class="bx"></span>追従</label>
+      <input class="field filter" placeholder="フィルタ">
+      <span class="lines">132 lines</span>
+    </div>
+    <div class="con-body">
+      <div class="cl cmd"><span class="ln">121</span><span class="tx">$ /home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10 -m orchestration --config /home/user/.config/mask-pipeline-studio/jobs/2026-08-01T10-58-24-512Z/orchestration.json</span></div>
+      <div class="cl"><span class="ln">122</span><span class="tx"><span class="tag">[inference]</span> [orchestrator] role=face model=face_dino_v2 backend=tensorrt-fast</span></div>
+      <div class="cl"><span class="ln">123</span><span class="tx"><span class="tag">[inference]</span> processed 14400 frames in 79.412s (181.334 fps)</span></div>
+      <div class="cl"><span class="ln">124</span><span class="tx"><span class="tag">[inference]</span> measured compute throughput: 205.118 img/s</span></div>
+      <div class="cl"><span class="ln">125</span><span class="tx"><span class="tag">[inference]</span> [orchestrator] frames=14400 detections=14283 classifications=14283 segmentations=0 face_observations=21347 face_keypoints=106735</span></div>
+      <div class="cl"><span class="ln">126</span><span class="tx"><span class="tag">[inference]</span> [orchestrator] saved unified SQLite: /home/user/videos/mask_out/studio_b_4k/inference.sqlite</span></div>
+      <div class="cl"><span class="ln">127</span><span class="tx"><span class="tag">[inference]</span> [orchestrator] role=segmentation model=dinov3_codino backend=tensorrt-fast</span></div>
+      <div class="cl"><span class="ln">128</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=1440/14400 detections=4116 fps=21.198</span></div>
+      <div class="cl"><span class="ln">129</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=2880/14400 detections=8102 fps=21.264</span></div>
+      <div class="cl"><span class="ln">130</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=4320/14400 detections=12275 fps=21.377</span></div>
+      <div class="cl"><span class="ln">131</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=5760/14400 detections=16204 fps=21.398</span></div>
+      <div class="cl"><span class="ln">132</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=6480/14400 detections=18204 fps=21.412</span></div>
+    </div>
+  </section>
+
+  <!-- ============ STATUSBAR ============ -->
+  <footer class="statusbar">
+    <div class="grp"><span class="sdot"></span><span class="stat">実行中</span></div>
+    <div class="grp">stage<b>inference</b></div>
+    <div class="grp">経過<b>06:12</b></div>
+    <div class="grp">開始<b>10:58:24</b></div>
+    <div class="grp">終了<b>--:--:--</b></div>
+    <div class="grp">exit<b>—</b></div>
+    <div class="rt">
+      <span class="micro">Native</span>
+      <div class="grp">python<b title="/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10">python3.10</b></div>
+      <span class="path" title="/home/user/inference_backend2">/home/user/inference_backend2</span>
+    </div>
+  </footer>
+
+</div>
+</div>
+
+<script>
+// Monitor tabs
+const tabS = document.getElementById('tab-status');
+const tabL = document.getElementById('tab-live');
+const paneS = document.getElementById('pane-status');
+const paneL = document.getElementById('pane-live');
+function selectTab(live){
+  tabS.classList.toggle('on', !live);
+  tabL.classList.toggle('on', live);
+  tabS.setAttribute('aria-selected', String(!live));
+  tabL.setAttribute('aria-selected', String(live));
+  paneS.hidden = live;
+  paneL.hidden = !live;
+}
+tabS.addEventListener('click', () => selectTab(false));
+tabL.addEventListener('click', () => selectTab(true));
+
+// Inspector sections collapse/expand
+document.querySelectorAll('.sec-h').forEach((h) => {
+  h.addEventListener('click', () => {
+    const sec = h.closest('.sec');
+    const open = sec.classList.toggle('is-open');
+    h.setAttribute('aria-expanded', String(open));
+  });
+});
+
+// Console follows tail (追従 on)
+const conBody = document.querySelector('.con-body');
+conBody.scrollTop = conBody.scrollHeight;
+
+// 簡単 / 詳細 view toggle
+const insp = document.getElementById('inspector');
+document.querySelectorAll('#viewseg button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#viewseg button').forEach((x) => x.classList.toggle('on', x === b));
+    insp.classList.toggle('show-adv', b.dataset.view === 'adv');
+  });
+});
+</script>
+</body>
+</html>

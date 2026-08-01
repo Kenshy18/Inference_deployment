@@ -196,6 +196,53 @@ class FacePrivacyTests(unittest.TestCase):
                     row,
                 )
 
+    def test_face_and_head_thresholds_filter_only_postprocessed_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_rich_inference(root / "inference.sqlite")
+            source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+
+            face_filtered = root / "face-filtered.sqlite"
+            face_summary = export_face_masks(
+                source,
+                face_filtered,
+                target="eyes",
+                face_detection_score_threshold=0.97,
+            )
+            with sqlite3.connect(face_filtered) as connection:
+                self.assertEqual(
+                    0, connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0]
+                )
+                self.assertEqual(
+                    1,
+                    connection.execute(
+                        "SELECT COUNT(*) FROM face_tracking_assignments"
+                    ).fetchone()[0],
+                )
+            self.assertEqual(1, face_summary["derivations"]["face_below_threshold"])
+
+            head_filtered = root / "head-filtered.sqlite"
+            head_summary = export_face_masks(
+                source,
+                head_filtered,
+                target="eyes",
+                head_detection_score_threshold=0.99,
+            )
+            with sqlite3.connect(head_filtered) as connection:
+                self.assertEqual(
+                    0, connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0]
+                )
+                self.assertEqual(
+                    0,
+                    connection.execute(
+                        "SELECT COUNT(*) FROM face_tracking_assignments"
+                    ).fetchone()[0],
+                )
+            self.assertEqual(1, head_summary["derivations"]["head_below_threshold"])
+            self.assertEqual(
+                source_hash, hashlib.sha256(source.read_bytes()).hexdigest()
+            )
+
     def test_tracking_keeps_one_id_and_interpolates_only_the_internal_gap(
         self,
     ) -> None:

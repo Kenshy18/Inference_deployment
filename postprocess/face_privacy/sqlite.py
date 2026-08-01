@@ -211,6 +211,8 @@ def export_face_masks(
     target: str,
     eye_shape: str = "ellipse",
     minimum_eye_confidence: float = 0.35,
+    face_detection_score_threshold: float = 0.55,
+    head_detection_score_threshold: float = 0.55,
     tracking_config: FaceTrackingConfig = FaceTrackingConfig(),
     interpolation_max_gap: int = 3,
     cuts_json: Path | None = None,
@@ -227,6 +229,10 @@ def export_face_masks(
         raise ValueError("eye_shape must be ellipse or rectangle")
     if not 0.0 <= minimum_eye_confidence <= 1.0:
         raise ValueError("minimum_eye_confidence must be between 0 and 1")
+    if not 0.0 <= face_detection_score_threshold <= 1.0:
+        raise ValueError("face_detection_score_threshold must be between 0 and 1")
+    if not 0.0 <= head_detection_score_threshold <= 1.0:
+        raise ValueError("head_detection_score_threshold must be between 0 and 1")
     tracking_config.validate()
     if interpolation_max_gap < 0:
         raise ValueError("interpolation_max_gap must be non-negative")
@@ -365,6 +371,12 @@ def export_face_masks(
                             "target": target,
                             "eye_shape": eye_shape if target == "eyes" else "ellipse",
                             "minimum_eye_confidence": repr(minimum_eye_confidence),
+                            "face_detection_score_threshold": repr(
+                                face_detection_score_threshold
+                            ),
+                            "head_detection_score_threshold": repr(
+                                head_detection_score_threshold
+                            ),
                             "face_tracking": "head-box-hungarian-v1",
                             "face_tracking_max_gap": str(
                                 tracking_config.max_gap_frames
@@ -407,6 +419,12 @@ def export_face_masks(
                     while current is not None and current.frame == frame:
                         frame_observations.append(current)
                         current = next(observations, None)
+                    eligible_observations: list[_RichFaceObservation] = []
+                    for observation in frame_observations:
+                        if observation.head_score < head_detection_score_threshold:
+                            counts["head_below_threshold"] += 1
+                        else:
+                            eligible_observations.append(observation)
                     while next_cut is not None and next_cut <= frame:
                         _unused, cut_completed = tracker.update(
                             next_cut,
@@ -435,7 +453,7 @@ def export_face_masks(
                         frame,
                         [
                             observation.tracking_observation()
-                            for observation in frame_observations
+                            for observation in eligible_observations
                         ],
                         is_cut=False,
                     )
@@ -443,9 +461,12 @@ def export_face_masks(
                         assignment.observation.observation_id: assignment
                         for assignment in assignments
                     }
-                    for observation in frame_observations:
+                    for observation in eligible_observations:
                         assignment = by_observation[observation.observation_id]
                         assignment_rows.append(_assignment_row(assignment))
+                        if observation.face_score < face_detection_score_threshold:
+                            counts["face_below_threshold"] += 1
+                            continue
                         mask = derive_privacy_mask(
                             target,
                             observation.ellipse,
@@ -483,7 +504,9 @@ def export_face_masks(
                         geometry_rows.append(_geometry_row(frame, track_id, mask))
                         track_rows.append((track_id, label))
                         counts[mask.derivation] += 1
-                        if preview is not None and preview.should_sample("face_privacy_masks"):
+                        if preview is not None and preview.should_sample(
+                            "face_privacy_masks"
+                        ):
                             preview.submit(
                                 PreviewGeometry(
                                     frame,
@@ -495,7 +518,11 @@ def export_face_masks(
                                             for x, y in mask.polygon
                                         ),
                                     ),
-                                    boxes=(tuple(float(value) for value in observation.bbox),),
+                                    boxes=(
+                                        tuple(
+                                            float(value) for value in observation.bbox
+                                        ),
+                                    ),
                                     points=tuple(
                                         (float(point.x), float(point.y))
                                         for point in observation.keypoints

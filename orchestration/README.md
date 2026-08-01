@@ -51,6 +51,10 @@ python3 -m orchestration --config config.json --dry-run
 }
 ```
 
+`face_detection_score_threshold`と`head_detection_score_threshold`は顔後処理だけで
+なく、全ての顔／複合overlayにも同じ値が渡ります。これにより最終SQLiteに残る
+AI生観測を詳細表示するときも、GUIで指定した検出下限を回避して表示しません。
+
 - `parallel_models`: segmentationと顔検出を隔離プロセスのまま同時実行。
   `mode=segmentation-face`、高速`dinov3_codino_mh0`、新顔検出
   `face_dino_v2`の3条件を満たす場合だけ`true`を選択できる。RTX 5090・
@@ -372,6 +376,8 @@ postprocessを明示的に無効にした場合も、rawだけが既定で有効
     "face_mask_target": "eyes",
     "eye_mask_shape": "ellipse",
     "minimum_eye_confidence": 0.35,
+    "face_detection_score_threshold": 0.55,
+    "head_detection_score_threshold": 0.55,
     "face_tracking_max_gap_frames": 5,
     "face_short_track_max_hits": 2,
     "face_short_track_keep_score": 0.90,

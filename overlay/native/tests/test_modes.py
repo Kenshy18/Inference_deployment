@@ -194,7 +194,7 @@ def create_mask_sqlite(path: Path) -> None:
             "frame INTEGER, track_id TEXT, polygons TEXT, label TEXT)"
         )
         connection.execute(
-            "INSERT INTO masks VALUES (0, '7', ?, 'target')",
+            "INSERT INTO masks VALUES (0, '7', ?, '男性器')",
             (polygons,),
         )
 
@@ -210,7 +210,7 @@ def create_keyframe_mask_sqlite(path: Path) -> None:
             "is_keyframe INTEGER)"
         )
         connection.executemany(
-            "INSERT INTO masks VALUES (?, '7', ?, 'target', ?)",
+            "INSERT INTO masks VALUES (?, '7', ?, '男性器', ?)",
             ((frame, polygons, int(frame % 2 == 0)) for frame in range(8)),
         )
 

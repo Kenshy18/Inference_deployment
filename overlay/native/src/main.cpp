@@ -2181,14 +2181,23 @@ std::string overlay_class_label(
     bool translate_canonical
 ) {
     if (translate_canonical) {
-        if (value == "女性器") {
-            return "FEMALE";
+        if (
+            value == "女性器" || value == "female" ||
+            value == "FEMALE" || value == "female_genital"
+        ) {
+            return "女性器";
         }
-        if (value == "男性器") {
-            return "MALE";
+        if (
+            value == "男性器" || value == "male" ||
+            value == "MALE" || value == "male_genital"
+        ) {
+            return "男性器";
         }
-        if (value == "結合部分") {
-            return "JUNCTION";
+        if (
+            value == "結合部分" || value == "junction" ||
+            value == "JUNCTION" || value == "contact"
+        ) {
+            return "結合部分";
         }
     }
     const bool ascii = std::all_of(
@@ -2450,12 +2459,110 @@ constexpr std::array<std::pair<Point, Point>, 7> glyph_lines{
     std::pair{Point{1, 5}, Point{5, 5}},
 };
 
+// Bold 16 px bitmap glyphs for the eight characters used by the canonical
+// genital classes. Keeping this tiny fixed atlas in the binary avoids a
+// runtime font dependency and guarantees identical UTF-8 rendering in the
+// CPU and CUDA/NVENC paths.
+using JapaneseGlyph = std::array<std::uint16_t, 16>;
+
+constexpr JapaneseGlyph glyph_male{
+    0x0000, 0x0000, 0x3FFC, 0x318C, 0x3FFC, 0x318C, 0x318C, 0x3FFC,
+    0x0180, 0x7FFC, 0x030C, 0x070C, 0x3E7C, 0x3878, 0x0000, 0x0000,
+};
+constexpr JapaneseGlyph glyph_sex{
+    0x0000, 0x1960, 0x1960, 0x1FFC, 0x7FFC, 0x7E60, 0x7E60, 0x7BF8,
+    0x1BFC, 0x1860, 0x1860, 0x1860, 0x1BFC, 0x1FFE, 0x0000, 0x0000,
+};
+constexpr JapaneseGlyph glyph_organ{
+    0x0000, 0x0000, 0x3EFC, 0x32CC, 0x32CC, 0x3FFC, 0x0300, 0x7FFE,
+    0x1C38, 0x781E, 0x3FFC, 0x33CC, 0x3FFC, 0x33C8, 0x0000, 0x0000,
+};
+constexpr JapaneseGlyph glyph_female{
+    0x0000, 0x0300, 0x0300, 0x3FFC, 0x7FFE, 0x0630, 0x0C30, 0x0C30,
+    0x1E60, 0x07E0, 0x01E0, 0x07F0, 0x3F3C, 0x380C, 0x0000, 0x0000,
+};
+constexpr JapaneseGlyph glyph_join{
+    0x0000, 0x1830, 0x1830, 0x77FE, 0x3C30, 0x1E30, 0x1FFE, 0x7F00,
+    0x3A00, 0x3EFC, 0x3F8C, 0x6BCC, 0x28FC, 0x088C, 0x0000, 0x0000,
+};
+constexpr JapaneseGlyph glyph_combine{
+    0x0000, 0x0380, 0x03C0, 0x0670, 0x1C3C, 0x7FFE, 0x2004, 0x0000,
+    0x1FF8, 0x1818, 0x1818, 0x1FF8, 0x1FF8, 0x1818, 0x0000, 0x0000,
+};
+constexpr JapaneseGlyph glyph_part{
+    0x0000, 0x0C3C, 0x3F7C, 0x7FEC, 0x336C, 0x3F68, 0x7FF8, 0x006C,
+    0x0064, 0x3F66, 0x337E, 0x337C, 0x3F60, 0x3160, 0x0000, 0x0000,
+};
+constexpr JapaneseGlyph glyph_divide{
+    0x0000, 0x0660, 0x0660, 0x0C30, 0x1818, 0x3FFC, 0x7FFE, 0x0330,
+    0x0330, 0x0330, 0x0630, 0x0E30, 0x3CF0, 0x31F0, 0x0000, 0x0000,
+};
+
+const JapaneseGlyph* japanese_glyph(char32_t codepoint) {
+    switch (codepoint) {
+    case U'男': return &glyph_male;
+    case U'性': return &glyph_sex;
+    case U'器': return &glyph_organ;
+    case U'女': return &glyph_female;
+    case U'結': return &glyph_join;
+    case U'合': return &glyph_combine;
+    case U'部': return &glyph_part;
+    case U'分': return &glyph_divide;
+    default: return nullptr;
+    }
+}
+
+char32_t next_utf8_codepoint(std::string_view text, std::size_t& offset) {
+    const auto first = static_cast<unsigned char>(text[offset++]);
+    if (first < 0x80U) {
+        return first;
+    }
+    int continuation_count = 0;
+    char32_t value = 0;
+    if ((first & 0xE0U) == 0xC0U) {
+        continuation_count = 1;
+        value = first & 0x1FU;
+    } else if ((first & 0xF0U) == 0xE0U) {
+        continuation_count = 2;
+        value = first & 0x0FU;
+    } else if ((first & 0xF8U) == 0xF0U) {
+        continuation_count = 3;
+        value = first & 0x07U;
+    } else {
+        return U'?';
+    }
+    for (int index = 0; index < continuation_count; ++index) {
+        if (offset >= text.size()) {
+            return U'?';
+        }
+        const auto byte = static_cast<unsigned char>(text[offset]);
+        if ((byte & 0xC0U) != 0x80U) {
+            return U'?';
+        }
+        ++offset;
+        value = (value << 6U) | (byte & 0x3FU);
+    }
+    return value;
+}
+
+int label_text_width(std::string_view text) {
+    int width = 0;
+    std::size_t offset = 0;
+    std::size_t glyph_count = 0;
+    while (offset < text.size() && glyph_count < 80) {
+        const char32_t codepoint = next_utf8_codepoint(text, offset);
+        width += japanese_glyph(codepoint) ? 16 : 8;
+        ++glyph_count;
+    }
+    return width;
+}
+
 struct LabelLayout {
     std::string text;
     int x{};
     int y{};
     int width{};
-    static constexpr int height = 14;
+    static constexpr int height = 18;
 };
 
 LabelLayout make_label_layout(
@@ -2465,12 +2572,9 @@ LabelLayout make_label_layout(
 ) {
     LabelLayout layout;
     layout.text = overlay_label(item);
-    if (layout.text.size() > 80) {
-        layout.text.resize(80);
-    }
     layout.width = std::min(
         frame_width,
-        static_cast<int>(layout.text.size()) * 8 + 4
+        label_text_width(layout.text) + 4
     );
     if (item.provenance == "CUT") {
         layout.x = std::max(0, frame_width - layout.width - 12);
@@ -2520,6 +2624,56 @@ void append_cuda_solid_rectangle(
                 255,
             }
         );
+    }
+}
+
+void append_cuda_japanese_glyph(
+    std::vector<CudaOverlaySpan>& output,
+    const JapaneseGlyph& glyph,
+    int origin_x,
+    int origin_y,
+    const YuvColor& color,
+    int width,
+    int height
+) {
+    for (int row = 0; row < 16; ++row) {
+        const std::uint16_t bits = glyph[static_cast<std::size_t>(row)];
+        int column = 0;
+        while (column < 16) {
+            while (
+                column < 16 &&
+                (bits & (1U << static_cast<unsigned>(15 - column))) == 0
+            ) {
+                ++column;
+            }
+            const int first = column;
+            while (
+                column < 16 &&
+                (bits & (1U << static_cast<unsigned>(15 - column))) != 0
+            ) {
+                ++column;
+            }
+            if (first < column) {
+                const int y = origin_y + row;
+                if (y >= 0 && y < height) {
+                    const int first_x = std::max(0, origin_x + first);
+                    const int last_x = std::min(width - 1, origin_x + column - 1);
+                    if (first_x <= last_x) {
+                        output.push_back(
+                            CudaOverlaySpan{
+                                y,
+                                first_x,
+                                last_x,
+                                color.y,
+                                color.u,
+                                color.v,
+                                255,
+                            }
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2601,9 +2755,29 @@ void append_cuda_label(
 
     const YuvColor foreground = bgr_to_bt709_limited(item.bgr);
     const std::size_t text_start = output.size();
-    for (std::size_t index = 0; index < layout.text.size(); ++index) {
-        const char character = layout.text[index];
-        const int origin_x = layout.x + 2 + static_cast<int>(index) * 8;
+    std::size_t offset = 0;
+    std::size_t glyph_count = 0;
+    int advance_x = 0;
+    while (offset < layout.text.size() && glyph_count < 80) {
+        const char32_t codepoint = next_utf8_codepoint(layout.text, offset);
+        const int origin_x = layout.x + 2 + advance_x;
+        if (const JapaneseGlyph* glyph = japanese_glyph(codepoint)) {
+            append_cuda_japanese_glyph(
+                output,
+                *glyph,
+                origin_x,
+                layout.y + 1,
+                foreground,
+                width,
+                height
+            );
+            advance_x += 16;
+            ++glyph_count;
+            continue;
+        }
+        const char character = codepoint < 128
+            ? static_cast<char>(codepoint)
+            : '?';
         if (character == '.') {
             append_cuda_disc_spans(
                 output,
@@ -2614,9 +2788,7 @@ void append_cuda_label(
                 width,
                 height
             );
-            continue;
-        }
-        if (character == ':') {
+        } else if (character == ':') {
             append_cuda_disc_spans(
                 output,
                 origin_x + 3,
@@ -2635,9 +2807,7 @@ void append_cuda_label(
                 width,
                 height
             );
-            continue;
-        }
-        if (character == '/' || character == '|') {
+        } else if (character == '/' || character == '|') {
             append_cuda_line_spans(
                 output,
                 Point{
@@ -2652,37 +2822,89 @@ void append_cuda_label(
                     ),
                     static_cast<double>(layout.y + 11),
                 },
-                1,
+                2,
                 foreground,
                 width,
                 height
             );
-            continue;
-        }
-        const std::uint8_t segments = glyph_segments(character);
-        for (std::size_t segment = 0; segment < glyph_lines.size(); ++segment) {
-            if ((segments & (1U << segment)) == 0) {
-                continue;
+        } else {
+            const std::uint8_t segments = glyph_segments(character);
+            for (
+                std::size_t segment = 0;
+                segment < glyph_lines.size();
+                ++segment
+            ) {
+                if ((segments & (1U << segment)) == 0) {
+                    continue;
+                }
+                append_cuda_line_spans(
+                    output,
+                    Point{
+                        origin_x + glyph_lines[segment].first.x,
+                        layout.y + 3 + glyph_lines[segment].first.y,
+                    },
+                    Point{
+                        origin_x + glyph_lines[segment].second.x,
+                        layout.y + 3 + glyph_lines[segment].second.y,
+                    },
+                    2,
+                    foreground,
+                    width,
+                    height
+                );
             }
-            append_cuda_line_spans(
-                output,
-                Point{
-                    origin_x + glyph_lines[segment].first.x,
-                    layout.y + 1 + glyph_lines[segment].first.y,
-                },
-                Point{
-                    origin_x + glyph_lines[segment].second.x,
-                    layout.y + 1 + glyph_lines[segment].second.y,
-                },
-                1,
-                foreground,
-                width,
-                height
-            );
         }
+        advance_x += 8;
+        ++glyph_count;
     }
     if (output.size() != text_start) {
         batch_ends.push_back(output.size());
+    }
+}
+
+void draw_cpu_japanese_glyph(
+    AVFrame* frame,
+    const JapaneseGlyph& glyph,
+    int origin_x,
+    int origin_y,
+    const YuvColor& color
+) {
+    for (int row = 0; row < 16; ++row) {
+        const std::uint16_t bits = glyph[static_cast<std::size_t>(row)];
+        int column = 0;
+        while (column < 16) {
+            while (
+                column < 16 &&
+                (bits & (1U << static_cast<unsigned>(15 - column))) == 0
+            ) {
+                ++column;
+            }
+            const int first = column;
+            while (
+                column < 16 &&
+                (bits & (1U << static_cast<unsigned>(15 - column))) != 0
+            ) {
+                ++column;
+            }
+            if (first < column) {
+                const int y = origin_y + row;
+                const int first_x = std::max(0, origin_x + first);
+                const int last_x = std::min(
+                    frame->width - 1,
+                    origin_x + column - 1
+                );
+                if (y >= 0 && y < frame->height && first_x <= last_x) {
+                    blend_span(
+                        frame,
+                        y,
+                        first_x,
+                        last_x,
+                        color,
+                        255
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -2757,19 +2979,33 @@ void draw_cpu_label(AVFrame* frame, const Mask& item) {
         );
     }
     const YuvColor foreground = bgr_to_bt709_limited(item.bgr);
-    for (std::size_t index = 0; index < layout.text.size(); ++index) {
-        const char character = layout.text[index];
-        const int origin_x = layout.x + 2 + static_cast<int>(index) * 8;
+    std::size_t offset = 0;
+    std::size_t glyph_count = 0;
+    int advance_x = 0;
+    while (offset < layout.text.size() && glyph_count < 80) {
+        const char32_t codepoint = next_utf8_codepoint(layout.text, offset);
+        const int origin_x = layout.x + 2 + advance_x;
+        if (const JapaneseGlyph* glyph = japanese_glyph(codepoint)) {
+            draw_cpu_japanese_glyph(
+                frame,
+                *glyph,
+                origin_x,
+                layout.y + 1,
+                foreground
+            );
+            advance_x += 16;
+            ++glyph_count;
+            continue;
+        }
+        const char character = codepoint < 128
+            ? static_cast<char>(codepoint)
+            : '?';
         if (character == '.') {
             draw_disc(frame, origin_x + 3, layout.y + 11, 1, foreground);
-            continue;
-        }
-        if (character == ':') {
+        } else if (character == ':') {
             draw_disc(frame, origin_x + 3, layout.y + 4, 1, foreground);
             draw_disc(frame, origin_x + 3, layout.y + 9, 1, foreground);
-            continue;
-        }
-        if (character == '/' || character == '|') {
+        } else if (character == '/' || character == '|') {
             draw_line(
                 frame,
                 Point{
@@ -2784,30 +3020,36 @@ void draw_cpu_label(AVFrame* frame, const Mask& item) {
                     ),
                     static_cast<double>(layout.y + 11),
                 },
-                1,
+                2,
                 foreground
             );
-            continue;
-        }
-        const std::uint8_t segments = glyph_segments(character);
-        for (std::size_t segment = 0; segment < glyph_lines.size(); ++segment) {
-            if ((segments & (1U << segment)) == 0) {
-                continue;
+        } else {
+            const std::uint8_t segments = glyph_segments(character);
+            for (
+                std::size_t segment = 0;
+                segment < glyph_lines.size();
+                ++segment
+            ) {
+                if ((segments & (1U << segment)) == 0) {
+                    continue;
+                }
+                draw_line(
+                    frame,
+                    Point{
+                        origin_x + glyph_lines[segment].first.x,
+                        layout.y + 3 + glyph_lines[segment].first.y,
+                    },
+                    Point{
+                        origin_x + glyph_lines[segment].second.x,
+                        layout.y + 3 + glyph_lines[segment].second.y,
+                    },
+                    2,
+                    foreground
+                );
             }
-            draw_line(
-                frame,
-                Point{
-                    origin_x + glyph_lines[segment].first.x,
-                    layout.y + 1 + glyph_lines[segment].first.y,
-                },
-                Point{
-                    origin_x + glyph_lines[segment].second.x,
-                    layout.y + 1 + glyph_lines[segment].second.y,
-                },
-                1,
-                foreground
-            );
         }
+        advance_x += 8;
+        ++glyph_count;
     }
 }
 

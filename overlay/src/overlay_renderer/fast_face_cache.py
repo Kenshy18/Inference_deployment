@@ -116,6 +116,8 @@ def materialize_fast_face_cache(
     face_privacy_target: str = "none",
     eye_mask_shape: str = "ellipse",
     minimum_eye_confidence: float = 0.35,
+    face_detection_score_threshold: float = 0.55,
+    head_detection_score_threshold: float = 0.55,
 ) -> dict[str, object]:
     """Create an immutable, range-bounded cache without copying video frames."""
 
@@ -200,6 +202,14 @@ def materialize_fast_face_cache(
                     ("display_style", display_style),
                     ("start_frame", str(start_frame)),
                     ("end_frame", "" if end_frame is None else str(end_frame)),
+                    (
+                        "face_detection_score_threshold",
+                        str(face_detection_score_threshold),
+                    ),
+                    (
+                        "head_detection_score_threshold",
+                        str(head_detection_score_threshold),
+                    ),
                 ),
             )
             with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as source_db:
@@ -224,6 +234,8 @@ def materialize_fast_face_cache(
                     include_probability_masks and display_style == "detailed"
                 ),
                 display_style=display_style,
+                face_detection_score_threshold=face_detection_score_threshold,
+                head_detection_score_threshold=head_detection_score_threshold,
                 start_frame=start_frame,
                 end_frame=end_frame,
             )
@@ -336,6 +348,8 @@ def materialize_fast_face_cache(
         "source": str(source),
         "output": str(output),
         "display_style": display_style,
+        "face_detection_score_threshold": face_detection_score_threshold,
+        "head_detection_score_threshold": head_detection_score_threshold,
         "frames_with_faces": frame_count,
         "first_frame": first_frame,
         "last_frame": last_frame,

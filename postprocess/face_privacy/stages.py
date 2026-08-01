@@ -29,6 +29,12 @@ class FacePrivacyMaskStage:
             target=target,
             eye_shape=eye_shape,
             minimum_eye_confidence=minimum_eye_confidence,
+            face_detection_score_threshold=float(
+                self.options.get("face_detection_score_threshold", 0.55)
+            ),
+            head_detection_score_threshold=float(
+                self.options.get("head_detection_score_threshold", 0.55)
+            ),
             tracking_config=FaceTrackingConfig(
                 max_gap_frames=int(self.options.get("tracking_max_gap_frames", 5)),
                 high_score_threshold=float(

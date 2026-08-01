@@ -28,6 +28,8 @@ describe("default processing profile", () => {
       device: "cuda:0",
       faceMaskTarget: "eyes",
       eyeMaskShape: "rectangle",
+      faceDetectionScoreThreshold: 0.55,
+      headDetectionScoreThreshold: 0.55,
     });
     expect(defaultDraft.postprocess.classPostprocessRules).toEqual([
       {

@@ -31,6 +31,8 @@ describe("orchestration bridge", () => {
     expect(config.inference.face_backend).toBe("tensorrt-fast");
     expect(config.postprocess.k2_batch_size).toBe(128);
     expect(config.postprocess.face_tracking_max_gap_frames).toBe(5);
+    expect(config.postprocess.face_detection_score_threshold).toBe(0.55);
+    expect(config.postprocess.head_detection_score_threshold).toBe(0.55);
     expect(config.overlay.execution_mode).toBe("fast");
     expect(config.overlay.presets).toEqual([
       "combined-simple",

@@ -180,6 +180,10 @@ export function buildOrchestrationConfig(
     face_mask_target: draft.postprocess.faceMaskTarget,
     eye_mask_shape: draft.postprocess.eyeMaskShape,
     minimum_eye_confidence: draft.postprocess.minimumEyeConfidence,
+    face_detection_score_threshold:
+      draft.postprocess.faceDetectionScoreThreshold,
+    head_detection_score_threshold:
+      draft.postprocess.headDetectionScoreThreshold,
     face_tracking_max_gap_frames:
       draft.postprocess.faceTrackingMaxGapFrames,
     face_tracking_high_score_threshold:

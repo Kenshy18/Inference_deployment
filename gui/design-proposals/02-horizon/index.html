@@ -1,0 +1,1542 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mask Pipeline Studio — Horizon</title>
+<style>
+/* ============================================================
+   HORIZON — cinematic blue control surface
+   ============================================================ */
+:root{
+  --bg:#0F1218;
+  --panel:#151A23;
+  --raised:#1B2130;
+  --overlay:#232B3D;
+  --field:#10141D;
+  --line:rgba(151,169,201,.13);
+  --line-soft:rgba(151,169,201,.08);
+  --t1:#DCE3EF;
+  --t2:#92A0B5;
+  --t2b:#78879D;
+  --t3:#5E6B80;
+  --acc:#4C8DFF;
+  --acc2:#6FA5FF;
+  --acc-text:#8FB4FF;
+  --sel:rgba(76,141,255,.13);
+  --ok:#58BE8C;
+  --warn:#E3B25B;
+  --err:#E5685F;
+  --r:6px;
+  --grad:linear-gradient(90deg,#4C8DFF,#6FA5FF);
+  --glow:0 0 10px rgba(76,141,255,.45);
+  --inner-light:inset 0 1px rgba(255,255,255,.045);
+  --card-shadow:inset 0 1px rgba(255,255,255,.045),0 1px 2px rgba(0,0,0,.28),0 10px 28px rgba(0,0,0,.20);
+  --pop-shadow:0 8px 24px rgba(0,0,0,.35);
+  --font-ui:"Segoe UI Variable Text","Segoe UI",system-ui,"Helvetica Neue",Arial,"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
+  --font-mono:"Cascadia Code",Consolas,"SF Mono",ui-monospace,Menlo,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  color:var(--t1);
+  font-family:var(--font-ui);
+  font-size:13px;
+  line-height:1.45;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(76,141,255,.35)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,textarea{font:inherit;color:inherit}
+:focus{outline:none}
+:focus-visible{outline:2px solid rgba(76,141,255,.55);outline-offset:1px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(151,169,201,.16);border-radius:999px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(151,169,201,.28);border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-corner{background:transparent}
+*{scrollbar-width:thin;scrollbar-color:rgba(151,169,201,.18) transparent}
+
+.viewport{height:100vh;overflow:auto}
+.app{
+  height:100vh;min-width:1280px;min-height:720px;
+  display:flex;flex-direction:column;
+  background:
+    radial-gradient(1100px 420px at 50% -160px,rgba(76,141,255,.075),transparent 68%),
+    radial-gradient(900px 500px at 88% 108%,rgba(76,141,255,.035),transparent 60%),
+    var(--bg);
+}
+
+/* ---------- pills / chips ---------- */
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:999px;line-height:1.3;white-space:nowrap}
+.pill-done{color:#74CDA2;background:rgba(88,190,140,.12);border:1px solid rgba(88,190,140,.26)}
+.pill-run{color:var(--acc-text);background:rgba(76,141,255,.13);border:1px solid rgba(76,141,255,.32)}
+.pill-wait{color:var(--t2);background:rgba(151,169,201,.08);border:1px solid rgba(151,169,201,.16)}
+.pill-neutral{color:var(--t2);background:rgba(151,169,201,.08);border:1px solid rgba(151,169,201,.16)}
+.ic{width:14px;height:14px;flex:none}
+
+/* ============================================================
+   TOPBAR
+   ============================================================ */
+.topbar{
+  height:46px;flex:none;display:flex;align-items:center;gap:12px;
+  padding:0 12px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#171D28,#131824);
+  box-shadow:var(--inner-light);
+}
+.logo{
+  width:28px;height:28px;border-radius:var(--r);flex:none;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--acc2);
+  background:linear-gradient(180deg,rgba(76,141,255,.16),rgba(76,141,255,.06));
+  border:1px solid rgba(76,141,255,.30);
+  box-shadow:var(--inner-light),0 0 14px rgba(76,141,255,.12);
+}
+.tb-div{width:1px;height:20px;background:var(--line);flex:none}
+.fchip{
+  display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;
+  background:rgba(151,169,201,.05);border:1px solid var(--line-soft);border-radius:var(--r);
+  box-shadow:var(--inner-light);
+}
+.fchip em{font-style:normal;font-size:9px;font-weight:700;letter-spacing:.09em;color:var(--t3)}
+.fchip b{font-size:12px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tb-spacer{flex:1}
+.btn{
+  height:30px;padding:0 12px;border-radius:var(--r);
+  display:inline-flex;align-items:center;gap:8px;
+  font-size:13px;font-weight:600;white-space:nowrap;
+  transition:background .15s,border-color .15s,color .15s;
+}
+.btn kbd{
+  font-family:var(--font-mono);font-size:9px;font-weight:500;
+  padding:1px 5px;border-radius:4px;color:var(--t3);
+  border:1px solid var(--line-soft);background:rgba(255,255,255,.03);
+}
+.btn-ghost{border:1px solid var(--line);color:var(--t2);background:transparent}
+.btn-ghost:hover{background:rgba(151,169,201,.06);color:var(--t1)}
+.btn-ghost:disabled{color:var(--t3);border-color:var(--line-soft);cursor:not-allowed;background:transparent}
+.btn-ghost:disabled kbd{opacity:.6}
+.btn-danger{
+  color:#F5A49C;background:rgba(229,104,95,.13);border:1px solid rgba(229,104,95,.40);
+  box-shadow:var(--inner-light),0 0 14px rgba(229,104,95,.10);
+}
+.btn-danger:hover{background:rgba(229,104,95,.20);color:#FBB9B2}
+.btn-danger kbd{border-color:rgba(229,104,95,.30);color:#D9908A}
+
+/* ============================================================
+   SHELL / PANELS
+   ============================================================ */
+.main{
+  flex:1;min-height:0;display:grid;
+  grid-template-columns:288px minmax(0,1fr) 312px;
+  gap:8px;padding:8px 10px 0;
+}
+.panel{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--card-shadow);
+  display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;
+}
+.p-head{
+  height:34px;flex:none;display:flex;align-items:center;gap:10px;
+  padding:0 12px;border-bottom:1px solid var(--line-soft);
+}
+.p-title{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t2)}
+.p-meta{font-size:11px;color:var(--t3);white-space:nowrap}
+.p-spacer{flex:1}
+.p-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}
+
+/* ============================================================
+   SOURCE
+   ============================================================ */
+.pane-source .p-body{padding:10px;display:flex;flex-direction:column;gap:16px}
+.blk-label{font-size:11px;font-weight:600;color:var(--t2);margin-bottom:6px}
+.pathin{display:flex;gap:6px;align-items:center}
+.pfield{
+  flex:1;min-width:0;height:26px;line-height:24px;padding:0 8px;
+  font-family:var(--font-mono);font-size:10px;color:var(--t2);
+  background:var(--field);border:1px solid var(--line);border-radius:var(--r);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.pbrowse{
+  width:26px;height:26px;flex:none;border-radius:var(--r);
+  display:flex;align-items:center;justify-content:center;color:var(--t3);
+  border:1px solid var(--line);background:rgba(151,169,201,.04);
+}
+.pbrowse:hover{color:var(--t1);background:rgba(151,169,201,.09)}
+.pbrowse:disabled{color:var(--t3);opacity:.55;cursor:not-allowed}
+.pbrowse:disabled:hover{color:var(--t3);background:rgba(151,169,201,.04)}
+.hint{font-size:10px;color:var(--t2b);margin-top:5px}
+.sub-head{display:flex;align-items:center;gap:8px;min-height:22px}
+.sh-title{font-size:11px;font-weight:600;color:var(--t2);white-space:nowrap}
+.sh-note{font-size:10px;font-weight:600;color:var(--acc-text);background:rgba(76,141,255,.10);border:1px solid rgba(76,141,255,.22);padding:1px 8px;border-radius:999px;font-variant-numeric:tabular-nums;white-space:nowrap;flex:none}
+.sh-note.is-ok{color:#74CDA2;background:rgba(88,190,140,.10);border-color:rgba(88,190,140,.22)}
+.sh-hint{font-size:10px;color:var(--t3);white-space:nowrap;flex:none}
+.btn-quiet{
+  height:22px;padding:0 8px;border-radius:var(--r);display:inline-flex;align-items:center;gap:4px;
+  font-size:11px;color:var(--t2);
+}
+.btn-quiet:hover{background:rgba(151,169,201,.08);color:var(--t1)}
+.btn-quiet .ic{width:12px;height:12px}
+.qlist{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.qitem{
+  position:relative;display:grid;grid-template-columns:50px minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:8px;border-radius:var(--r);overflow:hidden;
+  background:var(--raised);border:1px solid var(--line-soft);
+  box-shadow:var(--inner-light);
+  transition:border-color .15s,background .15s;
+}
+.qitem:hover{border-color:var(--line)}
+.qitem.is-active{
+  background:linear-gradient(180deg,rgba(76,141,255,.12),rgba(76,141,255,.05)),var(--raised);
+  border-color:rgba(76,141,255,.38);
+  box-shadow:var(--inner-light),0 0 18px rgba(76,141,255,.08);
+}
+.qthumb{width:50px;height:28px;border-radius:4px;overflow:hidden;position:relative;border:1px solid rgba(255,255,255,.06);background:#0B0E14}
+.qthumb svg{display:block;width:100%;height:100%}
+.qthumb .dur{
+  position:absolute;right:2px;bottom:2px;font-family:var(--font-mono);font-size:9px;line-height:1.4;
+  color:#D5DCE8;background:rgba(5,8,13,.68);padding:0 4px;border-radius:4px;font-variant-numeric:tabular-nums;
+}
+.qmain{min-width:0}
+.qtitle{font-size:12px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qmeta{font-size:10px;color:var(--t2b);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.qprog{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.05)}
+.qprog i{display:block;height:100%;background:var(--grad);box-shadow:var(--glow);border-radius:0 2px 2px 0}
+.olist{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.oitem{
+  display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:10px;align-items:center;
+  width:100%;text-align:left;padding:6px 8px;border-radius:var(--r);
+  border:1px solid transparent;color:inherit;
+  transition:background .15s,border-color .15s;
+}
+.oitem:hover{background:var(--raised);border-color:var(--line-soft)}
+.othumb{width:44px;height:26px;border-radius:4px;overflow:hidden;border:1px solid rgba(255,255,255,.06);background:#0B0E14}
+.othumb svg{display:block;width:100%;height:100%}
+.oitem .ic{color:var(--t3)}
+.oitem:hover .ic{color:var(--t2)}
+
+/* ============================================================
+   MONITOR
+   ============================================================ */
+.mtabs{display:flex;align-self:stretch;gap:2px}
+.mtab{
+  position:relative;display:flex;align-items:center;padding:0 10px;
+  font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t3);
+  transition:color .15s;
+}
+.mtab:hover{color:var(--t2)}
+.mtab.is-active{color:var(--t1)}
+.mtab.is-active::after{
+  content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:1px;
+  background:var(--grad);box-shadow:0 0 8px rgba(76,141,255,.55);
+}
+.jobchip{
+  font-family:var(--font-mono);font-size:10px;color:var(--t2);
+  padding:2px 8px;border-radius:999px;white-space:nowrap;
+  background:rgba(151,169,201,.06);border:1px solid var(--line-soft);
+  font-variant-numeric:tabular-nums;
+}
+.mview{display:none;flex:1;min-height:0;flex-direction:column;gap:10px;padding:12px}
+.mview.is-active{display:flex}
+.pane-monitor .p-body{display:flex;flex-direction:column;padding:0}
+
+/* HUD */
+.hud{display:flex;align-items:center;gap:12px;flex:none;padding:0 2px}
+.hud-en{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--t3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.hud-mid{flex:1;text-align:center}
+.hud-right{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--t3);white-space:nowrap}
+.hud-right .st{color:var(--acc-text);font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot-run{background:var(--acc2);box-shadow:0 0 8px rgba(76,141,255,.7);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* pipeline flow strip */
+.flow{
+  position:relative;flex:none;display:grid;grid-template-columns:repeat(6,1fr);
+  background:var(--raised);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--inner-light);overflow:hidden;
+}
+.flow::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:6px;pointer-events:none;
+  background-image:
+    repeating-linear-gradient(90deg,rgba(151,169,201,.5) 0 1px,transparent 1px 60px),
+    repeating-linear-gradient(90deg,rgba(151,169,201,.35) 0 1px,transparent 1px 12px);
+  background-size:100% 6px,100% 3px;
+  background-repeat:no-repeat;
+  opacity:.55;
+}
+.fnode{position:relative;min-width:0;padding:12px 12px 16px}
+.fnode + .fnode{border-left:1px solid var(--line-soft)}
+.fnode-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.fstep{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--t3)}
+.fdot{width:7px;height:7px;border-radius:50%;border:1px solid rgba(151,169,201,.35);background:transparent}
+.fnode.is-done .fdot{background:var(--ok);border-color:transparent}
+.fnode.is-active .fdot{background:var(--acc2);border-color:transparent;box-shadow:0 0 8px rgba(76,141,255,.8);animation:pulse 2s ease-in-out infinite}
+.fnode.is-active .fstep{color:var(--acc-text)}
+.fname{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--t2);white-space:nowrap;overflow:hidden}
+.fname .ic{width:13px;height:13px;color:var(--t3)}
+.fnode.is-done .fname,.fnode.is-active .fname{color:var(--t1)}
+.fnode.is-active .fname .ic{color:var(--acc2)}
+.fnode.is-done .fname .ic{color:#7893C6}
+.fvalue{font-size:10px;color:var(--t2b);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.fseg{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.035)}
+.fnode.is-done .fseg i{display:block;height:100%;background:rgba(76,141,255,.42)}
+.fnode.is-active .fseg i{display:block;height:100%;width:45%;background:var(--grad);box-shadow:var(--glow);border-radius:0 2px 2px 0}
+
+/* scopes */
+.scopes{flex:1 1 auto;min-height:168px;max-height:380px;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:8px}
+.scope{
+  min-height:0;display:flex;flex-direction:column;padding:8px 10px 6px;
+  background:var(--raised);border:1px solid var(--line-soft);border-radius:var(--r);
+  box-shadow:var(--inner-light);
+}
+.scope-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.scope-head span{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--t3)}
+.scope-head b{font-size:13px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums;white-space:nowrap}
+.scope-head b em{font-style:normal;font-size:10px;font-weight:500;color:var(--t3);margin-left:2px}
+.scope-svg{flex:1;width:100%;min-height:30px;margin:5px 0 3px}
+.sgrid{stroke:rgba(151,169,201,.10);stroke-width:1}
+.sline{fill:none;stroke-width:1.5;stroke-linejoin:round}
+.scope-axis{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:9px;color:var(--t3);font-variant-numeric:tabular-nums}
+
+/* readout / ETA */
+.readout{flex:none;display:flex;align-items:center;gap:16px}
+.ro-pct{display:flex;align-items:baseline;font-variant-numeric:tabular-nums;color:var(--t1)}
+.ro-pct b{font-size:30px;font-weight:650;letter-spacing:-.01em;line-height:1}
+.ro-pct em{font-style:normal;font-size:16px;font-weight:600;color:var(--t2);margin-left:2px}
+.ro-sum{flex:1;min-width:0;font-size:12px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ro-sum b{color:var(--t1);font-weight:600}
+.eta{display:flex;flex:none}
+.eta-cell{padding:2px 16px;border-left:1px solid var(--line-soft);text-align:right}
+.eta-cell:last-child{padding-right:2px}
+.eta-cell b{display:block;font-size:16px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums;line-height:1.2}
+.eta-cell span{display:block;font-size:10px;color:var(--t3);margin-top:2px}
+
+/* stage timeline */
+.stl{
+  flex:none;position:relative;display:grid;grid-template-columns:repeat(4,1fr);height:32px;
+  background:var(--raised);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--inner-light);overflow:hidden;
+}
+.stl::after{
+  content:"";position:absolute;bottom:0;left:0;right:0;height:6px;pointer-events:none;
+  background-image:
+    repeating-linear-gradient(90deg,rgba(151,169,201,.5) 0 1px,transparent 1px 60px),
+    repeating-linear-gradient(90deg,rgba(151,169,201,.35) 0 1px,transparent 1px 12px);
+  background-position:left bottom,left bottom;
+  background-size:100% 6px,100% 3px;
+  background-repeat:no-repeat;
+  opacity:.55;
+}
+.stl-cell{
+  position:relative;display:flex;align-items:center;justify-content:flex-start;min-width:0;
+  font-family:var(--font-mono);font-size:11px;color:var(--t3);white-space:nowrap;
+}
+.stl-cell + .stl-cell{border-left:1px solid var(--line-soft)}
+.stl-cell span{position:relative;z-index:1;overflow:hidden;text-overflow:ellipsis;padding:0 10px}
+.stl-cell.is-active{color:var(--t1)}
+.stl-cell.is-active::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:45%;
+  background:linear-gradient(90deg,rgba(76,141,255,.16),rgba(76,141,255,.30));
+  border-right:1px solid rgba(111,165,255,.85);
+  box-shadow:4px 0 12px rgba(76,141,255,.28);
+}
+
+/* phase grid */
+.phases{flex:none;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.phase{
+  padding:8px 12px;background:var(--raised);border:1px solid var(--line-soft);
+  border-radius:var(--r);box-shadow:var(--inner-light);min-width:0;
+}
+.ph-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.ph-name{font-size:12px;font-weight:600;color:var(--t1);display:flex;align-items:center;gap:6px}
+.ph-name .ic{width:11px;height:11px;color:var(--ok)}
+.ph-pct{font-size:13px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.ph-track{height:3px;border-radius:2px;background:rgba(255,255,255,.05);margin:8px 0 7px;overflow:hidden}
+.ph-track i{display:block;height:100%;border-radius:2px}
+.phase.is-run .ph-track i{width:45%;background:var(--grad);box-shadow:var(--glow)}
+.phase.is-done .ph-track i{width:100%;background:rgba(88,190,140,.48)}
+.phase.is-wait .ph-name{color:var(--t2)}
+.phase.is-wait .ph-pct{color:var(--t3)}
+.ph-meta{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:var(--t3);white-space:nowrap}
+.ph-meta em{font-style:normal}
+.ph-meta b{font-weight:500;color:var(--t2b);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+.phase.is-run .ph-meta em{font-style:normal;color:var(--acc-text)}
+.phase.is-done .ph-meta em{font-style:normal;color:#74CDA2}
+
+/* metrics strip */
+.metrics{
+  flex:none;display:flex;align-items:stretch;justify-content:space-between;gap:12px;
+  padding:8px 12px;border-top:1px solid var(--line-soft);
+  background:rgba(151,169,201,.025);
+}
+.mcell{min-width:0}
+.mcell span{display:block;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.mcell b{display:block;font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--t1);margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mcell b.dim{color:var(--t3);font-weight:400}
+
+/* LIVE view */
+.stage{
+  flex:1;min-height:0;position:relative;border-radius:var(--r);overflow:hidden;
+  background:#0B0E14;border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;
+}
+.stage svg{width:100%;height:100%;display:block}
+.livebadge{
+  position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:#F2F5FA;
+  background:rgba(5,8,13,.62);border:1px solid rgba(255,255,255,.10);
+  padding:3px 9px;border-radius:999px;backdrop-filter:blur(4px);
+}
+.livebadge i{width:6px;height:6px;border-radius:50%;background:var(--err);box-shadow:0 0 8px rgba(229,104,95,.8);animation:pulse 1.4s ease-in-out infinite}
+.scan{position:absolute;left:0;right:0;height:38px;top:-40px;pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(111,165,255,.06),rgba(111,165,255,.14),transparent);
+  animation:scan 5.5s linear infinite}
+@keyframes scan{0%{top:-10%}100%{top:108%}}
+.lmeta{flex:none;display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.lcell{
+  padding:8px 12px;background:var(--raised);border:1px solid var(--line-soft);
+  border-radius:var(--r);box-shadow:var(--inner-light);min-width:0;
+}
+.lcell span{display:block;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.lcell b{display:block;font-size:12px;font-weight:600;color:var(--t1);margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lcell b.mono{font-family:var(--font-mono)}
+
+/* ============================================================
+   INSPECTOR
+   ============================================================ */
+.vseg{display:flex;gap:2px;padding:2px;background:var(--field);border:1px solid var(--line);border-radius:var(--r)}
+.vseg button{padding:2px 10px;border-radius:4px;font-size:11px;color:var(--t3);transition:background .15s,color .15s}
+.vseg button:hover{color:var(--t2)}
+.vseg button.is-active{background:var(--overlay);color:var(--t1);box-shadow:var(--inner-light),0 1px 2px rgba(0,0,0,.3)}
+.pane-inspector .p-body{padding:2px 8px 12px}
+.sec + .sec{border-top:1px solid var(--line-soft)}
+.sec-head{
+  width:100%;display:flex;align-items:center;gap:8px;padding:8px;
+  border-radius:var(--r);text-align:left;
+}
+.sec-head:hover{background:rgba(151,169,201,.05)}
+.sec-head .chev{width:12px;height:12px;color:var(--t3);transition:transform .15s}
+.sec.is-open .sec-head .chev{transform:rotate(90deg)}
+.sec-name{font-size:12px;font-weight:600;color:var(--t1)}
+.sec-head .p-spacer{flex:1}
+.sec-body{display:none;padding:0 6px 14px}
+.sec.is-open .sec-body{display:block}
+.badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.badge-ok{color:#74CDA2;background:rgba(88,190,140,.11);border:1px solid rgba(88,190,140,.24)}
+.badge-acc{color:var(--acc-text);background:rgba(76,141,255,.11);border:1px solid rgba(76,141,255,.26)}
+.badge-dim{color:var(--t2);background:rgba(151,169,201,.07);border:1px solid rgba(151,169,201,.15)}
+
+.row{display:grid;grid-template-columns:106px minmax(0,1fr);gap:2px 10px;align-items:center;min-height:30px;padding:2px 0}
+.row-label{font-size:11px;color:var(--t2);line-height:1.35}
+.row .hint{grid-column:2;margin-top:0}
+.row-stack{display:block;padding:4px 0}
+.row-stack .row-label{margin-bottom:5px}
+.row-stack .hint{margin-top:5px}
+.subhead{display:flex;align-items:center;gap:8px;margin:14px 0 4px;font-size:11px;font-weight:600;color:var(--t3);white-space:nowrap}
+.subhead::after{content:"";flex:1;height:1px;background:var(--line-soft)}
+
+/* simple / advanced visibility */
+.adv{display:none}
+.is-advanced .adv{display:block}
+.row.adv{display:none}
+.is-advanced .row.adv{display:grid}
+.is-advanced .simple-only{display:none}
+
+/* controls */
+.busy{cursor:not-allowed}
+.busy .ctl{pointer-events:none;opacity:.55;filter:saturate(.85);color:var(--t2)}
+.check{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--t1);cursor:default;white-space:nowrap}
+.check .box{
+  width:15px;height:15px;flex:none;border-radius:4px;position:relative;
+  border:1px solid rgba(151,169,201,.35);background:var(--field);
+}
+.check.is-on .box{
+  background:linear-gradient(180deg,#5D9AFF,#4380F2);border-color:transparent;
+  box-shadow:0 1px 5px rgba(76,141,255,.35);
+}
+.check.is-on .box::after{
+  content:"";position:absolute;left:3.5px;top:4px;width:7px;height:3.5px;
+  border-left:1.6px solid #0A101C;border-bottom:1.6px solid #0A101C;transform:rotate(-45deg);
+}
+.check.is-off-label{color:var(--t2)}
+.checkgroup{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;padding:2px 0}
+.checkgroup .check{font-size:11px}
+.select{
+  height:26px;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:0 7px 0 10px;background:var(--field);border:1px solid var(--line);border-radius:var(--r);
+  font-size:12px;color:var(--t1);min-width:0;
+}
+.select .ic{width:11px;height:11px;color:var(--t3);transform:rotate(90deg)}
+.select.is-disabled{color:var(--t3);border-color:var(--line-soft)}
+.seg{display:inline-flex;gap:2px;padding:2px;background:var(--field);border:1px solid var(--line);border-radius:var(--r)}
+.seg b{padding:2px 10px;border-radius:4px;font-size:11px;font-weight:500;color:var(--t3);white-space:nowrap}
+.seg b.is-active{background:var(--overlay);color:var(--t1);box-shadow:var(--inner-light),0 1px 2px rgba(0,0,0,.3)}
+.seg.seg-mini b{padding:1px 8px;font-size:10px}
+.nrow{display:flex;align-items:center;gap:6px}
+.nfield{
+  width:92px;height:26px;display:flex;align-items:center;justify-content:space-between;gap:6px;
+  padding:0 8px;background:var(--field);border:1px solid var(--line);border-radius:var(--r);
+  font-size:12px;color:var(--t1);font-variant-numeric:tabular-nums;
+}
+.nfield.is-empty{color:var(--t3);font-size:11px}
+.nfield em{font-style:normal;font-size:10px;color:var(--t3)}
+.nfield.nfield-s{width:64px}
+.mfield{
+  height:26px;display:flex;align-items:center;padding:0 8px;min-width:0;
+  background:var(--field);border:1px solid var(--line);border-radius:var(--r);
+  font-family:var(--font-mono);font-size:11px;color:var(--t1);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.mfield.is-ph{color:var(--t3)}
+.sliderrow{display:flex;align-items:center;gap:10px;min-width:0}
+.slider{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.08);position:relative;min-width:40px}
+.slider i{position:absolute;left:0;top:0;height:100%;border-radius:2px;background:var(--grad)}
+.slider b{
+  position:absolute;top:50%;width:12px;height:12px;border-radius:50%;
+  background:#DCE3EF;border:1px solid #2A3550;transform:translate(-50%,-50%);
+  box-shadow:0 1px 3px rgba(0,0,0,.45);
+}
+.sv{width:34px;text-align:right;font-size:12px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.tarea{
+  min-height:44px;padding:8px;background:var(--field);border:1px solid var(--line);border-radius:var(--r);
+  font-family:var(--font-mono);font-size:11px;color:var(--t3);white-space:pre;line-height:1.5;
+}
+.ctable{background:var(--field);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.ct-row{display:grid;grid-template-columns:minmax(0,1fr) auto 64px;gap:8px;align-items:center;padding:4px 8px}
+.ct-row + .ct-row{border-top:1px solid var(--line-soft)}
+.ct-head{font-size:10px;color:var(--t3);padding:4px 8px}
+.ct-name{font-size:11px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct-kf{display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:11px;color:var(--t1);font-variant-numeric:tabular-nums}
+.ct-kf em{font-style:normal;font-size:10px;color:var(--t3)}
+.ct-row4{display:grid;grid-template-columns:minmax(0,1fr) auto 40px 44px 14px;gap:8px;align-items:center;padding:4px 8px}
+.ct-row4 + .ct-row4{border-top:1px solid var(--line-soft)}
+.ct-del{color:var(--t3);text-align:center;font-size:12px;line-height:1}
+.ct-add{padding:8px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--t2);text-align:center}
+
+/* ============================================================
+   CONSOLE
+   ============================================================ */
+.pane-console{flex:none;height:168px;margin:8px 10px 0}
+.stagechip{
+  font-family:var(--font-mono);font-size:10px;color:var(--acc-text);
+  background:rgba(76,141,255,.10);border:1px solid rgba(76,141,255,.24);
+  padding:2px 8px;border-radius:999px;
+}
+.follow{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t2);white-space:nowrap}
+.follow .box{width:13px;height:13px;border-radius:4px;position:relative;border:1px solid rgba(151,169,201,.35);background:var(--field)}
+.follow.is-on .box{background:linear-gradient(180deg,#5D9AFF,#4380F2);border-color:transparent}
+.follow.is-on .box::after{content:"";position:absolute;left:3px;top:3.5px;width:6px;height:3px;border-left:1.5px solid #0A101C;border-bottom:1.5px solid #0A101C;transform:rotate(-45deg)}
+.cfilter{
+  width:150px;height:22px;padding:0 8px;font-size:11px;color:var(--t1);
+  background:var(--field);border:1px solid var(--line);border-radius:var(--r);
+}
+.cfilter::placeholder{color:var(--t3)}
+.cfilter:focus{border-color:rgba(76,141,255,.5)}
+.ccount{font-family:var(--font-mono);font-size:10px;color:var(--t3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.clog{flex:1;min-height:0;overflow:auto;padding:4px 12px 8px;font-family:var(--font-mono);font-size:11px;line-height:1.62}
+.cline{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;white-space:pre;border-radius:4px}
+.cline:hover{background:rgba(151,169,201,.07)}
+.cnum{color:var(--t3);text-align:right;user-select:none;font-variant-numeric:tabular-nums}
+.ctext{color:#AEBACC;overflow:hidden;text-overflow:ellipsis}
+.ctag{color:#7FA8FF;font-weight:500}
+.is-cmd .ctext{color:#C6D1E2}
+.dollar{color:var(--ok);font-weight:600}
+
+/* ============================================================
+   STATUSBAR
+   ============================================================ */
+.statusbar{
+  height:26px;flex:none;display:flex;align-items:center;gap:16px;
+  margin-top:8px;padding:0 12px;font-size:11px;color:var(--t3);
+  border-top:1px solid var(--line);background:linear-gradient(180deg,#141926,#12161F);
+  white-space:nowrap;overflow:hidden;
+}
+.sb-status{display:inline-flex;align-items:center;gap:7px;font-weight:600;color:var(--acc-text)}
+.sb-item{display:inline-flex;align-items:baseline;gap:6px}
+.sb-item em{font-style:normal;color:var(--t3)}
+.sb-item b{font-weight:500;color:var(--t2);font-variant-numeric:tabular-nums}
+.sb-item b.mono{font-family:var(--font-mono);font-size:10px}
+.sb-right{margin-left:auto;display:inline-flex;align-items:center;gap:16px;min-width:0;flex-shrink:1}
+.sb-right .sb-be,.sb-right .sb-item{flex:none}
+.sb-be{font-size:9px;font-weight:700;letter-spacing:.09em;color:var(--t2)}
+.sb-path{font-family:var(--font-mono);font-size:10px;color:var(--t3);max-width:300px;overflow:hidden;text-overflow:ellipsis}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ======= icon sprite + shared gradients ======= -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <radialGradient id="vg" cx="0.5" cy="0.45" r="0.75">
+      <stop offset="0" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.65" stop-color="#000" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".52"/>
+    </radialGradient>
+    <symbol id="i-film" viewBox="0 0 16 16"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1"/><path d="M4.8 2.6v10.8M11.2 2.6v10.8M1.6 8h12.8"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 16 16"><path d="M1.8 4h4l1.4 1.6h7V12a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1V4Z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="0.5" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="m3.2 8.4 3 3L12.8 4.6"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 16 16"><path d="m6 3.5 4.5 4.5L6 12.5"/></symbol>
+    <symbol id="i-video" viewBox="0 0 16 16"><rect x="1.6" y="3.6" width="9" height="8.8" rx="1"/><path d="m10.6 7.4 3.8-2.1v5.4l-3.8-2.1"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 16 16"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1"/><path d="M6.6 1.8v2.4M9.4 1.8v2.4M6.6 11.8v2.4M9.4 11.8v2.4M1.8 6.6h2.4M1.8 9.4h2.4M11.8 6.6h2.4M11.8 9.4h2.4"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.4 8S3.8 3.8 8 3.8 14.6 8 14.6 8 12.2 12.2 8 12.2 1.4 8 1.4 8Z"/><circle cx="8" cy="8" r="1.8"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 16 16"><path d="M8 1.8 14.4 5 8 8.2 1.6 5 8 1.8Z"/><path d="m1.6 8 6.4 3.2L14.4 8"/><path d="m1.6 11 6.4 3.2L14.4 11"/></symbol>
+    <symbol id="i-db" viewBox="0 0 16 16"><ellipse cx="8" cy="3.6" rx="5.4" ry="2"/><path d="M2.6 3.6v8.8c0 1.1 2.4 2 5.4 2s5.4-.9 5.4-2V3.6"/><path d="M2.6 8c0 1.1 2.4 2 5.4 2s5.4-.9 5.4-2"/></symbol>
+    <!-- thumbnail art -->
+    <linearGradient id="ta1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#453A50"/><stop offset="1" stop-color="#181322"/></linearGradient>
+    <radialGradient id="ta2" cx="0.72" cy="0.22" r="0.62"><stop offset="0" stop-color="#D9A768" stop-opacity=".5"/><stop offset="1" stop-color="#D9A768" stop-opacity="0"/></radialGradient>
+    <linearGradient id="tb1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2C3B52"/><stop offset="1" stop-color="#0C1220"/></linearGradient>
+    <radialGradient id="tb2" cx="0.3" cy="0.1" r="0.7"><stop offset="0" stop-color="#BFD4F2" stop-opacity=".38"/><stop offset="1" stop-color="#BFD4F2" stop-opacity="0"/></radialGradient>
+    <linearGradient id="tc1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#57616F"/><stop offset="1" stop-color="#262C38"/></linearGradient>
+    <linearGradient id="td1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#101A30"/><stop offset="1" stop-color="#04060C"/></linearGradient>
+  </defs>
+</svg>
+
+<div class="viewport">
+<div class="app">
+
+  <!-- ================= TOPBAR ================= -->
+  <header class="topbar">
+    <div class="logo"><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-film"/></svg></div>
+    <div class="tb-div"></div>
+    <div class="fchip" title="入力キューの状態"><em>QUEUE</em><b>4本 · 残り2</b></div>
+    <div class="fchip" title="/home/user/videos/mask_out"><em>OUT</em><b>mask_out</b></div>
+    <div class="tb-spacer"></div>
+    <button class="btn btn-ghost" disabled title="設定と入力だけを検証 (Ctrl+D)">
+      <svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg>
+      Dry Run <kbd>^D</kbd>
+    </button>
+    <button class="btn btn-danger" title="キューの処理を停止 (Esc)">
+      <svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3"><use href="#i-stop"/></svg>
+      停止 <kbd>Esc</kbd>
+    </button>
+  </header>
+
+  <!-- ================= MAIN ================= -->
+  <div class="main">
+
+    <!-- ======== SOURCE ======== -->
+    <section class="panel pane-source" aria-label="Source">
+      <div class="p-head">
+        <span class="p-title">Source</span>
+        <span class="p-meta">4本</span>
+      </div>
+      <div class="p-body">
+
+        <div>
+          <div class="blk-label">出力リポジトリ</div>
+          <div class="pathin">
+            <span class="pfield" title="/home/user/videos/mask_out">/home/user/videos/mask_out</span>
+            <button class="pbrowse" title="参照…" disabled><svg class="ic" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg></button>
+          </div>
+          <div class="hint">処理中は変更できません</div>
+        </div>
+
+        <div>
+          <div class="sub-head">
+            <span class="sh-title">入力キュー</span>
+            <span class="sh-note">残り2</span>
+            <span class="p-spacer"></span>
+            <button class="btn-quiet" title="動画ファイルを選択して追加">
+              <svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><use href="#i-plus"/></svg>追加
+            </button>
+          </div>
+          <div class="qlist">
+
+            <div class="qitem" title="/home/user/videos/interview_a_1080p.mp4&#10;右クリックで操作">
+              <div class="qthumb">
+                <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <rect width="96" height="54" fill="url(#ta1)"/><rect width="96" height="54" fill="url(#ta2)"/>
+                  <rect x="62" y="8" width="24" height="38" rx="2" fill="#241D31" opacity=".85"/>
+                  <circle cx="36" cy="20" r="8" fill="#131019"/>
+                  <path d="M18 54 Q36 28 54 54 Z" fill="#100D16"/>
+                  <rect width="96" height="54" fill="url(#vg)"/>
+                </svg>
+              </div>
+              <div class="qmain">
+                <div class="qtitle">interview_a_1080p</div>
+                <div class="qmeta">V3 + Face V2 · ポリゴン · overlay fast</div>
+              </div>
+              <span class="pill pill-done">処理済み</span>
+            </div>
+
+            <div class="qitem is-active" title="/home/user/videos/studio_b_4k.mp4&#10;右クリックで操作">
+              <div class="qthumb">
+                <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <rect width="96" height="54" fill="url(#tb1)"/><rect width="96" height="54" fill="url(#tb2)"/>
+                  <path d="M0 0 L34 0 L14 54 L0 54 Z" fill="#DCE9FA" opacity=".07"/>
+                  <circle cx="52" cy="22" r="8.5" fill="#0D1119"/>
+                  <path d="M34 54 Q52 30 70 54 Z" fill="#0A0E15"/>
+                  <path d="M52 15 a8.5 8.5 0 0 1 6 2.6 l-3 3.4 a4 4 0 0 0-3-1.4 Z" fill="#7FA8DF" opacity=".5"/>
+                  <rect width="96" height="54" fill="url(#vg)"/>
+                </svg>
+              </div>
+              <div class="qmain">
+                <div class="qtitle">studio_b_4k</div>
+                <div class="qmeta">V3 + Face V2 · ポリゴン · overlay fast</div>
+              </div>
+              <span class="pill pill-run">処理中</span>
+              <div class="qprog"><i style="width:46%"></i></div>
+            </div>
+
+            <div class="qitem" title="/home/user/videos/daily_scrum_720p.mp4&#10;右クリックで操作">
+              <div class="qthumb">
+                <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <rect width="96" height="54" fill="url(#tc1)"/>
+                  <rect x="0" y="0" width="96" height="12" fill="#B9C4D4" opacity=".14"/>
+                  <rect x="6" y="34" width="84" height="8" rx="2" fill="#1B2029" opacity=".8"/>
+                  <circle cx="30" cy="24" r="6" fill="#1A1F28"/>
+                  <circle cx="62" cy="25" r="6" fill="#171C25"/>
+                  <path d="M20 34 Q30 24 40 34 Z" fill="#151A22"/>
+                  <path d="M52 34 Q62 25 72 34 Z" fill="#131720"/>
+                  <rect width="96" height="54" fill="url(#vg)"/>
+                </svg>
+                <span class="dur">05:21</span>
+              </div>
+              <div class="qmain">
+                <div class="qtitle">daily_scrum_720p</div>
+                <div class="qmeta">05:21 · 1280×720 · 30.00 fps</div>
+              </div>
+              <span class="pill pill-wait">未処理</span>
+            </div>
+
+            <div class="qitem" title="/home/user/videos/night_walk_b_1080p.mp4&#10;右クリックで操作">
+              <div class="qthumb">
+                <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <rect width="96" height="54" fill="url(#td1)"/>
+                  <circle cx="18" cy="14" r="4.5" fill="#E3B25B" opacity=".5"/>
+                  <circle cx="34" cy="10" r="2.5" fill="#E3B25B" opacity=".34"/>
+                  <circle cx="76" cy="12" r="3.5" fill="#6FA5FF" opacity=".4"/>
+                  <circle cx="88" cy="20" r="2" fill="#6FA5FF" opacity=".3"/>
+                  <circle cx="58" cy="8" r="1.6" fill="#E8E3D5" opacity=".3"/>
+                  <path d="M0 54 L38 26 L42 26 L20 54 Z" fill="#0C1322" opacity=".9"/>
+                  <path d="M96 54 L60 28 L56 28 L76 54 Z" fill="#0A101C" opacity=".9"/>
+                  <path d="M44 30 Q48 26 52 30 L50 54 L46 54 Z" fill="#05070D"/>
+                  <rect width="96" height="54" fill="url(#vg)"/>
+                </svg>
+                <span class="dur">03:47</span>
+              </div>
+              <div class="qmain">
+                <div class="qtitle">night_walk_b_1080p</div>
+                <div class="qmeta">03:47 · 1920×1080 · 59.94 fps</div>
+              </div>
+              <span class="pill pill-wait">未処理</span>
+            </div>
+
+          </div>
+        </div>
+
+        <div>
+          <div class="sub-head">
+            <span class="sh-title">出力キュー</span>
+            <span class="sh-note is-ok">1本完了</span>
+            <span class="p-spacer"></span>
+            <span class="sh-hint">クリックでフォルダを開く</span>
+          </div>
+          <div class="olist">
+            <button class="oitem" title="/home/user/videos/mask_out/interview_a_1080p&#10;クリックして出力フォルダを開く">
+              <div class="othumb">
+                <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <rect width="96" height="54" fill="url(#ta1)"/><rect width="96" height="54" fill="url(#ta2)"/>
+                  <rect x="62" y="8" width="24" height="38" rx="2" fill="#241D31" opacity=".85"/>
+                  <circle cx="36" cy="20" r="8" fill="#131019"/>
+                  <path d="M18 54 Q36 28 54 54 Z" fill="#100D16"/>
+                  <rect width="96" height="54" fill="url(#vg)"/>
+                </svg>
+              </div>
+              <div class="qmain">
+                <div class="qtitle">interview_a_1080p</div>
+                <div class="qmeta">08/01 10:52 · 9成果物 · V3 + Face V2 · ポリゴン · overlay fast</div>
+              </div>
+              <svg class="ic" aria-label="出力フォルダを開く" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ======== MONITOR ======== -->
+    <section class="panel pane-monitor" aria-label="Monitor">
+      <div class="p-head">
+        <span class="p-title">Monitor</span>
+        <span class="p-meta">性器 + 顔</span>
+        <span class="p-spacer"></span>
+        <div class="mtabs" role="tablist" aria-label="Monitor view">
+          <button class="mtab is-active" role="tab" aria-selected="true" data-view="view-status">STATUS</button>
+          <button class="mtab" role="tab" aria-selected="false" data-view="view-live">LIVE</button>
+        </div>
+        <span class="jobchip">JOB 2026-08-01T10-58-24</span>
+      </div>
+      <div class="p-body">
+
+        <!-- ---- STATUS view ---- -->
+        <div class="mview is-active" id="view-status" role="tabpanel">
+
+          <div class="hud">
+            <span class="hud-en">PIPELINE · 6 STEPS</span>
+            <span class="hud-en hud-mid">BATCH 2 / 4</span>
+            <span class="hud-right"><span class="st"><i class="dot dot-run"></i>実行中</span><span>·</span><span>性器推論</span></span>
+          </div>
+
+          <div class="flow">
+            <div class="fnode is-done">
+              <div class="fnode-top"><span class="fstep">01</span><span class="fdot"></span></div>
+              <div class="fname"><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-video"/></svg>入力</div>
+              <div class="fvalue">studio_b_4k</div>
+              <div class="fseg"><i></i></div>
+            </div>
+            <div class="fnode is-active">
+              <div class="fnode-top"><span class="fstep">02</span><span class="fdot"></span></div>
+              <div class="fname"><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-cpu"/></svg>性器推論</div>
+              <div class="fvalue">V3</div>
+              <div class="fseg"><i></i></div>
+            </div>
+            <div class="fnode is-done">
+              <div class="fnode-top"><span class="fstep">03</span><span class="fdot"></span></div>
+              <div class="fname"><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-eye"/></svg>顔推論</div>
+              <div class="fvalue">Face V2</div>
+              <div class="fseg"><i></i></div>
+            </div>
+            <div class="fnode">
+              <div class="fnode-top"><span class="fstep">04</span><span class="fdot"></span></div>
+              <div class="fname"><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-layers"/></svg>後処理</div>
+              <div class="fvalue">3クラス個別 · カット先行</div>
+              <div class="fseg"></div>
+            </div>
+            <div class="fnode">
+              <div class="fnode-top"><span class="fstep">05</span><span class="fdot"></span></div>
+              <div class="fname"><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-film"/></svg>オーバーレイ</div>
+              <div class="fvalue">2本 · 高速</div>
+              <div class="fseg"></div>
+            </div>
+            <div class="fnode">
+              <div class="fnode-top"><span class="fstep">06</span><span class="fdot"></span></div>
+              <div class="fname"><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-db"/></svg>出力</div>
+              <div class="fvalue">SQLite + 動画</div>
+              <div class="fseg"></div>
+            </div>
+          </div>
+
+          <div class="scopes">
+            <div class="scope">
+              <div class="scope-head"><span>FPS</span><b>21.4<em>fps</em></b></div>
+              <svg class="scope-svg" viewBox="0 0 300 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="sg-fps" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4C8DFF" stop-opacity=".13"/><stop offset="1" stop-color="#4C8DFF" stop-opacity=".015"/></linearGradient></defs><line class="sgrid" x1="0" x2="300" y1="25" y2="25" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="50" y2="50" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="75" y2="75" vector-effect="non-scaling-stroke"/><polygon fill="url(#sg-fps)" points="0,100 0.0,43.0 1.7,40.2 3.4,37.8 5.0,35.0 6.7,32.7 8.4,29.9 10.1,28.4 11.7,25.7 13.4,23.8 15.1,23.2 16.8,23.2 18.4,23.2 20.1,23.4 21.8,23.8 23.5,23.0 25.1,22.6 26.8,23.5 28.5,23.6 30.2,22.7 31.8,23.0 33.5,22.6 35.2,22.5 36.9,23.7 38.5,23.1 40.2,23.3 41.9,23.1 43.6,23.4 45.3,24.0 46.9,22.6 48.6,22.7 50.3,22.3 52.0,22.9 53.6,23.2 55.3,22.8 57.0,24.0 58.7,22.2 60.3,22.8 62.0,22.0 63.7,23.6 65.4,22.3 67.0,23.6 68.7,23.6 70.4,23.7 72.1,23.5 73.7,23.7 75.4,22.8 77.1,21.9 78.8,23.0 80.4,23.1 82.1,22.4 83.8,22.0 85.5,22.0 87.2,21.8 88.8,23.0 90.5,22.6 92.2,23.5 93.9,22.0 95.5,22.0 97.2,21.1 98.9,20.4 100.6,19.1 102.2,16.9 103.9,13.1 105.6,16.9 107.3,19.1 108.9,20.4 110.6,21.1 112.3,22.7 114.0,22.8 115.6,22.5 117.3,22.5 119.0,23.2 120.7,23.2 122.3,22.7 124.0,22.5 125.7,22.6 127.4,22.4 129.1,23.0 130.7,21.7 132.4,22.2 134.1,22.3 135.8,22.1 137.4,22.5 139.1,22.5 140.8,22.5 142.5,21.9 144.1,23.1 145.8,23.2 147.5,22.4 149.2,22.2 150.8,22.4 152.5,21.6 154.2,22.1 155.9,22.1 157.5,22.1 159.2,21.9 160.9,22.4 162.6,21.4 164.2,22.6 165.9,22.2 167.6,22.4 169.3,22.0 170.9,22.3 172.6,23.2 174.3,21.6 176.0,22.8 177.7,23.5 179.3,24.8 181.0,26.7 182.7,23.4 184.4,23.3 186.0,23.8 187.7,21.6 189.4,23.0 191.1,21.5 192.7,23.0 194.4,21.4 196.1,21.5 197.8,23.0 199.4,22.9 201.1,23.1 202.8,22.1 204.5,22.2 206.1,21.2 207.8,21.7 209.5,22.4 211.2,21.4 212.8,22.0 214.5,21.5 216.2,21.8 217.9,22.5 219.6,21.7 221.2,21.6 222.9,22.4 224.6,22.0 226.3,21.6 227.9,21.3 229.6,22.8 231.3,21.9 233.0,21.7 234.6,21.4 236.3,22.5 238.0,21.8 239.7,22.4 241.3,21.3 243.0,22.1 244.7,21.4 246.4,22.0 248.0,22.9 249.7,21.8 251.4,21.9 253.1,21.8 254.7,21.7 256.4,22.6 258.1,22.0 259.8,21.9 261.5,22.3 263.1,21.2 264.8,23.1 266.5,23.1 268.2,21.2 269.8,23.0 271.5,21.3 273.2,21.3 274.9,22.3 276.5,21.9 278.2,22.5 279.9,22.7 281.6,21.5 283.2,21.5 284.9,21.3 286.6,21.8 288.3,22.5 289.9,22.0 291.6,22.3 293.3,21.2 295.0,22.0 296.6,22.5 298.3,22.3 300.0,22.2 300,100"/><polyline class="sline" stroke="#4C8DFF" points="0.0,43.0 1.7,40.2 3.4,37.8 5.0,35.0 6.7,32.7 8.4,29.9 10.1,28.4 11.7,25.7 13.4,23.8 15.1,23.2 16.8,23.2 18.4,23.2 20.1,23.4 21.8,23.8 23.5,23.0 25.1,22.6 26.8,23.5 28.5,23.6 30.2,22.7 31.8,23.0 33.5,22.6 35.2,22.5 36.9,23.7 38.5,23.1 40.2,23.3 41.9,23.1 43.6,23.4 45.3,24.0 46.9,22.6 48.6,22.7 50.3,22.3 52.0,22.9 53.6,23.2 55.3,22.8 57.0,24.0 58.7,22.2 60.3,22.8 62.0,22.0 63.7,23.6 65.4,22.3 67.0,23.6 68.7,23.6 70.4,23.7 72.1,23.5 73.7,23.7 75.4,22.8 77.1,21.9 78.8,23.0 80.4,23.1 82.1,22.4 83.8,22.0 85.5,22.0 87.2,21.8 88.8,23.0 90.5,22.6 92.2,23.5 93.9,22.0 95.5,22.0 97.2,21.1 98.9,20.4 100.6,19.1 102.2,16.9 103.9,13.1 105.6,16.9 107.3,19.1 108.9,20.4 110.6,21.1 112.3,22.7 114.0,22.8 115.6,22.5 117.3,22.5 119.0,23.2 120.7,23.2 122.3,22.7 124.0,22.5 125.7,22.6 127.4,22.4 129.1,23.0 130.7,21.7 132.4,22.2 134.1,22.3 135.8,22.1 137.4,22.5 139.1,22.5 140.8,22.5 142.5,21.9 144.1,23.1 145.8,23.2 147.5,22.4 149.2,22.2 150.8,22.4 152.5,21.6 154.2,22.1 155.9,22.1 157.5,22.1 159.2,21.9 160.9,22.4 162.6,21.4 164.2,22.6 165.9,22.2 167.6,22.4 169.3,22.0 170.9,22.3 172.6,23.2 174.3,21.6 176.0,22.8 177.7,23.5 179.3,24.8 181.0,26.7 182.7,23.4 184.4,23.3 186.0,23.8 187.7,21.6 189.4,23.0 191.1,21.5 192.7,23.0 194.4,21.4 196.1,21.5 197.8,23.0 199.4,22.9 201.1,23.1 202.8,22.1 204.5,22.2 206.1,21.2 207.8,21.7 209.5,22.4 211.2,21.4 212.8,22.0 214.5,21.5 216.2,21.8 217.9,22.5 219.6,21.7 221.2,21.6 222.9,22.4 224.6,22.0 226.3,21.6 227.9,21.3 229.6,22.8 231.3,21.9 233.0,21.7 234.6,21.4 236.3,22.5 238.0,21.8 239.7,22.4 241.3,21.3 243.0,22.1 244.7,21.4 246.4,22.0 248.0,22.9 249.7,21.8 251.4,21.9 253.1,21.8 254.7,21.7 256.4,22.6 258.1,22.0 259.8,21.9 261.5,22.3 263.1,21.2 264.8,23.1 266.5,23.1 268.2,21.2 269.8,23.0 271.5,21.3 273.2,21.3 274.9,22.3 276.5,21.9 278.2,22.5 279.9,22.7 281.6,21.5 283.2,21.5 284.9,21.3 286.6,21.8 288.3,22.5 289.9,22.0 291.6,22.3 293.3,21.2 295.0,22.0 296.6,22.5 298.3,22.3 300.0,22.2" vector-effect="non-scaling-stroke"/></svg>
+              <div class="scope-axis"><span>peak 23.9</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="scope-head"><span>GPU</span><b>97<em>%</em></b></div>
+              <svg class="scope-svg" viewBox="0 0 300 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="sg-gpu" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#A879FF" stop-opacity=".13"/><stop offset="1" stop-color="#A879FF" stop-opacity=".015"/></linearGradient></defs><line class="sgrid" x1="0" x2="300" y1="25" y2="25" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="50" y2="50" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="75" y2="75" vector-effect="non-scaling-stroke"/><polygon fill="url(#sg-gpu)" points="0,100 0.0,3.9 1.7,3.9 3.4,2.8 5.0,2.4 6.7,2.9 8.4,3.7 10.1,3.5 11.7,3.7 13.4,2.6 15.1,3.5 16.8,2.4 18.4,3.2 20.1,3.4 21.8,4.1 23.5,2.5 25.1,2.6 26.8,2.7 28.5,4.5 30.2,2.7 31.8,4.2 33.5,2.6 35.2,4.1 36.9,3.6 38.5,2.8 40.2,2.8 41.9,3.0 43.6,3.6 45.3,2.9 46.9,3.7 48.6,3.3 50.3,4.4 52.0,4.4 53.6,2.5 55.3,3.7 57.0,3.5 58.7,4.3 60.3,2.7 62.0,3.7 63.7,2.9 65.4,4.4 67.0,2.9 68.7,2.8 70.4,4.1 72.1,4.1 73.7,10.5 75.4,11.0 77.1,10.1 78.8,11.4 80.4,10.2 82.1,10.9 83.8,4.0 85.5,4.4 87.2,3.0 88.8,4.2 90.5,4.4 92.2,2.7 93.9,2.4 95.5,2.6 97.2,4.3 98.9,4.2 100.6,2.4 102.2,3.2 103.9,2.3 105.6,2.7 107.3,3.7 108.9,2.7 110.6,3.4 112.3,3.8 114.0,2.9 115.6,2.3 117.3,2.5 119.0,3.4 120.7,4.3 122.3,3.6 124.0,3.4 125.7,3.5 127.4,2.7 129.1,2.4 130.7,4.3 132.4,3.7 134.1,4.3 135.8,4.2 137.4,3.0 139.1,2.7 140.8,4.0 142.5,4.2 144.1,2.6 145.8,4.0 147.5,2.7 149.2,4.4 150.8,3.0 152.5,2.3 154.2,2.4 155.9,4.3 157.5,2.8 159.2,3.8 160.9,4.4 162.6,2.6 164.2,3.7 165.9,2.6 167.6,4.0 169.3,4.1 170.9,3.2 172.6,4.5 174.3,3.8 176.0,2.3 177.7,2.8 179.3,3.6 181.0,3.0 182.7,4.3 184.4,3.1 186.0,3.7 187.7,3.7 189.4,2.7 191.1,3.4 192.7,3.4 194.4,3.1 196.1,2.8 197.8,3.3 199.4,4.0 201.1,3.2 202.8,3.7 204.5,3.9 206.1,2.7 207.8,3.2 209.5,2.8 211.2,3.5 212.8,3.7 214.5,14.7 216.2,15.4 217.9,14.9 219.6,13.6 221.2,13.9 222.9,3.5 224.6,4.4 226.3,4.2 227.9,2.8 229.6,3.1 231.3,4.2 233.0,4.2 234.6,3.0 236.3,4.3 238.0,2.5 239.7,2.8 241.3,3.3 243.0,4.5 244.7,3.3 246.4,2.4 248.0,2.9 249.7,4.3 251.4,3.8 253.1,4.5 254.7,3.0 256.4,2.8 258.1,4.1 259.8,3.8 261.5,4.3 263.1,3.2 264.8,3.1 266.5,3.2 268.2,3.7 269.8,2.6 271.5,3.7 273.2,4.0 274.9,2.6 276.5,3.4 278.2,2.8 279.9,2.3 281.6,3.8 283.2,2.8 284.9,3.7 286.6,3.7 288.3,2.7 289.9,2.9 291.6,3.3 293.3,4.3 295.0,4.4 296.6,4.2 298.3,2.3 300.0,3.0 300,100"/><polyline class="sline" stroke="#A879FF" points="0.0,3.9 1.7,3.9 3.4,2.8 5.0,2.4 6.7,2.9 8.4,3.7 10.1,3.5 11.7,3.7 13.4,2.6 15.1,3.5 16.8,2.4 18.4,3.2 20.1,3.4 21.8,4.1 23.5,2.5 25.1,2.6 26.8,2.7 28.5,4.5 30.2,2.7 31.8,4.2 33.5,2.6 35.2,4.1 36.9,3.6 38.5,2.8 40.2,2.8 41.9,3.0 43.6,3.6 45.3,2.9 46.9,3.7 48.6,3.3 50.3,4.4 52.0,4.4 53.6,2.5 55.3,3.7 57.0,3.5 58.7,4.3 60.3,2.7 62.0,3.7 63.7,2.9 65.4,4.4 67.0,2.9 68.7,2.8 70.4,4.1 72.1,4.1 73.7,10.5 75.4,11.0 77.1,10.1 78.8,11.4 80.4,10.2 82.1,10.9 83.8,4.0 85.5,4.4 87.2,3.0 88.8,4.2 90.5,4.4 92.2,2.7 93.9,2.4 95.5,2.6 97.2,4.3 98.9,4.2 100.6,2.4 102.2,3.2 103.9,2.3 105.6,2.7 107.3,3.7 108.9,2.7 110.6,3.4 112.3,3.8 114.0,2.9 115.6,2.3 117.3,2.5 119.0,3.4 120.7,4.3 122.3,3.6 124.0,3.4 125.7,3.5 127.4,2.7 129.1,2.4 130.7,4.3 132.4,3.7 134.1,4.3 135.8,4.2 137.4,3.0 139.1,2.7 140.8,4.0 142.5,4.2 144.1,2.6 145.8,4.0 147.5,2.7 149.2,4.4 150.8,3.0 152.5,2.3 154.2,2.4 155.9,4.3 157.5,2.8 159.2,3.8 160.9,4.4 162.6,2.6 164.2,3.7 165.9,2.6 167.6,4.0 169.3,4.1 170.9,3.2 172.6,4.5 174.3,3.8 176.0,2.3 177.7,2.8 179.3,3.6 181.0,3.0 182.7,4.3 184.4,3.1 186.0,3.7 187.7,3.7 189.4,2.7 191.1,3.4 192.7,3.4 194.4,3.1 196.1,2.8 197.8,3.3 199.4,4.0 201.1,3.2 202.8,3.7 204.5,3.9 206.1,2.7 207.8,3.2 209.5,2.8 211.2,3.5 212.8,3.7 214.5,14.7 216.2,15.4 217.9,14.9 219.6,13.6 221.2,13.9 222.9,3.5 224.6,4.4 226.3,4.2 227.9,2.8 229.6,3.1 231.3,4.2 233.0,4.2 234.6,3.0 236.3,4.3 238.0,2.5 239.7,2.8 241.3,3.3 243.0,4.5 244.7,3.3 246.4,2.4 248.0,2.9 249.7,4.3 251.4,3.8 253.1,4.5 254.7,3.0 256.4,2.8 258.1,4.1 259.8,3.8 261.5,4.3 263.1,3.2 264.8,3.1 266.5,3.2 268.2,3.7 269.8,2.6 271.5,3.7 273.2,4.0 274.9,2.6 276.5,3.4 278.2,2.8 279.9,2.3 281.6,3.8 283.2,2.8 284.9,3.7 286.6,3.7 288.3,2.7 289.9,2.9 291.6,3.3 293.3,4.3 295.0,4.4 296.6,4.2 298.3,2.3 300.0,3.0" vector-effect="non-scaling-stroke"/></svg>
+              <div class="scope-axis"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="scope-head"><span>CPU</span><b>34<em>%</em></b></div>
+              <svg class="scope-svg" viewBox="0 0 300 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="sg-cpu" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#43C6AC" stop-opacity=".13"/><stop offset="1" stop-color="#43C6AC" stop-opacity=".015"/></linearGradient></defs><line class="sgrid" x1="0" x2="300" y1="25" y2="25" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="50" y2="50" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="75" y2="75" vector-effect="non-scaling-stroke"/><polygon fill="url(#sg-cpu)" points="0,100 0.0,66.7 1.7,66.8 3.4,68.2 5.0,65.1 6.7,64.7 8.4,64.9 10.1,64.5 11.7,65.5 13.4,66.8 15.1,64.9 16.8,65.3 18.4,64.8 20.1,64.3 21.8,65.5 23.5,65.5 25.1,63.6 26.8,65.7 28.5,65.2 30.2,63.8 31.8,62.6 33.5,64.6 35.2,62.3 36.9,64.8 38.5,64.6 40.2,63.2 41.9,62.4 43.6,65.0 45.3,64.0 46.9,62.5 48.6,62.1 50.3,62.9 52.0,64.7 53.6,64.6 55.3,64.4 57.0,64.7 58.7,64.2 60.3,63.4 62.0,63.7 63.7,62.8 65.4,63.9 67.0,65.9 68.7,66.0 70.4,65.5 72.1,66.3 73.7,66.2 75.4,64.2 77.1,64.8 78.8,65.0 80.4,67.5 82.1,66.2 83.8,65.9 85.5,67.7 87.2,66.8 88.8,67.3 90.5,68.3 92.2,68.7 93.9,66.1 95.5,67.1 97.2,68.8 98.9,67.7 100.6,67.4 102.2,69.1 103.9,67.2 105.6,70.3 107.3,69.4 108.9,67.6 110.6,70.0 112.3,68.2 114.0,70.8 115.6,71.2 117.3,69.9 119.0,69.4 120.7,69.8 122.3,69.1 124.0,69.6 125.7,70.6 127.4,70.8 129.1,70.1 130.7,70.8 132.4,70.5 134.1,70.6 135.8,71.4 137.4,70.2 139.1,70.6 140.8,71.0 142.5,71.2 144.1,71.4 145.8,68.8 147.5,68.8 149.2,71.1 150.8,68.6 152.5,70.0 154.2,68.3 155.9,68.1 157.5,68.0 159.2,67.6 160.9,70.2 162.6,67.8 164.2,70.0 165.9,68.8 167.6,68.4 169.3,66.9 170.9,68.6 172.6,66.2 174.3,67.7 176.0,67.3 177.7,66.2 179.3,68.1 181.0,67.1 182.7,68.1 184.4,67.5 186.0,66.5 187.7,64.5 189.4,65.2 191.1,65.4 192.7,65.2 194.4,65.5 196.1,65.6 197.8,63.8 199.4,64.0 201.1,65.6 202.8,65.0 204.5,63.3 206.1,63.8 207.8,63.0 209.5,65.1 211.2,62.6 212.8,64.5 214.5,64.5 216.2,62.5 217.9,62.5 219.6,62.5 221.2,63.3 222.9,63.6 224.6,64.3 226.3,65.1 227.9,64.5 229.6,63.5 231.3,63.7 233.0,62.7 234.6,62.7 236.3,62.7 238.0,63.8 239.7,62.8 241.3,63.7 243.0,65.9 244.7,64.4 246.4,64.6 248.0,63.2 249.7,64.1 251.4,66.7 253.1,66.2 254.7,65.0 256.4,64.5 258.1,64.4 259.8,66.9 261.5,64.9 263.1,64.9 264.8,66.9 266.5,65.9 268.2,68.5 269.8,67.1 271.5,67.5 273.2,68.9 274.9,67.3 276.5,67.5 278.2,66.9 279.9,67.1 281.6,68.9 283.2,67.6 284.9,70.1 286.6,69.2 288.3,70.3 289.9,69.6 291.6,69.4 293.3,68.2 295.0,69.9 296.6,69.7 298.3,71.1 300.0,66.0 300,100"/><polyline class="sline" stroke="#43C6AC" points="0.0,66.7 1.7,66.8 3.4,68.2 5.0,65.1 6.7,64.7 8.4,64.9 10.1,64.5 11.7,65.5 13.4,66.8 15.1,64.9 16.8,65.3 18.4,64.8 20.1,64.3 21.8,65.5 23.5,65.5 25.1,63.6 26.8,65.7 28.5,65.2 30.2,63.8 31.8,62.6 33.5,64.6 35.2,62.3 36.9,64.8 38.5,64.6 40.2,63.2 41.9,62.4 43.6,65.0 45.3,64.0 46.9,62.5 48.6,62.1 50.3,62.9 52.0,64.7 53.6,64.6 55.3,64.4 57.0,64.7 58.7,64.2 60.3,63.4 62.0,63.7 63.7,62.8 65.4,63.9 67.0,65.9 68.7,66.0 70.4,65.5 72.1,66.3 73.7,66.2 75.4,64.2 77.1,64.8 78.8,65.0 80.4,67.5 82.1,66.2 83.8,65.9 85.5,67.7 87.2,66.8 88.8,67.3 90.5,68.3 92.2,68.7 93.9,66.1 95.5,67.1 97.2,68.8 98.9,67.7 100.6,67.4 102.2,69.1 103.9,67.2 105.6,70.3 107.3,69.4 108.9,67.6 110.6,70.0 112.3,68.2 114.0,70.8 115.6,71.2 117.3,69.9 119.0,69.4 120.7,69.8 122.3,69.1 124.0,69.6 125.7,70.6 127.4,70.8 129.1,70.1 130.7,70.8 132.4,70.5 134.1,70.6 135.8,71.4 137.4,70.2 139.1,70.6 140.8,71.0 142.5,71.2 144.1,71.4 145.8,68.8 147.5,68.8 149.2,71.1 150.8,68.6 152.5,70.0 154.2,68.3 155.9,68.1 157.5,68.0 159.2,67.6 160.9,70.2 162.6,67.8 164.2,70.0 165.9,68.8 167.6,68.4 169.3,66.9 170.9,68.6 172.6,66.2 174.3,67.7 176.0,67.3 177.7,66.2 179.3,68.1 181.0,67.1 182.7,68.1 184.4,67.5 186.0,66.5 187.7,64.5 189.4,65.2 191.1,65.4 192.7,65.2 194.4,65.5 196.1,65.6 197.8,63.8 199.4,64.0 201.1,65.6 202.8,65.0 204.5,63.3 206.1,63.8 207.8,63.0 209.5,65.1 211.2,62.6 212.8,64.5 214.5,64.5 216.2,62.5 217.9,62.5 219.6,62.5 221.2,63.3 222.9,63.6 224.6,64.3 226.3,65.1 227.9,64.5 229.6,63.5 231.3,63.7 233.0,62.7 234.6,62.7 236.3,62.7 238.0,63.8 239.7,62.8 241.3,63.7 243.0,65.9 244.7,64.4 246.4,64.6 248.0,63.2 249.7,64.1 251.4,66.7 253.1,66.2 254.7,65.0 256.4,64.5 258.1,64.4 259.8,66.9 261.5,64.9 263.1,64.9 264.8,66.9 266.5,65.9 268.2,68.5 269.8,67.1 271.5,67.5 273.2,68.9 274.9,67.3 276.5,67.5 278.2,66.9 279.9,67.1 281.6,68.9 283.2,67.6 284.9,70.1 286.6,69.2 288.3,70.3 289.9,69.6 291.6,69.4 293.3,68.2 295.0,69.9 296.6,69.7 298.3,71.1 300.0,66.0" vector-effect="non-scaling-stroke"/></svg>
+              <div class="scope-axis"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="scope-head"><span>VRAM</span><b>78<em>%</em></b></div>
+              <svg class="scope-svg" viewBox="0 0 300 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="sg-vram" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF9F5A" stop-opacity=".13"/><stop offset="1" stop-color="#FF9F5A" stop-opacity=".015"/></linearGradient></defs><line class="sgrid" x1="0" x2="300" y1="25" y2="25" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="50" y2="50" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="75" y2="75" vector-effect="non-scaling-stroke"/><polygon fill="url(#sg-vram)" points="0,100 0.0,25.6 1.7,25.6 3.4,25.7 5.0,25.7 6.7,25.5 8.4,25.6 10.1,25.6 11.7,25.5 13.4,25.6 15.1,25.7 16.8,25.5 18.4,25.6 20.1,25.7 21.8,25.7 23.5,25.7 25.1,25.6 26.8,25.7 28.5,25.6 30.2,25.6 31.8,25.6 33.5,25.6 35.2,25.7 36.9,25.6 38.5,25.6 40.2,25.5 41.9,25.6 43.6,24.0 45.3,23.8 46.9,23.9 48.6,24.0 50.3,24.0 52.0,23.8 53.6,23.9 55.3,24.0 57.0,23.9 58.7,23.9 60.3,23.8 62.0,23.9 63.7,24.0 65.4,23.9 67.0,23.8 68.7,23.8 70.4,23.9 72.1,23.8 73.7,24.0 75.4,23.8 77.1,24.0 78.8,24.0 80.4,23.8 82.1,23.8 83.8,24.0 85.5,23.8 87.2,24.0 88.8,23.9 90.5,24.0 92.2,24.0 93.9,23.8 95.5,23.9 97.2,23.8 98.9,23.9 100.6,23.8 102.2,23.9 103.9,23.8 105.6,23.9 107.3,24.0 108.9,23.9 110.6,24.0 112.3,24.0 114.0,23.9 115.6,23.8 117.3,23.9 119.0,23.8 120.7,24.0 122.3,24.0 124.0,23.8 125.7,23.9 127.4,23.9 129.1,23.8 130.7,24.0 132.4,23.9 134.1,24.0 135.8,24.0 137.4,23.8 139.1,23.9 140.8,23.9 142.5,23.9 144.1,23.8 145.8,23.9 147.5,22.7 149.2,22.6 150.8,22.6 152.5,22.8 154.2,22.7 155.9,22.8 157.5,22.8 159.2,22.8 160.9,22.7 162.6,22.7 164.2,22.6 165.9,22.6 167.6,22.7 169.3,22.6 170.9,22.8 172.6,22.8 174.3,22.7 176.0,22.8 177.7,22.6 179.3,22.8 181.0,22.6 182.7,22.6 184.4,22.6 186.0,22.8 187.7,22.8 189.4,22.8 191.1,22.8 192.7,22.7 194.4,22.8 196.1,22.7 197.8,22.7 199.4,22.6 201.1,22.7 202.8,22.7 204.5,22.7 206.1,22.8 207.8,22.8 209.5,22.6 211.2,22.8 212.8,22.8 214.5,22.6 216.2,22.7 217.9,22.7 219.6,22.6 221.2,22.6 222.9,22.6 224.6,22.6 226.3,22.7 227.9,22.8 229.6,22.8 231.3,21.9 233.0,22.0 234.6,21.9 236.3,22.1 238.0,22.0 239.7,22.1 241.3,22.1 243.0,21.9 244.7,22.0 246.4,22.1 248.0,22.0 249.7,21.9 251.4,22.1 253.1,21.9 254.7,21.9 256.4,21.9 258.1,21.9 259.8,22.1 261.5,22.1 263.1,22.1 264.8,22.1 266.5,21.9 268.2,22.1 269.8,21.9 271.5,22.0 273.2,21.9 274.9,22.1 276.5,21.9 278.2,22.1 279.9,22.0 281.6,22.0 283.2,22.1 284.9,21.9 286.6,22.1 288.3,22.1 289.9,21.9 291.6,22.1 293.3,22.0 295.0,21.9 296.6,22.0 298.3,22.0 300.0,22.0 300,100"/><polyline class="sline" stroke="#FF9F5A" points="0.0,25.6 1.7,25.6 3.4,25.7 5.0,25.7 6.7,25.5 8.4,25.6 10.1,25.6 11.7,25.5 13.4,25.6 15.1,25.7 16.8,25.5 18.4,25.6 20.1,25.7 21.8,25.7 23.5,25.7 25.1,25.6 26.8,25.7 28.5,25.6 30.2,25.6 31.8,25.6 33.5,25.6 35.2,25.7 36.9,25.6 38.5,25.6 40.2,25.5 41.9,25.6 43.6,24.0 45.3,23.8 46.9,23.9 48.6,24.0 50.3,24.0 52.0,23.8 53.6,23.9 55.3,24.0 57.0,23.9 58.7,23.9 60.3,23.8 62.0,23.9 63.7,24.0 65.4,23.9 67.0,23.8 68.7,23.8 70.4,23.9 72.1,23.8 73.7,24.0 75.4,23.8 77.1,24.0 78.8,24.0 80.4,23.8 82.1,23.8 83.8,24.0 85.5,23.8 87.2,24.0 88.8,23.9 90.5,24.0 92.2,24.0 93.9,23.8 95.5,23.9 97.2,23.8 98.9,23.9 100.6,23.8 102.2,23.9 103.9,23.8 105.6,23.9 107.3,24.0 108.9,23.9 110.6,24.0 112.3,24.0 114.0,23.9 115.6,23.8 117.3,23.9 119.0,23.8 120.7,24.0 122.3,24.0 124.0,23.8 125.7,23.9 127.4,23.9 129.1,23.8 130.7,24.0 132.4,23.9 134.1,24.0 135.8,24.0 137.4,23.8 139.1,23.9 140.8,23.9 142.5,23.9 144.1,23.8 145.8,23.9 147.5,22.7 149.2,22.6 150.8,22.6 152.5,22.8 154.2,22.7 155.9,22.8 157.5,22.8 159.2,22.8 160.9,22.7 162.6,22.7 164.2,22.6 165.9,22.6 167.6,22.7 169.3,22.6 170.9,22.8 172.6,22.8 174.3,22.7 176.0,22.8 177.7,22.6 179.3,22.8 181.0,22.6 182.7,22.6 184.4,22.6 186.0,22.8 187.7,22.8 189.4,22.8 191.1,22.8 192.7,22.7 194.4,22.8 196.1,22.7 197.8,22.7 199.4,22.6 201.1,22.7 202.8,22.7 204.5,22.7 206.1,22.8 207.8,22.8 209.5,22.6 211.2,22.8 212.8,22.8 214.5,22.6 216.2,22.7 217.9,22.7 219.6,22.6 221.2,22.6 222.9,22.6 224.6,22.6 226.3,22.7 227.9,22.8 229.6,22.8 231.3,21.9 233.0,22.0 234.6,21.9 236.3,22.1 238.0,22.0 239.7,22.1 241.3,22.1 243.0,21.9 244.7,22.0 246.4,22.1 248.0,22.0 249.7,21.9 251.4,22.1 253.1,21.9 254.7,21.9 256.4,21.9 258.1,21.9 259.8,22.1 261.5,22.1 263.1,22.1 264.8,22.1 266.5,21.9 268.2,22.1 269.8,21.9 271.5,22.0 273.2,21.9 274.9,22.1 276.5,21.9 278.2,22.1 279.9,22.0 281.6,22.0 283.2,22.1 284.9,21.9 286.6,22.1 288.3,22.1 289.9,21.9 291.6,22.1 293.3,22.0 295.0,21.9 296.6,22.0 298.3,22.0 300.0,22.0" vector-effect="non-scaling-stroke"/></svg>
+              <div class="scope-axis"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="scope-head"><span>MEMORY</span><b>41<em>%</em></b></div>
+              <svg class="scope-svg" viewBox="0 0 300 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="sg-mem" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5AC8FA" stop-opacity=".13"/><stop offset="1" stop-color="#5AC8FA" stop-opacity=".015"/></linearGradient></defs><line class="sgrid" x1="0" x2="300" y1="25" y2="25" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="50" y2="50" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="75" y2="75" vector-effect="non-scaling-stroke"/><polygon fill="url(#sg-mem)" points="0,100 0.0,61.1 1.7,61.0 3.4,61.2 5.0,61.0 6.7,61.3 8.4,61.1 10.1,61.0 11.7,61.2 13.4,61.0 15.1,60.9 16.8,61.2 18.4,61.0 20.1,60.9 21.8,61.1 23.5,61.0 25.1,61.1 26.8,61.0 28.5,61.0 30.2,60.9 31.8,61.0 33.5,60.8 35.2,60.9 36.9,60.8 38.5,60.8 40.2,60.8 41.9,60.9 43.6,60.9 45.3,60.7 46.9,60.9 48.6,60.9 50.3,60.7 52.0,60.9 53.6,60.9 55.3,60.8 57.0,60.7 58.7,60.8 60.3,60.9 62.0,60.6 63.7,60.6 65.4,60.8 67.0,60.6 68.7,60.7 70.4,60.6 72.1,60.7 73.7,60.6 75.4,60.5 77.1,60.5 78.8,60.5 80.4,60.8 82.1,60.4 83.8,60.5 85.5,60.6 87.2,60.5 88.8,60.7 90.5,60.4 92.2,60.4 93.9,60.4 95.5,60.4 97.2,60.6 98.9,60.6 100.6,60.3 102.2,60.3 103.9,60.4 105.6,60.6 107.3,60.6 108.9,60.3 110.6,60.3 112.3,60.3 114.0,60.5 115.6,60.3 117.3,60.4 119.0,60.3 120.7,60.4 122.3,60.3 124.0,60.3 125.7,60.1 127.4,60.3 129.1,60.4 130.7,60.4 132.4,60.3 134.1,60.4 135.8,60.1 137.4,60.2 139.1,60.1 140.8,60.2 142.5,60.0 144.1,60.3 145.8,60.2 147.5,60.3 149.2,60.0 150.8,59.9 152.5,60.0 154.2,60.1 155.9,60.0 157.5,60.1 159.2,60.1 160.9,60.2 162.6,60.1 164.2,60.2 165.9,59.8 167.6,59.9 169.3,60.0 170.9,59.9 172.6,59.8 174.3,59.9 176.0,59.7 177.7,60.0 179.3,59.8 181.0,59.7 182.7,59.7 184.4,59.8 186.0,59.9 187.7,59.9 189.4,59.8 191.1,59.9 192.7,59.9 194.4,59.8 196.1,59.8 197.8,59.9 199.4,59.6 201.1,59.8 202.8,59.8 204.5,59.8 206.1,59.5 207.8,59.7 209.5,59.7 211.2,59.8 212.8,59.5 214.5,59.7 216.2,59.6 217.9,59.7 219.6,59.5 221.2,59.5 222.9,59.5 224.6,59.5 226.3,59.6 227.9,59.5 229.6,59.7 231.3,59.6 233.0,59.6 234.6,59.5 236.3,59.4 238.0,59.3 239.7,59.5 241.3,59.3 243.0,59.5 244.7,59.5 246.4,59.6 248.0,59.4 249.7,59.5 251.4,59.3 253.1,59.3 254.7,59.2 256.4,59.3 258.1,59.2 259.8,59.4 261.5,59.1 263.1,59.4 264.8,59.4 266.5,59.2 268.2,59.2 269.8,59.2 271.5,59.2 273.2,59.1 274.9,59.3 276.5,59.3 278.2,59.0 279.9,59.3 281.6,59.1 283.2,59.3 284.9,59.1 286.6,59.0 288.3,59.0 289.9,59.0 291.6,58.9 293.3,59.1 295.0,59.0 296.6,59.2 298.3,59.2 300.0,59.0 300,100"/><polyline class="sline" stroke="#5AC8FA" points="0.0,61.1 1.7,61.0 3.4,61.2 5.0,61.0 6.7,61.3 8.4,61.1 10.1,61.0 11.7,61.2 13.4,61.0 15.1,60.9 16.8,61.2 18.4,61.0 20.1,60.9 21.8,61.1 23.5,61.0 25.1,61.1 26.8,61.0 28.5,61.0 30.2,60.9 31.8,61.0 33.5,60.8 35.2,60.9 36.9,60.8 38.5,60.8 40.2,60.8 41.9,60.9 43.6,60.9 45.3,60.7 46.9,60.9 48.6,60.9 50.3,60.7 52.0,60.9 53.6,60.9 55.3,60.8 57.0,60.7 58.7,60.8 60.3,60.9 62.0,60.6 63.7,60.6 65.4,60.8 67.0,60.6 68.7,60.7 70.4,60.6 72.1,60.7 73.7,60.6 75.4,60.5 77.1,60.5 78.8,60.5 80.4,60.8 82.1,60.4 83.8,60.5 85.5,60.6 87.2,60.5 88.8,60.7 90.5,60.4 92.2,60.4 93.9,60.4 95.5,60.4 97.2,60.6 98.9,60.6 100.6,60.3 102.2,60.3 103.9,60.4 105.6,60.6 107.3,60.6 108.9,60.3 110.6,60.3 112.3,60.3 114.0,60.5 115.6,60.3 117.3,60.4 119.0,60.3 120.7,60.4 122.3,60.3 124.0,60.3 125.7,60.1 127.4,60.3 129.1,60.4 130.7,60.4 132.4,60.3 134.1,60.4 135.8,60.1 137.4,60.2 139.1,60.1 140.8,60.2 142.5,60.0 144.1,60.3 145.8,60.2 147.5,60.3 149.2,60.0 150.8,59.9 152.5,60.0 154.2,60.1 155.9,60.0 157.5,60.1 159.2,60.1 160.9,60.2 162.6,60.1 164.2,60.2 165.9,59.8 167.6,59.9 169.3,60.0 170.9,59.9 172.6,59.8 174.3,59.9 176.0,59.7 177.7,60.0 179.3,59.8 181.0,59.7 182.7,59.7 184.4,59.8 186.0,59.9 187.7,59.9 189.4,59.8 191.1,59.9 192.7,59.9 194.4,59.8 196.1,59.8 197.8,59.9 199.4,59.6 201.1,59.8 202.8,59.8 204.5,59.8 206.1,59.5 207.8,59.7 209.5,59.7 211.2,59.8 212.8,59.5 214.5,59.7 216.2,59.6 217.9,59.7 219.6,59.5 221.2,59.5 222.9,59.5 224.6,59.5 226.3,59.6 227.9,59.5 229.6,59.7 231.3,59.6 233.0,59.6 234.6,59.5 236.3,59.4 238.0,59.3 239.7,59.5 241.3,59.3 243.0,59.5 244.7,59.5 246.4,59.6 248.0,59.4 249.7,59.5 251.4,59.3 253.1,59.3 254.7,59.2 256.4,59.3 258.1,59.2 259.8,59.4 261.5,59.1 263.1,59.4 264.8,59.4 266.5,59.2 268.2,59.2 269.8,59.2 271.5,59.2 273.2,59.1 274.9,59.3 276.5,59.3 278.2,59.0 279.9,59.3 281.6,59.1 283.2,59.3 284.9,59.1 286.6,59.0 288.3,59.0 289.9,59.0 291.6,58.9 293.3,59.1 295.0,59.0 296.6,59.2 298.3,59.2 300.0,59.0" vector-effect="non-scaling-stroke"/></svg>
+              <div class="scope-axis"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="scope-head"><span>GPU TEMP</span><b>68<em>°C</em></b></div>
+              <svg class="scope-svg" viewBox="0 0 300 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="sg-temp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF6577" stop-opacity=".13"/><stop offset="1" stop-color="#FF6577" stop-opacity=".015"/></linearGradient></defs><line class="sgrid" x1="0" x2="300" y1="25" y2="25" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="50" y2="50" vector-effect="non-scaling-stroke"/><line class="sgrid" x1="0" x2="300" y1="75" y2="75" vector-effect="non-scaling-stroke"/><polygon fill="url(#sg-temp)" points="0,100 0.0,39.7 1.7,39.7 3.4,39.7 5.0,39.6 6.7,39.1 8.4,39.0 10.1,39.1 11.7,38.8 13.4,38.8 15.1,38.7 16.8,38.4 18.4,38.4 20.1,38.4 21.8,38.3 23.5,38.2 25.1,37.9 26.8,37.9 28.5,37.7 30.2,37.5 31.8,37.6 33.5,37.4 35.2,37.5 36.9,37.2 38.5,37.0 40.2,36.8 41.9,37.0 43.6,37.0 45.3,36.6 46.9,36.7 48.6,36.7 50.3,36.6 52.0,36.2 53.6,36.2 55.3,36.4 57.0,36.1 58.7,36.2 60.3,35.8 62.0,36.0 63.7,36.0 65.4,35.7 67.0,35.6 68.7,35.5 70.4,35.6 72.1,35.3 73.7,35.6 75.4,35.2 77.1,35.4 78.8,35.4 80.4,35.1 82.1,35.0 83.8,35.3 85.5,34.8 87.2,35.1 88.8,34.9 90.5,35.0 92.2,35.0 93.9,34.6 95.5,34.8 97.2,34.4 98.9,34.6 100.6,34.3 102.2,34.6 103.9,34.3 105.6,34.4 107.3,34.5 108.9,34.4 110.6,34.4 112.3,34.5 114.0,34.1 115.6,33.9 117.3,34.2 119.0,33.9 120.7,34.2 122.3,34.2 124.0,33.8 125.7,33.9 127.4,33.9 129.1,33.7 130.7,33.9 132.4,33.7 134.1,33.9 135.8,33.8 137.4,33.5 139.1,33.6 140.8,33.6 142.5,33.6 144.1,33.3 145.8,33.5 147.5,33.6 149.2,33.4 150.8,33.3 152.5,33.6 154.2,33.5 155.9,33.6 157.5,33.6 159.2,33.5 160.9,33.2 162.6,33.3 164.2,33.1 165.9,33.0 167.6,33.2 169.3,33.0 170.9,33.3 172.6,33.4 174.3,33.1 176.0,33.2 177.7,32.9 179.3,33.2 181.0,32.9 182.7,32.9 184.4,32.8 186.0,33.2 187.7,33.1 189.4,33.1 191.1,33.0 192.7,32.8 194.4,33.0 196.1,32.9 197.8,32.8 199.4,32.6 201.1,32.8 202.8,32.7 204.5,32.7 206.1,33.0 207.8,32.9 209.5,32.6 211.2,32.8 212.8,32.9 214.5,32.6 216.2,32.7 217.9,32.6 219.6,32.4 221.2,32.5 222.9,32.5 224.6,32.5 226.3,32.5 227.9,32.7 229.6,32.7 231.3,32.5 233.0,32.5 234.6,32.4 236.3,32.7 238.0,32.6 239.7,32.7 241.3,32.6 243.0,32.3 244.7,32.5 246.4,32.6 248.0,32.4 249.7,32.2 251.4,32.6 253.1,32.3 254.7,32.3 256.4,32.2 258.1,32.3 259.8,32.5 261.5,32.6 263.1,32.5 264.8,32.6 266.5,32.1 268.2,32.5 269.8,32.1 271.5,32.4 273.2,32.2 274.9,32.5 276.5,32.1 278.2,32.5 279.9,32.3 281.6,32.3 283.2,32.5 284.9,32.1 286.6,32.5 288.3,32.4 289.9,32.1 291.6,32.4 293.3,32.2 295.0,32.1 296.6,32.2 298.3,32.3 300.0,32.0 300,100"/><polyline class="sline" stroke="#FF6577" points="0.0,39.7 1.7,39.7 3.4,39.7 5.0,39.6 6.7,39.1 8.4,39.0 10.1,39.1 11.7,38.8 13.4,38.8 15.1,38.7 16.8,38.4 18.4,38.4 20.1,38.4 21.8,38.3 23.5,38.2 25.1,37.9 26.8,37.9 28.5,37.7 30.2,37.5 31.8,37.6 33.5,37.4 35.2,37.5 36.9,37.2 38.5,37.0 40.2,36.8 41.9,37.0 43.6,37.0 45.3,36.6 46.9,36.7 48.6,36.7 50.3,36.6 52.0,36.2 53.6,36.2 55.3,36.4 57.0,36.1 58.7,36.2 60.3,35.8 62.0,36.0 63.7,36.0 65.4,35.7 67.0,35.6 68.7,35.5 70.4,35.6 72.1,35.3 73.7,35.6 75.4,35.2 77.1,35.4 78.8,35.4 80.4,35.1 82.1,35.0 83.8,35.3 85.5,34.8 87.2,35.1 88.8,34.9 90.5,35.0 92.2,35.0 93.9,34.6 95.5,34.8 97.2,34.4 98.9,34.6 100.6,34.3 102.2,34.6 103.9,34.3 105.6,34.4 107.3,34.5 108.9,34.4 110.6,34.4 112.3,34.5 114.0,34.1 115.6,33.9 117.3,34.2 119.0,33.9 120.7,34.2 122.3,34.2 124.0,33.8 125.7,33.9 127.4,33.9 129.1,33.7 130.7,33.9 132.4,33.7 134.1,33.9 135.8,33.8 137.4,33.5 139.1,33.6 140.8,33.6 142.5,33.6 144.1,33.3 145.8,33.5 147.5,33.6 149.2,33.4 150.8,33.3 152.5,33.6 154.2,33.5 155.9,33.6 157.5,33.6 159.2,33.5 160.9,33.2 162.6,33.3 164.2,33.1 165.9,33.0 167.6,33.2 169.3,33.0 170.9,33.3 172.6,33.4 174.3,33.1 176.0,33.2 177.7,32.9 179.3,33.2 181.0,32.9 182.7,32.9 184.4,32.8 186.0,33.2 187.7,33.1 189.4,33.1 191.1,33.0 192.7,32.8 194.4,33.0 196.1,32.9 197.8,32.8 199.4,32.6 201.1,32.8 202.8,32.7 204.5,32.7 206.1,33.0 207.8,32.9 209.5,32.6 211.2,32.8 212.8,32.9 214.5,32.6 216.2,32.7 217.9,32.6 219.6,32.4 221.2,32.5 222.9,32.5 224.6,32.5 226.3,32.5 227.9,32.7 229.6,32.7 231.3,32.5 233.0,32.5 234.6,32.4 236.3,32.7 238.0,32.6 239.7,32.7 241.3,32.6 243.0,32.3 244.7,32.5 246.4,32.6 248.0,32.4 249.7,32.2 251.4,32.6 253.1,32.3 254.7,32.3 256.4,32.2 258.1,32.3 259.8,32.5 261.5,32.6 263.1,32.5 264.8,32.6 266.5,32.1 268.2,32.5 269.8,32.1 271.5,32.4 273.2,32.2 274.9,32.5 276.5,32.1 278.2,32.5 279.9,32.3 281.6,32.3 283.2,32.5 284.9,32.1 286.6,32.5 288.3,32.4 289.9,32.1 291.6,32.4 293.3,32.2 295.0,32.1 296.6,32.2 298.3,32.3 300.0,32.0" vector-effect="non-scaling-stroke"/></svg>
+              <div class="scope-axis"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+          </div>
+
+          <div class="readout">
+            <span class="ro-pct"><b>45.8</b><em>%</em></span>
+            <span class="ro-sum"><b>studio_b_4k</b> — inference を処理中</span>
+            <div class="eta">
+              <div class="eta-cell"><b>06:12</b><span>経過時間</span></div>
+              <div class="eta-cell"><b>07:20</b><span>残り時間</span></div>
+              <div class="eta-cell"><b>13:32</b><span>予測所要</span></div>
+            </div>
+          </div>
+
+          <div class="stl">
+            <div class="stl-cell is-active"><span>inference</span></div>
+            <div class="stl-cell"><span>postprocess</span></div>
+            <div class="stl-cell"><span>ovl combined_simple</span></div>
+            <div class="stl-cell"><span>ovl combined_detailed</span></div>
+          </div>
+
+          <div class="phases">
+            <div class="phase is-run">
+              <div class="ph-top"><span class="ph-name">性器推論</span><span class="ph-pct">45.0%</span></div>
+              <div class="ph-track"><i></i></div>
+              <div class="ph-meta"><em>フレーム処理</em><b>6,480 / 14,400 フレーム · 21.4 fps</b></div>
+            </div>
+            <div class="phase is-done">
+              <div class="ph-top"><span class="ph-name"><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg>顔推論</span><span class="ph-pct">100.0%</span></div>
+              <div class="ph-track"><i></i></div>
+              <div class="ph-meta"><em>完了</em><b>14,400 / 14,400 フレーム · 181.3 fps</b></div>
+            </div>
+            <div class="phase is-wait">
+              <div class="ph-top"><span class="ph-name">後処理</span><span class="ph-pct">—</span></div>
+              <div class="ph-track"></div>
+              <div class="ph-meta"><em>待機中</em><b>—</b></div>
+            </div>
+            <div class="phase is-wait">
+              <div class="ph-top"><span class="ph-name">オーバーレイ</span><span class="ph-pct">—</span></div>
+              <div class="ph-track"></div>
+              <div class="ph-meta"><em>待機中</em><b>—</b></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ---- LIVE view ---- -->
+        <div class="mview" id="view-live" role="tabpanel">
+          <div class="stage">
+            <svg viewBox="0 0 960 540" preserveAspectRatio="xMidYMid meet" role="img" aria-label="処理フレーム 6480">
+              <defs>
+                <linearGradient id="lv1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2A3950"/><stop offset="1" stop-color="#0A0F19"/></linearGradient>
+                <radialGradient id="lv2" cx="0.28" cy="0.08" r="0.75"><stop offset="0" stop-color="#C4D8F4" stop-opacity=".34"/><stop offset="1" stop-color="#C4D8F4" stop-opacity="0"/></radialGradient>
+              </defs>
+              <rect width="960" height="540" fill="url(#lv1)"/>
+              <rect width="960" height="540" fill="url(#lv2)"/>
+              <path d="M0 0 L300 0 L120 540 L0 540 Z" fill="#DCE9FA" opacity=".045"/>
+              <rect x="680" y="60" width="220" height="410" rx="5" fill="#131A28" opacity=".9"/>
+              <rect x="702" y="86" width="176" height="120" rx="3" fill="#1C2536" opacity=".7"/>
+              <ellipse cx="545" cy="215" rx="46" ry="54" fill="#0D1119"/>
+              <ellipse cx="528" cy="192" rx="19" ry="21" fill="#161E2C" opacity=".45"/>
+              <rect x="523" y="252" width="44" height="62" fill="#0D1119"/>
+              <path d="M415 540 C428 408 468 308 545 300 C622 308 662 408 675 540 Z" fill="#0A0E15"/>
+              <path d="M415 540 C426 440 448 366 484 326 L466 540 Z" fill="#121926" opacity=".5"/>
+              <rect x="486" y="148" width="120" height="138" rx="4" fill="none" stroke="#6FA5FF" stroke-width="1.5" opacity=".6" stroke-dasharray="6 4"/>
+              <rect x="502" y="196" width="88" height="26" rx="3" fill="#0B0F16" stroke="#58BE8C" stroke-width="1.5" opacity=".92"/>
+              <path d="M506 470 L560 448 L608 466 L616 516 L562 536 L510 522 Z" fill="#4C8DFF" opacity=".20" stroke="#6FA5FF" stroke-width="1.5"/>
+              <rect width="960" height="540" fill="url(#vg)"/>
+            </svg>
+            <span class="livebadge"><i></i>LIVE</span>
+            <div class="scan"></div>
+          </div>
+          <div class="lmeta">
+            <div class="lcell"><span>Phase</span><b>性器推論</b></div>
+            <div class="lcell"><span>Frame</span><b class="mono">6,480</b></div>
+            <div class="lcell"><span>Timecode</span><b class="mono">04:30</b></div>
+            <div class="lcell"><span>Model</span><b class="mono">dinov3_codino</b></div>
+            <div class="lcell"><span>Detail</span><b class="mono">frames</b></div>
+            <div class="lcell"><span>Coalesced</span><b class="mono">3</b></div>
+          </div>
+        </div>
+
+        <!-- ---- metrics strip (both tabs) ---- -->
+        <div class="metrics">
+          <div class="mcell"><span>wall fps</span><b>21.41</b></div>
+          <div class="mcell"><span>frames</span><b>6,480 / 14,400</b></div>
+          <div class="mcell"><span>detections</span><b>18,204</b></div>
+          <div class="mcell"><span>masks</span><b class="dim">—</b></div>
+          <div class="mcell"><span>faces</span><b>21,347</b></div>
+          <div class="mcell"><span>device</span><b>cuda:0</b></div>
+          <div class="mcell"><span>codec</span><b>h264_nvenc</b></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ======== INSPECTOR ======== -->
+    <section class="panel pane-inspector" id="inspector" aria-label="Inspector">
+      <div class="p-head">
+        <span class="p-title">Inspector</span>
+        <span class="p-spacer"></span>
+        <div class="vseg">
+          <button class="is-active" data-view="simple">簡単</button>
+          <button data-view="advanced">詳細</button>
+        </div>
+      </div>
+      <div class="p-body busy">
+
+        <!-- ==== 推論 ==== -->
+        <div class="sec is-open">
+          <button class="sec-head" aria-expanded="true">
+            <svg class="chev" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16" width="12" height="12"><use href="#i-chev"/></svg>
+            <span class="sec-name">推論</span>
+            <span class="p-spacer"></span>
+            <span class="badge badge-ok">on</span>
+          </button>
+          <div class="sec-body">
+            <div class="row">
+              <span class="row-label">推論</span>
+              <label class="ctl check is-on"><span class="box"></span>新規に実行</label>
+            </div>
+            <div class="row">
+              <span class="row-label">処理モード</span>
+              <div class="ctl seg"><b>性器</b><b class="is-active">両方</b><b>顔</b></div>
+            </div>
+            <div class="row">
+              <span class="row-label">性器モデル</span>
+              <div class="ctl select"><span>V3</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+            </div>
+            <div class="row">
+              <span class="row-label">推論エンジン</span>
+              <div class="ctl select"><span>高速（デフォルト）</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+            </div>
+            <div class="row">
+              <span class="row-label">顔モデル</span>
+              <div class="ctl select"><span>Face V2</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+            </div>
+            <div class="row" title="選択中の顔モデルを実行するバックエンドです。現行モデルは新顔=TensorRT、旧顔=PyTorchに固定されています。">
+              <span class="row-label">顔推論エンジン</span>
+              <div class="ctl select is-disabled"><span>高速（デフォルト）</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+            </div>
+
+            <div class="adv">
+              <div class="subhead">モデル入力・実行範囲</div>
+              <div class="row row-stack" title="顔モデルの出力からSQLiteへ保存する対象です。Headは頭部box、Faceは顔領域です。少なくとも1つを選択します。">
+                <span class="row-label">顔検出の保存対象</span>
+                <div class="checkgroup">
+                  <label class="ctl check is-on"><span class="box"></span>Head（頭部box）</label>
+                  <label class="ctl check is-on"><span class="box"></span>Face（顔領域）</label>
+                </div>
+              </div>
+              <div class="row row-stack" title="新顔モデルのTensorRT bundleだけを上書きします。">
+                <span class="row-label">顔TRT bundle</span>
+                <div class="ctl mfield is-ph">空欄: 自動選択</div>
+              </div>
+              <div class="row">
+                <span class="row-label">推論デバイス</span>
+                <div class="ctl mfield" style="width:120px">cuda:0</div>
+              </div>
+              <div class="row">
+                <span class="row-label">処理上限</span>
+                <div class="ctl nfield is-empty" style="width:130px">空欄: 全フレーム</div>
+              </div>
+              <div class="row">
+                <span class="row-label">速度計測除外</span>
+                <div class="ctl nfield"><span>0</span><em>f</em></div>
+              </div>
+              <div class="row">
+                <span class="row-label">顔ウォームアップ</span>
+                <div class="ctl nfield"><span>3</span><em>回</em></div>
+              </div>
+              <div class="subhead">性能</div>
+              <div class="row">
+                <span class="row-label">モデル同時推論</span>
+                <label class="ctl check check-off is-off-label"><span class="box"></span>性器・顔モデルを同時実行</label>
+                <span class="hint">現在の組合せでは不可</span>
+              </div>
+              <div class="row">
+                <span class="row-label">SQLite書き込み</span>
+                <label class="ctl check is-off-label"><span class="box"></span>速度優先モード</label>
+                <span class="hint">高速化する代わりに異常終了時の耐性が低下</span>
+              </div>
+              <div class="subhead">専門設定</div>
+              <div class="row row-stack" title="将来の未型付け引数を1トークン1行で指定します。主要引数の上書きは禁止されます。">
+                <span class="row-label">追加引数</span>
+                <div class="ctl tarea">--future-option
+value</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==== 後処理 ==== -->
+        <div class="sec is-open">
+          <button class="sec-head" aria-expanded="true">
+            <svg class="chev" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16" width="12" height="12"><use href="#i-chev"/></svg>
+            <span class="sec-name">後処理</span>
+            <span class="p-spacer"></span>
+            <span class="badge badge-ok">性器 on</span>
+          </button>
+          <div class="sec-body">
+            <div class="row">
+              <span class="row-label">性器後処理</span>
+              <label class="ctl check is-on"><span class="box"></span>追跡・整形を実行</label>
+            </div>
+            <div class="subhead simple-only">クラス別形状・キーフレーム</div>
+            <div class="row row-stack simple-only">
+              <span class="row-label">クラス別設定</span>
+              <div class="ctl ctable">
+                <div class="ct-row ct-head"><span>クラス</span><span>形状</span><span style="text-align:right">KF間隔</span></div>
+                <div class="ct-row">
+                  <span class="ct-name">男性器</span>
+                  <div class="seg seg-mini"><b class="is-active">ポリゴン</b><b>楕円</b></div>
+                  <span class="ct-kf">2<em>f</em></span>
+                </div>
+                <div class="ct-row">
+                  <span class="ct-name">女性器</span>
+                  <div class="seg seg-mini"><b>ポリゴン</b><b class="is-active">楕円</b></div>
+                  <span class="ct-kf">2<em>f</em></span>
+                </div>
+                <div class="ct-row">
+                  <span class="ct-name">結合部分</span>
+                  <div class="seg seg-mini"><b>ポリゴン</b><b class="is-active">楕円</b></div>
+                  <span class="ct-kf">2<em>f</em></span>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <span class="row-label">検出スコア下限</span>
+              <div class="ctl nfield"><span>0.6</span></div>
+            </div>
+            <div class="row" title="最終result.sqliteへ保存するプライバシーマスクです。">
+              <span class="row-label">保存する顔マスク</span>
+              <div class="ctl seg"><b>なし</b><b>顔全体</b><b class="is-active">目元</b></div>
+            </div>
+            <div class="row">
+              <span class="row-label">目元形状</span>
+              <div class="ctl seg"><b>楕円</b><b class="is-active">長方形</b></div>
+            </div>
+
+            <div class="adv">
+              <div class="row">
+                <span class="row-label">既定KF間隔</span>
+                <div class="ctl nfield"><span>2</span><em>f</em></div>
+              </div>
+              <div class="row">
+                <span class="row-label">カット検出</span>
+                <label class="ctl check is-on"><span class="box"></span>カット位置を保存し、trackを分割</label>
+              </div>
+              <div class="subhead">カット検出</div>
+              <div class="row">
+                <span class="row-label">検出方式</span>
+                <div class="ctl select"><span>高精度（推奨・FFmpeg）</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row" title="別のFFmpeg縮小decodeをCPUで動かし、GPU推論時間へ重ねます。">
+                <span class="row-label">推論と同時検出</span>
+                <label class="ctl check is-on"><span class="box"></span>CPU検出をGPU推論と並行</label>
+              </div>
+              <div class="subhead">性器後処理 — 構成</div>
+              <div class="row row-stack">
+                <span class="row-label">パイプラインJSON</span>
+                <div class="ctl mfield is-ph">空欄: 標準パイプライン</div>
+              </div>
+              <div class="row row-stack">
+                <span class="row-label">クラス別スコアJSON</span>
+                <div class="ctl mfield is-ph">空欄: 共通の検出スコア下限</div>
+              </div>
+              <div class="row">
+                <span class="row-label">形状・KF・補完</span>
+                <div class="ctl select"><span>クラス別GUI</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row row-stack">
+                <span class="row-label">クラス別ルール</span>
+                <div class="ctl ctable">
+                  <div class="ct-row4 ct-head"><span>確定クラス名</span><span>形状</span><span style="text-align:right">KF間隔</span><span style="text-align:right">補完上限</span><span></span></div>
+                  <div class="ct-row4">
+                    <span class="ct-name">その他（未指定）</span>
+                    <div class="seg seg-mini"><b class="is-active">ポリゴン</b><b>楕円</b></div>
+                    <span class="ct-kf">2<em>f</em></span><span class="ct-kf">0<em>f</em></span><span></span>
+                  </div>
+                  <div class="ct-row4">
+                    <span class="ct-name">男性器</span>
+                    <div class="seg seg-mini"><b class="is-active">ポリゴン</b><b>楕円</b></div>
+                    <span class="ct-kf">2<em>f</em></span><span class="ct-kf">0<em>f</em></span><span class="ct-del">−</span>
+                  </div>
+                  <div class="ct-row4">
+                    <span class="ct-name">女性器</span>
+                    <div class="seg seg-mini"><b>ポリゴン</b><b class="is-active">楕円</b></div>
+                    <span class="ct-kf">2<em>f</em></span><span class="ct-kf">0<em>f</em></span><span class="ct-del">−</span>
+                  </div>
+                  <div class="ct-row4">
+                    <span class="ct-name">結合部分</span>
+                    <div class="seg seg-mini"><b>ポリゴン</b><b class="is-active">楕円</b></div>
+                    <span class="ct-kf">2<em>f</em></span><span class="ct-kf">0<em>f</em></span><span class="ct-del">−</span>
+                  </div>
+                  <div class="ct-add">＋ クラスを追加</div>
+                </div>
+              </div>
+              <div class="subhead">性器後処理 — 追跡・補完</div>
+              <div class="row">
+                <span class="row-label">短命track上限</span>
+                <div class="ctl nfield"><span>10</span><em>f</em></div>
+                <span class="hint">指定フレーム以下のtrackを除去</span>
+              </div>
+              <div class="row">
+                <span class="row-label">既定補完上限</span>
+                <div class="ctl nfield"><span>0</span><em>f</em></div>
+              </div>
+              <div class="subhead">楕円近似（K2）</div>
+              <div class="row row-stack">
+                <span class="row-label">モデルroot</span>
+                <div class="ctl mfield is-ph">空欄: 自動検出</div>
+              </div>
+              <div class="row row-stack">
+                <span class="row-label">K2 run directory</span>
+                <div class="ctl mfield is-ph">空欄: model root/k2_v5</div>
+              </div>
+              <div class="row">
+                <span class="row-label">GPUバッチ数</span>
+                <div class="ctl nfield"><span>128</span></div>
+              </div>
+              <div class="row">
+                <span class="row-label">CPU前処理worker</span>
+                <div class="ctl nfield"><span>4</span></div>
+              </div>
+              <div class="row">
+                <span class="row-label">計算精度</span>
+                <div class="ctl select"><span>パイプライン既定</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row">
+                <span class="row-label">計算範囲</span>
+                <div class="ctl select"><span>必要値のみ（推奨）</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row">
+                <span class="row-label">内部時間計測</span>
+                <div class="ctl select"><span>計測しない（推奨）</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row">
+                <span class="row-label">cuDNN autotune</span>
+                <div class="ctl select"><span>有効</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row">
+                <span class="row-label">TF32</span>
+                <div class="ctl select"><span>パイプライン既定</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row">
+                <span class="row-label">K2デバイス</span>
+                <div class="ctl mfield" style="width:120px">cuda:0</div>
+              </div>
+              <div class="subhead">互換出力</div>
+              <div class="row">
+                <span class="row-label">旧形式SQLite</span>
+                <label class="ctl check is-off-label"><span class="box"></span>旧形式も追加</label>
+              </div>
+              <div class="subhead">顔後処理 — 追跡・プライバシーマスク</div>
+              <div class="row">
+                <span class="row-label">目キーポイント下限</span>
+                <div class="ctl sliderrow"><div class="slider"><i style="width:35%"></i><b style="left:35%"></b></div><span class="sv">0.35</span></div>
+              </div>
+              <div class="row">
+                <span class="row-label">追跡保持gap</span>
+                <div class="ctl nfield"><span>5</span><em>f</em></div>
+                <span class="hint">未検出を許容する最大フレーム数</span>
+              </div>
+              <div class="row">
+                <span class="row-label">追跡high閾値</span>
+                <div class="ctl sliderrow"><div class="slider"><i style="width:50%"></i><b style="left:50%"></b></div><span class="sv">0.50</span></div>
+              </div>
+              <div class="row">
+                <span class="row-label">追跡low閾値</span>
+                <div class="ctl sliderrow"><div class="slider"><i style="width:5%"></i><b style="left:5%"></b></div><span class="sv">0.05</span></div>
+              </div>
+              <div class="row">
+                <span class="row-label">短命track上限</span>
+                <div class="ctl nfield"><span>2</span></div>
+                <span class="hint">観測回数（hits）で判定</span>
+              </div>
+              <div class="row">
+                <span class="row-label">短命保持スコア</span>
+                <div class="ctl sliderrow"><div class="slider"><i style="width:90%"></i><b style="left:90%"></b></div><span class="sv">0.90</span></div>
+              </div>
+              <div class="row">
+                <span class="row-label">補完gap上限</span>
+                <div class="ctl nfield"><span>3</span><em>f</em></div>
+              </div>
+              <div class="subhead">専門設定</div>
+              <div class="row row-stack" title="未型付けの将来オプション用です。上の管理済み引数は上書きできません。">
+                <span class="row-label">追加CLI引数</span>
+                <div class="ctl tarea">--future-option
+value</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==== オーバーレイ ==== -->
+        <div class="sec is-open">
+          <button class="sec-head" aria-expanded="true">
+            <svg class="chev" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16" width="12" height="12"><use href="#i-chev"/></svg>
+            <span class="sec-name">オーバーレイ</span>
+            <span class="p-spacer"></span>
+            <span class="badge badge-acc">fast</span>
+          </button>
+          <div class="sec-body">
+            <div class="row">
+              <span class="row-label">確認動画</span>
+              <label class="ctl check is-on"><span class="box"></span>オーバーレイを生成</label>
+            </div>
+            <div class="row row-stack">
+              <span class="row-label">表示プリセット</span>
+              <div class="checkgroup">
+                <label class="ctl check is-off-label"><span class="box"></span>性器・詳細</label>
+                <label class="ctl check is-off-label"><span class="box"></span>性器・簡易</label>
+                <label class="ctl check is-off-label"><span class="box"></span>顔・詳細</label>
+                <label class="ctl check is-off-label"><span class="box"></span>顔・簡易</label>
+                <label class="ctl check is-on"><span class="box"></span>両方・詳細</label>
+                <label class="ctl check is-on"><span class="box"></span>両方・簡易</label>
+              </div>
+            </div>
+            <div class="row">
+              <span class="row-label">エンコード</span>
+              <div class="ctl seg"><b>CPU</b><b>NVENC</b><b class="is-active">高速</b></div>
+            </div>
+            <div class="row">
+              <span class="row-label">マスク濃度</span>
+              <div class="ctl sliderrow"><div class="slider"><i style="width:32%"></i><b style="left:32%"></b></div><span class="sv">0.32</span></div>
+            </div>
+
+            <div class="adv">
+              <div class="subhead">旧形式の追加オーバーレイ（任意）</div>
+              <div class="row row-stack" title="通常の表示プリセットとは別に、旧ソフト互換の工程別MP4を追加生成します。SQLiteの内容は増えません。">
+                <span class="row-label">追加動画</span>
+                <div class="checkgroup">
+                  <label class="ctl check is-off-label"><span class="box"></span>AI生出力（raw.mp4）</label>
+                  <label class="ctl check is-off-label"><span class="box"></span>追跡後（tracked.mp4）</label>
+                  <label class="ctl check is-off-label"><span class="box"></span>最終後処理（final.mp4）</label>
+                  <label class="ctl check is-off-label"><span class="box"></span>顔box（faces.mp4）</label>
+                </div>
+              </div>
+              <div class="row">
+                <span class="row-label">finalへ顔を追加</span>
+                <label class="ctl check is-off-label"><span class="box"></span>互換finalへ顔boxを合成</label>
+              </div>
+              <div class="subhead">描画内容</div>
+              <div class="row">
+                <span class="row-label">性器の描画データ</span>
+                <div class="ctl seg"><b>AI生マスク</b><b class="is-active">最終マスク</b></div>
+              </div>
+              <div class="row" title="確認動画だけに顔/目元マスクを追加します。result.sqliteの保存内容は変更しません。">
+                <span class="row-label">描画時追加マスク</span>
+                <div class="ctl seg"><b>なし</b><b>顔全体</b><b class="is-active">目元</b></div>
+              </div>
+              <div class="row">
+                <span class="row-label">追加目元マスク形状</span>
+                <div class="ctl seg"><b>楕円</b><b class="is-active">長方形</b></div>
+              </div>
+              <div class="row">
+                <span class="row-label">目キーポイント下限</span>
+                <div class="ctl sliderrow"><div class="slider"><i style="width:35%"></i><b style="left:35%"></b></div><span class="sv">0.35</span></div>
+              </div>
+              <div class="row row-stack">
+                <span class="row-label">顔詳細要素</span>
+                <div class="checkgroup">
+                  <label class="ctl check is-on"><span class="box"></span>確率マスク</label>
+                  <label class="ctl check is-on"><span class="box"></span>キーポイント</label>
+                  <label class="ctl check is-on"><span class="box"></span>顔楕円</label>
+                </div>
+              </div>
+              <div class="row">
+                <span class="row-label">線幅</span>
+                <div class="ctl nrow">
+                  <div class="nfield nfield-s"><span>2</span><em>マスク</em></div>
+                  <div class="nfield nfield-s"><span>2</span><em>box</em></div>
+                </div>
+              </div>
+              <div class="row">
+                <span class="row-label">ラベル</span>
+                <label class="ctl check is-on"><span class="box"></span>クラス・確信度・track ID</label>
+              </div>
+              <div class="subhead">エンコード品質・速度</div>
+              <div class="row">
+                <span class="row-label">CPU preset</span>
+                <div class="ctl select"><span>veryfast</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row">
+                <span class="row-label">NVENC preset</span>
+                <div class="ctl select"><span>p1</span><svg class="ic" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"/></svg></div>
+              </div>
+              <div class="row">
+                <span class="row-label">NVENC GPU</span>
+                <div class="ctl nfield"><span>0</span></div>
+              </div>
+              <div class="row row-stack">
+                <span class="row-label">FFmpeg実行ファイル</span>
+                <div class="ctl mfield is-ph">空欄: 同梱FFmpeg</div>
+              </div>
+              <div class="row">
+                <span class="row-label">目標ビットレート</span>
+                <div class="ctl nfield"><span>8</span><em>Mbps</em></div>
+                <span class="hint">高速モードでは必須（空欄時8 Mbps）</span>
+              </div>
+              <div class="row">
+                <span class="row-label">分割worker総数</span>
+                <div class="ctl nfield"><span>6</span></div>
+              </div>
+              <div class="row">
+                <span class="row-label">CPU割当数</span>
+                <div class="ctl nfield"><span>0</span></div>
+                <span class="hint">残りをNVENCへ割当</span>
+              </div>
+              <div class="row">
+                <span class="row-label">音声保持</span>
+                <label class="ctl check is-off-label"><span class="box"></span>元音声をコピー</label>
+              </div>
+              <div class="row">
+                <span class="row-label">MP4 faststart</span>
+                <label class="ctl check is-off-label"><span class="box"></span>Web再生用に最適化</label>
+              </div>
+              <div class="subhead">処理範囲・ログ</div>
+              <div class="row">
+                <span class="row-label">フレーム範囲</span>
+                <div class="ctl nrow">
+                  <div class="nfield nfield-s"><span>0</span></div>
+                  <div class="nfield is-empty" style="width:64px">終端</div>
+                </div>
+                <span class="hint">開始 / 終了</span>
+              </div>
+              <div class="row">
+                <span class="row-label">進捗ログ間隔</span>
+                <div class="ctl nfield"><span>300</span><em>f</em></div>
+                <span class="hint">分割高速モードでは内部管理</span>
+              </div>
+              <div class="subhead">専門設定</div>
+              <div class="row row-stack">
+                <span class="row-label">追加CLI引数</span>
+                <div class="ctl tarea">--future-option
+value</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==== 実行環境 ==== -->
+        <div class="sec">
+          <button class="sec-head" aria-expanded="false">
+            <svg class="chev" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16" width="12" height="12"><use href="#i-chev"/></svg>
+            <span class="sec-name">実行環境</span>
+            <span class="p-spacer"></span>
+            <span class="badge badge-dim">native</span>
+          </button>
+          <div class="sec-body">
+            <div class="row adv">
+              <span class="row-label">再開</span>
+              <label class="ctl check is-off-label"><span class="box"></span>完了済みstageを再利用</label>
+            </div>
+            <div class="row">
+              <span class="row-label">バックエンド</span>
+              <div class="ctl seg"><b class="is-active">Native</b><b>WSL2</b></div>
+            </div>
+            <div class="row row-stack">
+              <span class="row-label">リポジトリroot</span>
+              <div class="ctl pathin">
+                <span class="pfield" title="/home/user/inference_backend2">/home/user/inference_backend2</span>
+                <button class="pbrowse" title="参照…" disabled><svg class="ic" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg></button>
+              </div>
+            </div>
+            <div class="row row-stack">
+              <span class="row-label">実行Python</span>
+              <div class="ctl pathin">
+                <span class="pfield" title="/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10">/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10</span>
+                <button class="pbrowse" title="参照…" disabled><svg class="ic" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ================= CONSOLE ================= -->
+  <section class="panel pane-console" aria-label="Console">
+    <div class="p-head">
+      <span class="p-title">Console</span>
+      <span class="stagechip">inference</span>
+      <span class="p-spacer"></span>
+      <label class="follow is-on"><span class="box"></span>追従</label>
+      <input class="cfilter" type="text" placeholder="フィルタ" aria-label="フィルタ">
+      <span class="ccount">132 lines</span>
+    </div>
+    <div class="clog">
+      <div class="cline is-cmd"><span class="cnum">121</span><span class="ctext"><b class="dollar">$</b> /home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10 -m orchestration --config /home/user/.config/mask-pipeline-studio/jobs/2026-08-01T10-58-24-512Z/orchestration.json</span></div>
+      <div class="cline"><span class="cnum">122</span><span class="ctext"><b class="ctag">[inference]</b> [orchestrator] role=face model=face_dino_v2 backend=tensorrt-fast</span></div>
+      <div class="cline"><span class="cnum">123</span><span class="ctext"><b class="ctag">[inference]</b> processed 14400 frames in 79.412s (181.334 fps)</span></div>
+      <div class="cline"><span class="cnum">124</span><span class="ctext"><b class="ctag">[inference]</b> measured compute throughput: 205.118 img/s</span></div>
+      <div class="cline"><span class="cnum">125</span><span class="ctext"><b class="ctag">[inference]</b> [orchestrator] frames=14400 detections=14283 classifications=14283 segmentations=0 face_observations=21347 face_keypoints=106735</span></div>
+      <div class="cline"><span class="cnum">126</span><span class="ctext"><b class="ctag">[inference]</b> [orchestrator] saved unified SQLite: /home/user/videos/mask_out/studio_b_4k/inference.sqlite</span></div>
+      <div class="cline"><span class="cnum">127</span><span class="ctext"><b class="ctag">[inference]</b> [orchestrator] role=segmentation model=dinov3_codino backend=tensorrt-fast</span></div>
+      <div class="cline"><span class="cnum">128</span><span class="ctext"><b class="ctag">[inference]</b> [progress] processed=1440/14400 detections=4116 fps=21.198</span></div>
+      <div class="cline"><span class="cnum">129</span><span class="ctext"><b class="ctag">[inference]</b> [progress] processed=2880/14400 detections=8102 fps=21.264</span></div>
+      <div class="cline"><span class="cnum">130</span><span class="ctext"><b class="ctag">[inference]</b> [progress] processed=4320/14400 detections=12275 fps=21.377</span></div>
+      <div class="cline"><span class="cnum">131</span><span class="ctext"><b class="ctag">[inference]</b> [progress] processed=5760/14400 detections=16204 fps=21.398</span></div>
+      <div class="cline"><span class="cnum">132</span><span class="ctext"><b class="ctag">[inference]</b> [progress] processed=6480/14400 detections=18204 fps=21.412</span></div>
+    </div>
+  </section>
+
+  <!-- ================= STATUSBAR ================= -->
+  <footer class="statusbar">
+    <span class="sb-status"><i class="dot dot-run"></i>実行中</span>
+    <span class="sb-item"><em>stage</em><b class="mono">inference</b></span>
+    <span class="sb-item"><em>経過</em><b>06:12</b></span>
+    <span class="sb-item"><em>開始</em><b>10:58:24</b></span>
+    <span class="sb-item"><em>終了</em><b>--:--:--</b></span>
+    <span class="sb-item"><em>exit</em><b>—</b></span>
+    <span class="sb-right">
+      <span class="sb-be">NATIVE</span>
+      <span class="sb-item"><em>python</em><b class="mono" title="/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10">python3.10</b></span>
+      <span class="sb-path" title="/home/user/inference_backend2">/home/user/inference_backend2</span>
+    </span>
+  </footer>
+
+</div>
+</div>
+
+<script>
+// ---- Console follows the tail (追従 on) ----
+var clog = document.querySelector('.clog');
+if (clog) clog.scrollTop = clog.scrollHeight;
+// ---- Monitor tabs ----
+document.querySelectorAll('.mtab').forEach(function (tab) {
+  tab.addEventListener('click', function () {
+    document.querySelectorAll('.mtab').forEach(function (t) {
+      var on = t === tab;
+      t.classList.toggle('is-active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.mview').forEach(function (v) {
+      v.classList.toggle('is-active', v.id === tab.dataset.view);
+    });
+  });
+});
+// ---- Inspector sections ----
+document.querySelectorAll('.sec-head').forEach(function (head) {
+  head.addEventListener('click', function () {
+    var sec = head.parentElement;
+    sec.classList.toggle('is-open');
+    head.setAttribute('aria-expanded', sec.classList.contains('is-open') ? 'true' : 'false');
+  });
+});
+// ---- 簡単 / 詳細 ----
+document.querySelectorAll('.vseg button').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('.vseg button').forEach(function (b) {
+      b.classList.toggle('is-active', b === btn);
+    });
+    document.getElementById('inspector').classList.toggle('is-advanced', btn.dataset.view === 'advanced');
+  });
+});
+// ---- control stubs: focusability + roles so :focus-visible rings reach every control class ----
+document.querySelectorAll('.select').forEach(function (el) {
+  el.setAttribute('role', 'combobox');
+  el.setAttribute('aria-expanded', 'false');
+  el.setAttribute('tabindex', el.classList.contains('is-disabled') ? '-1' : '0');
+});
+document.querySelectorAll('.check, .follow').forEach(function (el) {
+  el.setAttribute('role', 'checkbox');
+  el.setAttribute('aria-checked', el.classList.contains('is-on') ? 'true' : 'false');
+  el.setAttribute('tabindex', '0');
+});
+document.querySelectorAll('.slider').forEach(function (el) {
+  el.setAttribute('role', 'slider');
+  el.setAttribute('aria-valuemin', '0');
+  el.setAttribute('aria-valuemax', '1');
+  var sv = el.parentElement && el.parentElement.querySelector('.sv');
+  if (sv) el.setAttribute('aria-valuenow', sv.textContent);
+  el.setAttribute('tabindex', '0');
+});
+// ---- busy: all Inspector controls disabled while a job runs ----
+document.querySelectorAll('.busy .ctl').forEach(function (el) {
+  el.setAttribute('aria-disabled', 'true');
+  el.setAttribute('tabindex', '-1');
+});
+</script>
+</body>
+</html>

@@ -98,6 +98,17 @@ try {
     .filter({ hasText: /^faces/i })
     .waitFor({ state: "visible" });
 
+  await window.getByRole("tab", { name: "LIVE", exact: true }).click();
+  await window.locator(".live-preview__stage").waitFor({ state: "visible" });
+  if ((await window.locator(".live-preview__scan").count()) !== 0) {
+    throw new Error("LIVE preview still contains the scan-line overlay");
+  }
+  await window.screenshot({
+    path: path.join(artifactRoot, "00-live-without-scanlines.png"),
+    fullPage: true,
+  });
+  await window.getByRole("tab", { name: "STATUS", exact: true }).click();
+
   const modeRow = window.locator(".row").filter({ hasText: "処理モード" });
   await modeRow.getByRole("button", { name: "性器", exact: true }).click();
   if (

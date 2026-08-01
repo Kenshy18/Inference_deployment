@@ -1,0 +1,1316 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mask Pipeline Studio — Graphite Console</title>
+<style>
+/* ============ GRAPHITE CONSOLE — tokens ============ */
+:root{
+  --bg:#0A0A0B; --seam:#060607;
+  --panel:#131315; --panel2:#101012; --raised:#1A1A1D; --raised2:#202024;
+  --well:#0C0C0E; --field:#0D0D0F;
+  --hair:rgba(255,255,255,.07); --hair2:rgba(255,255,255,.045); --hair3:rgba(255,255,255,.11);
+  --t1:#DEDEE1; --t2:#9B9BA1; --t3:#67676E;
+  --acc:#E8A44F; --acc-h:#F2B563; --acc-p:#D8933D; --ink:#1A1206;
+  --ok:#7DBE82; --warn:#E0B75F; --err:#E06E5A; --info:#7FA8D9;
+  --led-off:#39393F;
+  --r:4px; --rm:6px;
+  --ui:"Segoe UI Variable Text","Segoe UI",system-ui,"Helvetica Neue",Arial,"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
+  --mono:"Cascadia Code","Cascadia Mono",Consolas,"SF Mono",ui-monospace,Menlo,"Noto Sans JP",monospace;
+  --c-fps:#7FA8D9; --c-gpu:#A88BD4; --c-cpu:#6FBFB2; --c-vram:#E8A44F; --c-mem:#7FC4DE; --c-temp:#D97A6A;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--t1);font:400 12.5px/1.45 var(--ui);overflow:hidden;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:rgba(232,164,79,.85);color:var(--ink)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,select,textarea{font:inherit;color:var(--t1)}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:2px}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#28282C;border-radius:5px;border:2px solid var(--panel)}
+::-webkit-scrollbar-thumb:hover{background:#333338}
+::-webkit-scrollbar-corner{background:transparent}
+svg.ic{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.microcap{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+
+/* ============ frame ============ */
+.viewport{height:100vh;overflow:auto}
+.app{height:100%;min-height:720px;min-width:1280px;display:grid;
+  grid-template-rows:46px minmax(0,1fr) 198px 26px;background:var(--bg)}
+
+/* ============ LEDs, kbd, chips ============ */
+.led{width:6px;height:6px;border-radius:50%;background:var(--led-off);flex:none}
+.led.ok{background:var(--ok);box-shadow:0 0 5px rgba(125,190,130,.5)}
+.led.run{background:var(--acc);box-shadow:0 0 6px rgba(232,164,79,.6);animation:ledpulse 1.6s ease-in-out infinite}
+.led.err{background:var(--err);box-shadow:0 0 5px rgba(224,110,90,.5)}
+.led.info{background:var(--info);box-shadow:0 0 5px rgba(127,168,217,.45)}
+@keyframes ledpulse{50%{opacity:.5}}
+kbd{font:600 9.5px var(--mono);letter-spacing:.05em;color:var(--t3);background:var(--well);
+  border:1px solid var(--hair);border-radius:3px;padding:1px 4px 2px}
+
+/* ============ buttons ============ */
+.btn{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;border-radius:var(--r);
+  background:var(--raised);border:1px solid var(--hair);color:var(--t1);font-size:12px;font-weight:500;
+  transition:background .15s,border-color .15s}
+.btn:hover{background:var(--raised2);border-color:var(--hair3)}
+.btn:active{background:#151517}
+.btn:disabled{opacity:.42;pointer-events:none}
+.btn.danger{color:#EE8672;border-color:rgba(224,110,90,.5);background:rgba(224,110,90,.1)}
+.btn.danger:hover{background:rgba(224,110,90,.18);border-color:rgba(224,110,90,.7)}
+.btn.quiet{height:24px;padding:0 8px;background:transparent;border-color:transparent;color:var(--t2);font-size:11.5px}
+.btn.quiet:hover{background:var(--raised);border-color:var(--hair);color:var(--t1)}
+.btn svg.ic{width:13px;height:13px}
+
+/* ============ segmented control ============ */
+.seg{display:inline-flex;background:var(--well);border:1px solid var(--hair);border-radius:var(--r);padding:2px;gap:2px}
+.seg>button{height:22px;padding:0 8px;border-radius:3px;color:var(--t2);font-size:11.5px;white-space:nowrap;
+  transition:background .15s,color .15s}
+.seg>button:hover{color:var(--t1);background:rgba(255,255,255,.04)}
+.seg>button.on{background:#28282D;color:var(--t1);box-shadow:inset 0 -2px 0 var(--acc)}
+.seg>button:disabled{pointer-events:none}
+.seg.lg>button{padding:0 12px}
+.seg.wrap{flex-wrap:wrap}
+.seg.wrap>button{font-size:11px;padding:0 8px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+
+/* ============ fields ============ */
+.field{height:24px;background:var(--field);border:1px solid var(--hair);border-radius:var(--r);
+  padding:0 8px;font-size:12px;width:100%;transition:border-color .15s}
+.field:hover{border-color:var(--hair3)}
+.field:focus{border-color:rgba(232,164,79,.6)}
+.field::placeholder{color:var(--t3)}
+.field.mono{font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums}
+.field.num{width:64px;text-align:right;font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums}
+textarea.field{height:auto;min-height:44px;padding:5px 8px;resize:vertical;font-family:var(--mono);font-size:11px;line-height:1.5}
+select.field{appearance:none;-webkit-appearance:none;padding-right:22px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239B9BA1' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center}
+.unit{font-size:10.5px;color:var(--t3);margin-left:5px;flex:none}
+.pathin{display:flex;gap:4px;width:100%}
+.pathin .field{flex:1;min-width:0}
+.pathin>button{width:26px;height:24px;flex:none;display:grid;place-items:center;border-radius:var(--r);
+  background:var(--raised);border:1px solid var(--hair);color:var(--t2)}
+.pathin>button:hover{color:var(--t1);background:var(--raised2)}
+.pathin>button svg.ic{width:13px;height:13px}
+
+/* checkbox */
+.ck{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;color:var(--t1);cursor:pointer;user-select:none;min-height:20px}
+.ck input{position:absolute;opacity:0;width:0;height:0}
+.ck .box{width:14px;height:14px;flex:none;border-radius:3px;background:var(--field);border:1px solid #3B3B42;
+  display:grid;place-items:center;transition:background .15s,border-color .15s}
+.ck:hover .box{border-color:#55555E}
+.ck input:checked+.box{background:var(--acc);border-color:var(--acc)}
+.ck input:checked+.box::after{content:"";width:8px;height:4.5px;border-left:1.7px solid var(--ink);
+  border-bottom:1.7px solid var(--ink);transform:translateY(-1px) rotate(-45deg)}
+.ck input:focus-visible+.box{outline:2px solid var(--acc);outline-offset:2px}
+
+/* slider */
+.sliderrow{display:flex;align-items:center;gap:8px;width:100%}
+.sliderrow output{font-family:var(--mono);font-size:11.5px;color:var(--t2);width:34px;text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{appearance:none;-webkit-appearance:none;flex:1;height:14px;background:transparent;min-width:0}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;
+  background:linear-gradient(to right,var(--acc) var(--p,50%),#27272C var(--p,50%))}
+input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:9px;height:15px;margin-top:-5.5px;
+  border-radius:2px;background:linear-gradient(90deg,#3D3D44 0 3.5px,#606069 3.5px 5.5px,#3D3D44 5.5px);
+  border:1px solid #55555E}
+input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:#27272C}
+input[type=range]::-moz-range-progress{height:4px;border-radius:2px;background:var(--acc)}
+input[type=range]::-moz-range-thumb{width:9px;height:15px;border-radius:2px;background:#3D3D44;border:1px solid #55555E}
+
+/* ============ scrub-style progress ============ */
+.scrub{position:relative;height:6px;background:#09090B;border-radius:2px;overflow:hidden}
+.scrub>i{position:absolute;top:0;bottom:0;left:0;width:var(--p,0%);border-radius:2px 0 0 2px;
+  background:linear-gradient(180deg,#A8722C 0%,#F2B563 50%,#A8722C 100%)}
+.scrub>i::after{content:"";position:absolute;right:0;top:0;bottom:0;width:2px;background:#FFE1B0}
+.scrub::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(90deg,rgba(255,255,255,.05) 0 1px,transparent 1px 13px)}
+.scrub.ok>i{background:linear-gradient(180deg,#4A7A4F 0%,#8CC791 50%,#4A7A4F 100%)}
+.scrub.ok>i::after{display:none}
+.scrub.sm{height:4px}
+.scrub.empty>i{display:none}
+.scrub.empty::after{opacity:.45}
+
+/* ============ segmented meter ============ */
+.meter{position:relative;height:4px;background:#09090B;border-radius:1px;overflow:hidden}
+.meter>i{position:absolute;inset:0;width:var(--p,0%);background:var(--c,var(--acc))}
+.meter::after{content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(90deg,transparent 0 4px,var(--panel2) 4px 6px)}
+
+/* ============ TOPBAR ============ */
+.topbar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;
+  background:var(--panel);border-bottom:1px solid var(--seam);padding:0 12px}
+.topbar .tb-left,.topbar .tb-right{display:flex;align-items:center;gap:8px;min-width:0}
+.topbar .tb-right{justify-content:flex-end}
+.logo{width:27px;height:27px;border-radius:var(--r);background:var(--raised);border:1px solid var(--hair);
+  display:grid;place-items:center;color:var(--acc);flex:none}
+.logo svg.ic{width:15px;height:15px}
+.tb-sep{width:1px;height:18px;background:var(--hair);flex:none;margin:0 3px}
+.fchip{display:flex;align-items:center;gap:8px;height:27px;padding:0 10px;border-radius:var(--r);
+  background:var(--well);border:1px solid var(--hair2);min-width:0}
+.fchip .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--t3);font-weight:600}
+.fchip .v{font-size:12px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fchip .v.mono{font-size:11.5px}
+.fchip .v.dim{color:var(--t3);font-weight:500}
+.transport{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;
+  background:var(--well);border:1px solid var(--hair2);border-radius:var(--rm)}
+.tcwell{display:flex;align-items:baseline;gap:8px;height:26px;padding:0 12px;margin-left:2px;
+  background:#08080A;border:1px solid var(--hair);border-radius:var(--r);align-items:center}
+.tcwell .lab{font-size:10.5px;color:var(--t3)}
+.tcwell .tc{font-family:var(--mono);font-size:14.5px;font-weight:600;letter-spacing:.06em;color:var(--acc);
+  font-variant-numeric:tabular-nums}
+.tb-status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t1);font-weight:600}
+.tb-status .stg{font-family:var(--mono);font-size:10.5px;color:var(--t3);font-weight:400;letter-spacing:.04em}
+
+/* ============ main / panels ============ */
+.main{display:grid;grid-template-columns:264px 1fr 300px;column-gap:1px;background:var(--seam);min-height:0}
+.panel{background:var(--panel);display:flex;flex-direction:column;min-width:0;min-height:0}
+.tbar{height:28px;flex:none;display:flex;align-items:center;gap:8px;padding:0 8px;
+  background:#161619;border-bottom:1px solid var(--hair2)}
+.tbar .ttl{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  font-weight:700;color:var(--t2)}
+.tbar .meta{font-size:11px;color:var(--t3)}
+.tbar .sp{flex:1}
+.pbody{flex:1;overflow-y:auto;overflow-x:hidden;min-height:0}
+
+/* ============ SOURCE ============ */
+.repo{padding:8px;border-bottom:1px solid var(--hair2)}
+.repo .lab{font-size:11px;color:var(--t2);font-weight:600;margin-bottom:5px}
+.repo .hint{font-size:10.5px;color:var(--t3);margin-top:5px}
+.subh{height:25px;flex:none;display:flex;align-items:center;gap:8px;padding:0 8px;
+  background:#151518;border-top:1px solid var(--hair2);border-bottom:1px solid var(--hair2)}
+.subh:first-child{border-top:0}
+.subh .n{font-size:11px;font-weight:600;color:var(--t2)}
+.subh .note{font-family:var(--mono);font-size:10px;color:var(--acc);font-variant-numeric:tabular-nums}
+.subh .note.dim{color:var(--t3)}
+.subh .sp{flex:1}
+.subh .hint{font-size:10px;color:var(--t3)}
+.qlist{padding:4px 0}
+.qi,.oentry{position:relative;display:grid;grid-template-columns:54px minmax(0,1fr) auto;
+  grid-template-rows:auto auto;gap:1px 8px;align-items:center;padding:6px 8px;cursor:default;transition:background .15s}
+.qi:hover{background:#17171A}
+.qi.proc{background:rgba(232,164,79,.045)}
+.qi.proc::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:2px;background:var(--acc);border-radius:1px}
+.qi .th,.oentry .th{grid-row:1/3}
+.ttl2{grid-column:2;font-size:12px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.qmeta{grid-column:2/4;grid-row:2;font-family:var(--mono);font-size:10px;line-height:1.4;color:var(--t3);
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums;text-align:left}
+.qi .badge{grid-column:3;grid-row:1;display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--t3);white-space:nowrap}
+.qi.done .badge{color:var(--ok)}
+.qi.proc .badge{color:var(--acc)}
+.qi .qprog{position:absolute;left:8px;right:8px;bottom:2px;height:3px;background:#09090B;border-radius:1.5px;overflow:hidden}
+.qi .qprog>i{position:absolute;top:0;bottom:0;left:0;width:var(--p);background:var(--acc)}
+.qi .qprog>i::after{content:"";position:absolute;right:0;top:0;bottom:0;width:1.5px;background:#FFE1B0}
+.th{width:54px;height:30px;border-radius:3px;position:relative;overflow:hidden;background:var(--well);
+  border:1px solid rgba(255,255,255,.05);flex:none}
+.th::after{content:"";position:absolute;inset:0;background:radial-gradient(130% 105% at 50% 42%,transparent 52%,rgba(0,0,0,.6))}
+.th .dur{position:absolute;right:2px;bottom:2px;z-index:1;font-family:var(--mono);font-size:8.5px;line-height:1;
+  padding:2px 3px;border-radius:2px;background:rgba(5,5,6,.78);color:#C9C9CE;font-variant-numeric:tabular-nums}
+.th-a{background:radial-gradient(20px 15px at 62% 40%,rgba(205,168,133,.5),transparent 72%),
+  radial-gradient(34px 24px at 28% 62%,rgba(96,74,56,.4),transparent 75%),linear-gradient(160deg,#282219 0%,#171310 55%,#0D0B09 100%)}
+.th-b{background:linear-gradient(115deg,transparent 38%,rgba(146,175,214,.14) 46%,transparent 56%),
+  radial-gradient(26px 11px at 68% 30%,rgba(150,180,220,.42),transparent 75%),
+  radial-gradient(30px 20px at 30% 70%,rgba(70,88,112,.3),transparent 75%),linear-gradient(180deg,#1A1F26 0%,#0E1013 100%)}
+.th-c{background:linear-gradient(180deg,transparent 58%,rgba(148,136,112,.22) 62%,rgba(66,60,50,.25) 78%,transparent 82%),
+  radial-gradient(30px 16px at 50% 34%,rgba(140,140,150,.28),transparent 75%),linear-gradient(180deg,#212328 0%,#17181C 50%,#0F0F12 100%)}
+.th-d{background:radial-gradient(2.5px 2.5px at 22% 38%,rgba(232,164,79,.9),transparent 70%),
+  radial-gradient(2px 2px at 44% 33%,rgba(232,164,79,.7),transparent 70%),
+  radial-gradient(3px 3px at 76% 28%,rgba(176,198,238,.55),transparent 70%),
+  linear-gradient(180deg,transparent 62%,rgba(120,140,190,.1) 70%,transparent 88%),linear-gradient(180deg,#0D1119 0%,#07090E 75%)}
+.oentry{width:100%;text-align:left;border-radius:0}
+.oentry:hover{background:#17171A}
+.oentry .fico{grid-column:3;grid-row:1;color:var(--t3);display:flex}
+.oentry:hover .fico{color:var(--t1)}
+
+/* ============ MONITOR ============ */
+.jobchip{display:flex;align-items:center;gap:6px;height:20px;padding:0 8px;border-radius:3px;
+  background:var(--well);border:1px solid var(--hair2)}
+.jobchip .id{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--t2);font-variant-numeric:tabular-nums}
+.monbody{flex:1;min-height:0;display:flex;flex-direction:column}
+.tabpane{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:8px 12px 12px;overflow-y:auto}
+.tabpane[hidden]{display:none}
+/* HUD */
+.hud{display:flex;align-items:center;flex:none}
+.hud .cell{font-family:var(--mono);font-size:10px;letter-spacing:.07em;color:var(--t3);font-variant-numeric:tabular-nums}
+.hud .cell b{color:var(--t2);font-weight:600}
+.hud .mid{flex:1;text-align:center}
+.hud .right{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--t1);font-weight:600;letter-spacing:0}
+.hud .right .sub{color:var(--t2);font-weight:400}
+/* flow */
+.flow{display:flex;align-items:stretch;flex:none}
+.fnode{flex:1;min-width:0;background:#161618;border:1px solid var(--hair2);border-radius:var(--r);
+  padding:6px 8px;display:flex;flex-direction:column;gap:3px}
+.fnode .hd{display:flex;align-items:center;gap:6px}
+.fnode .no{font-family:var(--mono);font-size:9.5px;color:var(--t3);letter-spacing:.08em;font-variant-numeric:tabular-nums}
+.fnode .hd .sp{flex:1}
+.fnode .bd{display:flex;align-items:center;gap:6px;min-width:0}
+.fnode .bd svg.ic{width:13px;height:13px;color:var(--t3)}
+.fnode .nm{font-size:12px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fnode .val{font-size:10.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums;min-height:15px}
+.fnode .scrub{margin-top:auto}
+.fnode.active{border-color:rgba(232,164,79,.5);background:#1A1610}
+.fnode.active .bd svg.ic{color:var(--acc)}
+.fnode.active .val{color:var(--acc)}
+.fnode.done .bd svg.ic{color:#5F8A63}
+.fnode.wait .nm{color:var(--t2);font-weight:500}
+.flink{width:14px;flex:none;position:relative}
+.flink::after{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:var(--hair)}
+.flink.don::after{background:#3F3F46}
+.flink.act::after{background:rgba(232,164,79,.55)}
+/* scopes */
+.scopes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:1fr 1fr;gap:8px;
+  flex:3 1 210px;min-height:180px;max-height:300px}
+.scope{background:var(--panel2);border:1px solid var(--hair2);border-radius:var(--r);
+  display:flex;flex-direction:column;gap:5px;padding:8px;min-height:0}
+.scope .hd{display:flex;align-items:baseline;gap:8px}
+.scope .hd .lb{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;font-weight:700;color:var(--t3)}
+.scope .hd .sp{flex:1}
+.scope .hd b{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.scope .hd b em{font-style:normal;font-size:9.5px;color:var(--t3);font-weight:400;margin-left:3px}
+.scope svg.plot{flex:1;width:100%;min-height:26px}
+.scope .plot .grid{stroke:rgba(255,255,255,.05);stroke-width:1}
+.scope .plot polyline{fill:none;stroke-width:1.1}
+.scope .ax{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:#6E6E76;
+  letter-spacing:.04em;font-variant-numeric:tabular-nums}
+/* readout */
+.readout{display:flex;align-items:center;gap:16px;flex:none}
+.readout .pct{font-family:var(--mono);font-size:29px;font-weight:600;color:var(--t1);line-height:1;
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.readout .scrub{height:8px}
+.readout .pct em{font-style:normal;font-size:13px;color:var(--t3);font-weight:400}
+.readout .mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.readout .sent{font-size:11.5px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.readout .sent b{color:var(--t1);font-weight:600}
+.eta{display:flex;align-items:stretch;flex:none}
+.eta .cell{display:flex;flex-direction:column;align-items:flex-end;gap:1px;padding:0 14px}
+.eta .cell+.cell{border-left:1px solid var(--hair2)}
+.eta .cell:last-child{padding-right:0}
+.eta .v{font-family:var(--mono);font-size:14.5px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.eta .l{font-size:10px;color:var(--t3);display:flex;align-items:center;gap:5px}
+.eta .l .led{width:5px;height:5px}
+/* timeline */
+.tl{display:flex;gap:2px;flex:none}
+.tl .cell{flex:1;position:relative;height:26px;background:var(--panel2);border:1px solid var(--hair2);
+  border-radius:3px;overflow:hidden;display:flex;align-items:center;padding:0 8px}
+.tl .cell .lb{position:relative;z-index:1;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;color:var(--t3)}
+.tl .cell.act .lb{color:var(--acc-h);font-weight:600}
+.tl .cell.act .fill{position:absolute;left:0;top:0;bottom:0;width:var(--p);background:rgba(232,164,79,.13)}
+.tl .cell.act .fill::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--acc)}
+.tl .cell.act .fill::before{content:"";position:absolute;right:0;top:0;bottom:0;width:1.5px;background:rgba(255,225,176,.9)}
+/* phase grid */
+.phases{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;flex:1 0 auto;min-height:104px;max-height:158px;
+  align-content:stretch}
+.phase{display:flex;flex-direction:column;gap:4px;justify-content:center;min-width:0}
+.phase .hd{display:flex;align-items:baseline;gap:8px}
+.phase .nm{font-size:12px;font-weight:600;color:var(--t1)}
+.phase .sp{flex:1}
+.phase .pc{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.phase .mt{display:flex;justify-content:space-between;gap:10px;font-size:10.5px;color:var(--t3)}
+.phase .mt .ct{font-family:var(--mono);font-size:10.5px;color:var(--t2);font-variant-numeric:tabular-nums;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phase.off .nm{color:var(--t3);font-weight:500}
+.phase.off .pc{color:var(--t3);font-weight:400}
+.phase.ok .pc{color:var(--ok)}
+/* metrics strip */
+.mstrip{flex:none;height:30px;display:flex;align-items:stretch;border-top:1px solid var(--hair2);background:#111113}
+.mstrip .cell{flex:1 1 auto;min-width:max-content;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px}
+.mstrip .cell+.cell{border-left:1px solid var(--hair2)}
+.mstrip .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:var(--t3);white-space:nowrap}
+.mstrip .v{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mstrip .v em{font-style:normal;font-size:9px;color:var(--t3);font-weight:400}
+.mstrip .v.dim{color:var(--t3);font-weight:400}
+/* LIVE tab */
+.stagewrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:var(--well);
+  border:1px solid var(--hair2);border-radius:var(--r);padding:8px;position:relative;overflow:hidden}
+.frame{position:relative;height:100%;max-width:100%;aspect-ratio:16/9;border-radius:3px;overflow:hidden;
+  background:linear-gradient(115deg,transparent 40%,rgba(146,175,214,.10) 46%,transparent 55%),
+  radial-gradient(30% 22% at 64% 32%,rgba(150,180,220,.34),transparent 72%),
+  radial-gradient(20% 30% at 40% 40%,rgba(120,140,170,.18),transparent 75%),
+  radial-gradient(60% 34% at 32% 78%,rgba(58,72,92,.35),transparent 80%),
+  linear-gradient(180deg,#191E25 0%,#10131A 55%,#0A0C10 100%)}
+.frame::after{content:"";position:absolute;inset:0;background:radial-gradient(115% 95% at 50% 42%,transparent 50%,rgba(0,0,0,.62))}
+.maskbox{position:absolute;border:1.5px solid rgba(232,164,79,.7);background:rgba(232,164,79,.10);border-radius:3px}
+.maskbox.soft{border-style:dashed;background:rgba(232,164,79,.08)}
+.scan{position:absolute;left:0;right:0;top:-8%;height:16%;z-index:1;
+  background:linear-gradient(180deg,transparent,rgba(232,164,79,.05) 45%,rgba(255,255,255,.05) 50%,transparent);
+  animation:scan 3.2s linear infinite}
+@keyframes scan{to{top:100%}}
+.livebadge{position:absolute;top:8px;left:8px;z-index:2;display:flex;align-items:center;gap:6px;
+  height:20px;padding:0 9px;border-radius:3px;background:rgba(8,8,10,.8);border:1px solid rgba(224,110,90,.5)}
+.livebadge .dot{width:6px;height:6px;border-radius:50%;background:var(--err);animation:ledpulse 1.1s ease-in-out infinite}
+.livebadge .w{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;font-weight:700;color:#EE8672}
+.framecap{position:absolute;bottom:8px;right:10px;z-index:2;font-family:var(--mono);font-size:9px;
+  letter-spacing:0;color:rgba(222,222,225,.6);font-variant-numeric:tabular-nums}
+.livemeta{flex:none;display:flex;align-items:stretch;background:var(--panel2);border:1px solid var(--hair2);border-radius:var(--r)}
+.livemeta .cell{flex:1;display:flex;flex-direction:column;gap:2px;padding:8px 12px;min-width:0}
+.livemeta .cell+.cell{border-left:1px solid var(--hair2)}
+.livemeta .k{font-family:var(--mono);font-size:9px;letter-spacing:.08em;font-weight:700;color:var(--t3)}
+.livemeta .v{font-size:12px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.livemeta .v.mono{font-family:var(--mono);font-size:11.5px}
+
+/* ============ INSPECTOR ============ */
+.insp .pbody{padding-bottom:10px}
+.sec{border-bottom:1px solid var(--hair2)}
+.sechd{width:100%;height:28px;display:flex;align-items:center;gap:8px;padding:0 8px;text-align:left;
+  transition:background .15s}
+.sechd:hover{background:#17171A}
+.sechd .chev{color:var(--t3);transition:transform .15s;display:grid;place-items:center}
+.sechd .chev svg.ic{width:11px;height:11px}
+.sec.closed .sechd .chev{transform:rotate(-90deg)}
+.sechd .nm{font-size:12px;font-weight:600;color:var(--t1)}
+.sechd .sp{flex:1}
+.badge2{display:flex;align-items:center;gap:6px;height:18px;padding:0 8px;border-radius:3px;
+  background:var(--well);border:1px solid var(--hair2)}
+.badge2 .tx{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--t2)}
+.secbd{padding:2px 0 8px}
+.sec.closed .secbd{display:none}
+.row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:2px 8px;align-items:center;
+  padding:2px 8px;min-height:25px}
+.row>.lb{font-size:11.5px;color:var(--t2);line-height:1.3;word-break:keep-all;line-break:strict}
+.row>.ct{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
+.row>.hint{grid-column:2;font-size:10.5px;color:var(--t3);line-height:1.35}
+.row.stack{display:block}
+.row.stack>.lb{display:block;margin-bottom:4px}
+.row.stack>.hint{margin-top:4px}
+.row.off>.lb{color:var(--t3)}
+.subh2{margin:8px 8px 4px;padding-bottom:4px;border-bottom:1px solid var(--hair2);
+  font-size:11px;font-weight:600;color:var(--t3)}
+.ckgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px 8px;width:100%}
+/* class mini table */
+.ctbl{width:100%;border:1px solid var(--hair2);border-radius:var(--r);overflow:hidden}
+.ctbl .tr{display:grid;grid-template-columns:minmax(0,1fr) 88px 54px;gap:5px;align-items:center;
+  padding:4px 8px;border-top:1px solid var(--hair2)}
+.ctbl .seg{justify-self:start}
+.ctbl .tr:first-child{border-top:0;background:#151518;padding:4px 8px}
+.ctbl .hc{font-size:9.5px;color:var(--t3);font-weight:600}
+.ctbl .cn{font-size:11.5px;color:var(--t1);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctbl .seg{padding:1px;gap:1px}
+.ctbl .seg>button{height:20px;padding:0 5px;font-size:10px}
+.ctbl .kf{display:flex;align-items:center;gap:4px;justify-content:flex-end}
+.ctbl .kf .field{height:20px;width:30px;padding:0 4px}
+.ctbl .kf .unit{margin-left:2px;font-size:9.5px}
+/* クラス別ルール editor (詳細 · 形状・KF・補完 = クラス別GUI) */
+.ctbl.rules .tr{grid-template-columns:minmax(0,1fr) 64px 36px 40px 16px;gap:4px}
+.ctbl.rules select.field{height:20px;font-size:10.5px;padding:0 15px 0 5px;background-position:right 4px center}
+.ctbl.rules .kf .field{width:100%}
+.ctbl.rules .hc.r{text-align:right}
+.ctbl.rules .rm{width:16px;height:20px;display:grid;place-items:center;border-radius:3px;
+  color:var(--t3);font-size:12px;line-height:1}
+.ctbl.rules .rm:hover{background:var(--raised);color:var(--t1)}
+.ctbl.rules .tfoot{display:flex;padding:2px 4px;border-top:1px solid var(--hair2)}
+/* busy = disabled controls (Inspector bodies + repo input only; tabs/toggles stay live) */
+.busy .secbd .field,.busy .secbd .seg,.busy .secbd .ck,.busy .secbd .sliderrow,
+.busy .secbd .pathin,.busy .secbd .ctbl,.busy .repo .pathin{opacity:.5;pointer-events:none}
+/* accent discipline: full-chroma amber is reserved for live state — settings chrome desaturates while busy */
+.busy .secbd .seg>button.on{box-shadow:inset 0 -2px 0 rgba(232,164,79,.4)}
+.busy .secbd .ck input:checked+.box{background:#8A6A3A;border-color:#8A6A3A}
+
+/* ============ CONSOLE ============ */
+.console{background:var(--panel);border-top:1px solid var(--seam);display:flex;flex-direction:column;min-height:0}
+.console .tbar .stgchip{display:flex;align-items:center;gap:6px;height:18px;padding:0 8px;border-radius:3px;
+  background:var(--well);border:1px solid var(--hair2)}
+.console .tbar .stgchip .tx{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--info)}
+.console .filter{width:170px;height:20px;background:var(--field);border:1px solid var(--hair);border-radius:3px;
+  padding:0 8px;font-size:11px;color:var(--t1)}
+.console .filter::placeholder{color:var(--t3)}
+.console .cnt{font-family:var(--mono);font-size:10px;color:var(--t3);font-variant-numeric:tabular-nums}
+.logbody{flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 0;font-family:var(--mono);font-size:11px;line-height:13.4px}
+.ln{display:flex;white-space:pre}
+.ln:hover{background:#151518}
+.ln .no{flex:none;width:46px;text-align:right;padding-right:10px;color:#5E5E66;user-select:none;
+  border-right:1px solid var(--hair2);margin-right:10px;font-variant-numeric:tabular-nums}
+.ln .tx{color:#B9B9BF;overflow:hidden;text-overflow:ellipsis}
+.ln .tag{color:var(--info)}
+.ln.cmd .tx{color:var(--acc)}
+
+/* ============ STATUSBAR ============ */
+.statusbar{display:flex;align-items:center;gap:0;background:#0F0F11;border-top:1px solid var(--seam);
+  padding:0 12px;font-size:11px;color:var(--t2);min-width:0}
+.statusbar .it{display:flex;align-items:center;gap:6px;padding:0 10px;white-space:nowrap;min-width:0}
+.statusbar .it:first-child{padding-left:0}
+.statusbar .it+.it{border-left:1px solid var(--hair2)}
+.statusbar .k{color:var(--t3);font-size:10.5px}
+.statusbar .v{font-family:var(--mono);font-size:10.5px;color:var(--t2);font-variant-numeric:tabular-nums}
+.statusbar .st{color:var(--t1);font-weight:600;font-size:11px}
+.statusbar .sp{flex:1;min-width:14px}
+.statusbar .path{overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.statusbar .bk{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;font-weight:700;color:var(--t2)}
+
+/* 簡単/詳細 view visibility */
+.insp .a{display:none}
+.insp.adv .row.a{display:grid}
+.insp.adv .subh2.a{display:block}
+.insp.adv .row.stack.a{display:block}
+.insp.adv .simple-only{display:none}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M7.5 5.5v13M16.5 5.5v13M3.5 9.5h4M3.5 14.5h4M16.5 9.5h4M16.5 14.5h4"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5Z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5L19.5 7"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6.5" width="13" height="11" rx="2"/><path d="m16 11 5-3v8l-5-3"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/><rect x="10" y="10" width="4" height="4"/><path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3.5 8.5 4.7L12 12.9 3.5 8.2Z"/><path d="m3.5 12.4 8.5 4.7 8.5-4.7M3.5 16.3 12 21l8.5-4.7"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="2.7"/><path d="M4.5 6v12c0 1.5 3.4 2.7 7.5 2.7s7.5-1.2 7.5-2.7V6"/><path d="M4.5 12c0 1.5 3.4 2.7 7.5 2.7s7.5-1.2 7.5-2.7"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  </defs>
+</svg>
+
+<div class="viewport">
+<div class="app busy">
+
+  <!-- ================= TOPBAR ================= -->
+  <header class="topbar">
+    <div class="tb-left">
+      <div class="logo" aria-label="Mask Pipeline Studio"><svg class="ic"><use href="#i-film"/></svg></div>
+      <span class="tb-sep"></span>
+      <div class="fchip" title="入力キューの状態">
+        <span class="k">QUEUE</span><span class="v mono">4本 · 残り2</span>
+      </div>
+      <div class="fchip" title="/home/user/videos/mask_out">
+        <span class="k">OUT</span><span class="v mono">mask_out</span>
+      </div>
+    </div>
+    <div class="transport">
+      <button class="btn" disabled title="設定と入力だけを検証 (Ctrl+D)">
+        <svg class="ic"><use href="#i-check"/></svg>Dry Run<kbd>^D</kbd>
+      </button>
+      <button class="btn danger" title="キューの処理を停止 (Esc)">
+        <svg class="ic"><use href="#i-stop"/></svg>停止<kbd>Esc</kbd>
+      </button>
+      <div class="tcwell"><span class="lab">経過</span><span class="tc">06:12</span></div>
+    </div>
+    <div class="tb-right">
+      <span class="led run"></span>
+      <span class="tb-status">実行中<span class="stg">stage inference</span></span>
+    </div>
+  </header>
+
+  <!-- ================= MAIN ================= -->
+  <div class="main">
+
+    <!-- ============ SOURCE ============ -->
+    <section class="panel">
+      <div class="tbar">
+        <span class="ttl">Source</span><span class="sp"></span><span class="meta mono">4本</span>
+      </div>
+      <div class="pbody">
+        <div class="repo">
+          <div class="lab">出力リポジトリ</div>
+          <div class="pathin">
+            <input class="field mono" value="/home/user/videos/mask_out" disabled>
+            <button title="参照…" disabled><svg class="ic"><use href="#i-folder"/></svg></button>
+          </div>
+          <div class="hint">処理中は変更できません</div>
+        </div>
+
+        <div class="subh">
+          <span class="n">入力キュー</span><span class="note">残り2</span><span class="sp"></span>
+          <button class="btn quiet" title="動画ファイルを選択して追加"><svg class="ic"><use href="#i-plus"/></svg>追加</button>
+        </div>
+        <div class="qlist">
+          <div class="qi done" title="/home/user/videos/interview_a_1080p.mp4&#10;右クリックで操作">
+            <div class="th th-a"></div>
+            <div class="ttl2">interview_a_1080p</div>
+            <div class="badge"><span class="led ok"></span>処理済み</div>
+            <div class="qmeta">V3 + Face V2 · ポリゴン · overlay fast</div>
+          </div>
+          <div class="qi proc" title="/home/user/videos/studio_b_4k.mp4&#10;右クリックで操作">
+            <div class="th th-b"></div>
+            <div class="ttl2">studio_b_4k</div>
+            <div class="badge"><span class="led run"></span>処理中</div>
+            <div class="qmeta">V3 + Face V2 · ポリゴン · overlay fast</div>
+            <div class="qprog"><i style="--p:46%"></i></div>
+          </div>
+          <div class="qi" title="/home/user/videos/daily_scrum_720p.mp4&#10;右クリックで操作">
+            <div class="th th-c"><span class="dur">05:21</span></div>
+            <div class="ttl2">daily_scrum_720p</div>
+            <div class="badge"><span class="led"></span>未処理</div>
+            <div class="qmeta">05:21 · 1280×720 · 30.00 fps</div>
+          </div>
+          <div class="qi" title="/home/user/videos/night_walk_b_1080p.mp4&#10;右クリックで操作">
+            <div class="th th-d"><span class="dur">03:47</span></div>
+            <div class="ttl2">night_walk_b_1080p</div>
+            <div class="badge"><span class="led"></span>未処理</div>
+            <div class="qmeta">03:47 · 1920×1080 · 59.94 fps</div>
+          </div>
+        </div>
+
+        <div class="subh">
+          <span class="n">出力キュー</span><span class="note dim">1本完了</span><span class="sp"></span>
+          <span class="hint">クリックでフォルダを開く</span>
+        </div>
+        <div class="qlist">
+          <button class="oentry" title="/home/user/videos/mask_out/interview_a_1080p&#10;クリックして出力フォルダを開く">
+            <div class="th th-a"></div>
+            <div class="ttl2">interview_a_1080p</div>
+            <span class="fico" aria-label="出力フォルダを開く"><svg class="ic"><use href="#i-folder"/></svg></span>
+            <div class="qmeta">08/01 10:52 · 9成果物 · V3 + Face V2 · ポリゴン · overlay fast</div>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MONITOR ============ -->
+    <section class="panel">
+      <div class="tbar">
+        <span class="ttl">Monitor</span><span class="meta">性器 + 顔</span><span class="sp"></span>
+        <div class="seg lg" role="tablist" aria-label="Monitor view">
+          <button class="on" data-tab="status" role="tab" aria-selected="true">STATUS</button>
+          <button data-tab="live" role="tab" aria-selected="false">LIVE</button>
+        </div>
+        <div class="jobchip"><span class="led run"></span><span class="id">JOB 2026-08-01T10-58-24</span></div>
+      </div>
+      <div class="monbody">
+
+        <!-- ======= STATUS tab ======= -->
+        <div class="tabpane" id="pane-status">
+          <div class="hud">
+            <span class="cell">PIPELINE · <b>6 STEPS</b></span>
+            <span class="cell mid">BATCH <b>2 / 4</b></span>
+            <span class="right"><span class="led run"></span>実行中<span class="sub">· 性器推論</span></span>
+          </div>
+
+          <div class="flow">
+            <div class="fnode done" title="入力 · studio_b_4k">
+              <div class="hd"><span class="no">01</span><span class="sp"></span><span class="led ok"></span></div>
+              <div class="bd"><svg class="ic"><use href="#i-video"/></svg><span class="nm">入力</span></div>
+              <div class="val">studio_b_4k</div>
+              <div class="scrub sm ok"><i style="--p:100%"></i></div>
+            </div>
+            <div class="flink don"></div>
+            <div class="fnode active" title="性器推論 · V3">
+              <div class="hd"><span class="no">02</span><span class="sp"></span><span class="led run"></span></div>
+              <div class="bd"><svg class="ic"><use href="#i-cpu"/></svg><span class="nm">性器推論</span></div>
+              <div class="val">V3</div>
+              <div class="scrub sm"><i style="--p:45%"></i></div>
+            </div>
+            <div class="flink act"></div>
+            <div class="fnode done" title="顔推論 · Face V2">
+              <div class="hd"><span class="no">03</span><span class="sp"></span><span class="led ok"></span></div>
+              <div class="bd"><svg class="ic"><use href="#i-eye"/></svg><span class="nm">顔推論</span></div>
+              <div class="val">Face V2</div>
+              <div class="scrub sm ok"><i style="--p:100%"></i></div>
+            </div>
+            <div class="flink"></div>
+            <div class="fnode wait" title="後処理 · 3クラス個別 · カット先行">
+              <div class="hd"><span class="no">04</span><span class="sp"></span><span class="led"></span></div>
+              <div class="bd"><svg class="ic"><use href="#i-layers"/></svg><span class="nm">後処理</span></div>
+              <div class="val">3クラス個別 · カット先行</div>
+              <div class="scrub sm empty"><i></i></div>
+            </div>
+            <div class="flink"></div>
+            <div class="fnode wait" title="オーバーレイ · 2本 · 高速">
+              <div class="hd"><span class="no">05</span><span class="sp"></span><span class="led"></span></div>
+              <div class="bd"><svg class="ic"><use href="#i-film"/></svg><span class="nm">オーバーレイ</span></div>
+              <div class="val">2本 · 高速</div>
+              <div class="scrub sm empty"><i></i></div>
+            </div>
+            <div class="flink"></div>
+            <div class="fnode wait" title="出力 · SQLite + 動画">
+              <div class="hd"><span class="no">06</span><span class="sp"></span><span class="led"></span></div>
+              <div class="bd"><svg class="ic"><use href="#i-db"/></svg><span class="nm">出力</span></div>
+              <div class="val">SQLite + 動画</div>
+              <div class="scrub sm empty"><i></i></div>
+            </div>
+          </div>
+
+          <div class="scopes">
+            <div class="scope">
+              <div class="hd"><span class="lb">FPS</span><span class="sp"></span><b>21.4<em>fps</em></b></div>
+              <div class="meter" style="--c:var(--c-fps);--p:80%"><i></i></div>
+              <svg class="plot" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="FPS history">
+                <line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="11" y2="11"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="22" y2="22"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="33" y2="33"/>
+                <polygon points="0,44 0.0,10.2 1.0,10.0 2.0,9.8 3.0,9.6 4.0,9.1 5.0,9.0 6.0,9.6 7.0,9.5 8.0,9.3 9.1,9.4 10.1,9.4 11.1,8.9 12.1,9.0 13.1,8.8 14.1,8.6 15.1,9.2 16.1,9.7 17.1,10.0 18.1,10.1 19.1,10.3 20.1,10.1 21.1,10.7 22.1,10.5 23.1,10.4 24.1,10.5 25.1,10.0 26.1,9.6 27.2,9.4 28.2,9.8 29.2,9.7 30.2,10.2 31.2,10.9 32.2,10.6 33.2,10.0 34.2,10.4 35.2,11.0 36.2,10.7 37.2,11.0 38.2,10.9 39.2,10.8 40.2,10.4 41.2,10.9 42.2,10.4 43.2,10.0 44.2,10.3 45.3,11.0 46.3,11.6 47.3,11.0 48.3,10.9 49.3,10.8 50.3,11.1 51.3,7.3 52.3,6.3 53.3,7.6 54.3,10.7 55.3,11.2 56.3,11.1 57.3,10.8 58.3,9.9 59.3,10.0 60.3,9.9 61.3,10.1 62.3,10.6 63.4,10.1 64.4,10.1 65.4,9.7 66.4,9.9 67.4,9.7 68.4,9.9 69.4,9.4 70.4,9.8 71.4,10.3 72.4,10.1 73.4,9.8 74.4,10.4 75.4,10.5 76.4,10.6 77.4,9.9 78.4,9.5 79.4,9.3 80.4,9.6 81.5,9.1 82.5,9.1 83.5,9.4 84.5,9.8 85.5,9.9 86.5,10.7 87.5,10.2 88.5,10.6 89.5,10.8 90.5,11.4 91.5,11.9 92.5,11.5 93.5,11.4 94.5,11.4 95.5,11.9 96.5,11.8 97.5,11.5 98.5,10.9 99.6,10.3 100.6,10.2 101.6,10.1 102.6,10.1 103.6,10.1 104.6,10.7 105.6,10.5 106.6,10.2 107.6,9.5 108.6,9.3 109.6,9.8 110.6,10.3 111.6,10.1 112.6,9.3 113.6,9.6 114.6,8.9 115.6,9.1 116.6,8.8 117.7,8.6 118.7,9.3 119.7,9.6 120.7,9.3 121.7,9.3 122.7,9.1 123.7,9.5 124.7,9.1 125.7,9.4 126.7,10.0 127.7,9.8 128.7,10.0 129.7,10.4 130.7,9.9 131.7,9.2 132.7,8.9 133.7,9.7 134.7,9.9 135.8,9.4 136.8,9.4 137.8,9.2 138.8,9.2 139.8,10.0 140.8,10.1 141.8,10.2 142.8,10.8 143.8,10.4 144.8,11.1 145.8,11.7 146.8,10.9 147.8,10.8 148.8,10.5 149.8,10.1 150.8,9.6 151.8,9.1 152.8,10.0 153.9,10.5 154.9,10.5 155.9,10.7 156.9,10.8 157.9,10.8 158.9,11.4 159.9,12.0 160.9,11.9 161.9,12.0 162.9,12.0 163.9,11.5 164.9,11.5 165.9,11.5 166.9,11.2 167.9,11.3 168.9,10.4 169.9,10.6 170.9,10.6 172.0,10.8 173.0,10.4 174.0,10.5 175.0,10.3 176.0,10.0 177.0,10.6 178.0,11.0 179.0,10.1 180.0,10.0 180,44" fill="rgba(127,168,217,.10)"/>
+                <polyline vector-effect="non-scaling-stroke" points="0.0,10.2 1.0,10.0 2.0,9.8 3.0,9.6 4.0,9.1 5.0,9.0 6.0,9.6 7.0,9.5 8.0,9.3 9.1,9.4 10.1,9.4 11.1,8.9 12.1,9.0 13.1,8.8 14.1,8.6 15.1,9.2 16.1,9.7 17.1,10.0 18.1,10.1 19.1,10.3 20.1,10.1 21.1,10.7 22.1,10.5 23.1,10.4 24.1,10.5 25.1,10.0 26.1,9.6 27.2,9.4 28.2,9.8 29.2,9.7 30.2,10.2 31.2,10.9 32.2,10.6 33.2,10.0 34.2,10.4 35.2,11.0 36.2,10.7 37.2,11.0 38.2,10.9 39.2,10.8 40.2,10.4 41.2,10.9 42.2,10.4 43.2,10.0 44.2,10.3 45.3,11.0 46.3,11.6 47.3,11.0 48.3,10.9 49.3,10.8 50.3,11.1 51.3,7.3 52.3,6.3 53.3,7.6 54.3,10.7 55.3,11.2 56.3,11.1 57.3,10.8 58.3,9.9 59.3,10.0 60.3,9.9 61.3,10.1 62.3,10.6 63.4,10.1 64.4,10.1 65.4,9.7 66.4,9.9 67.4,9.7 68.4,9.9 69.4,9.4 70.4,9.8 71.4,10.3 72.4,10.1 73.4,9.8 74.4,10.4 75.4,10.5 76.4,10.6 77.4,9.9 78.4,9.5 79.4,9.3 80.4,9.6 81.5,9.1 82.5,9.1 83.5,9.4 84.5,9.8 85.5,9.9 86.5,10.7 87.5,10.2 88.5,10.6 89.5,10.8 90.5,11.4 91.5,11.9 92.5,11.5 93.5,11.4 94.5,11.4 95.5,11.9 96.5,11.8 97.5,11.5 98.5,10.9 99.6,10.3 100.6,10.2 101.6,10.1 102.6,10.1 103.6,10.1 104.6,10.7 105.6,10.5 106.6,10.2 107.6,9.5 108.6,9.3 109.6,9.8 110.6,10.3 111.6,10.1 112.6,9.3 113.6,9.6 114.6,8.9 115.6,9.1 116.6,8.8 117.7,8.6 118.7,9.3 119.7,9.6 120.7,9.3 121.7,9.3 122.7,9.1 123.7,9.5 124.7,9.1 125.7,9.4 126.7,10.0 127.7,9.8 128.7,10.0 129.7,10.4 130.7,9.9 131.7,9.2 132.7,8.9 133.7,9.7 134.7,9.9 135.8,9.4 136.8,9.4 137.8,9.2 138.8,9.2 139.8,10.0 140.8,10.1 141.8,10.2 142.8,10.8 143.8,10.4 144.8,11.1 145.8,11.7 146.8,10.9 147.8,10.8 148.8,10.5 149.8,10.1 150.8,9.6 151.8,9.1 152.8,10.0 153.9,10.5 154.9,10.5 155.9,10.7 156.9,10.8 157.9,10.8 158.9,11.4 159.9,12.0 160.9,11.9 161.9,12.0 162.9,12.0 163.9,11.5 164.9,11.5 165.9,11.5 166.9,11.2 167.9,11.3 168.9,10.4 169.9,10.6 170.9,10.6 172.0,10.8 173.0,10.4 174.0,10.5 175.0,10.3 176.0,10.0 177.0,10.6 178.0,11.0 179.0,10.1 180.0,10.0" stroke="var(--c-fps)"/>
+              </svg>
+              <div class="ax"><span>peak 23.9</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="hd"><span class="lb">GPU</span><span class="sp"></span><b>97<em>%</em></b></div>
+              <div class="meter" style="--c:var(--c-gpu);--p:97%"><i></i></div>
+              <svg class="plot" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="GPU history">
+                <line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="11" y2="11"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="22" y2="22"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="33" y2="33"/>
+                <polygon points="0,44 0.0,3.6 1.0,3.8 2.0,3.7 3.0,3.8 4.0,3.8 5.0,3.9 6.0,3.9 7.0,3.6 8.0,3.4 9.1,3.7 10.1,3.5 11.1,3.7 12.1,3.9 13.1,3.6 14.1,3.4 15.1,3.4 16.1,3.3 17.1,3.5 18.1,3.5 19.1,3.4 20.1,3.2 21.1,3.3 22.1,3.2 23.1,3.3 24.1,3.5 25.1,3.3 26.1,3.5 27.2,3.4 28.2,3.5 29.2,3.5 30.2,3.2 31.2,3.1 32.2,2.9 33.2,2.7 34.2,2.7 35.2,2.6 36.2,2.6 37.2,2.8 38.2,10.8 39.2,8.4 40.2,2.9 41.2,2.7 42.2,2.6 43.2,2.6 44.2,2.8 45.3,2.6 46.3,2.8 47.3,3.0 48.3,2.8 49.3,3.1 50.3,3.0 51.3,2.8 52.3,2.8 53.3,3.1 54.3,3.1 55.3,3.1 56.3,3.0 57.3,3.1 58.3,3.2 59.3,3.5 60.3,3.7 61.3,3.9 62.3,3.7 63.4,3.9 64.4,3.8 65.4,3.6 66.4,3.4 67.4,3.6 68.4,3.8 69.4,3.6 70.4,3.6 71.4,3.6 72.4,3.8 73.4,3.6 74.4,3.5 75.4,3.3 76.4,3.2 77.4,3.5 78.4,3.6 79.4,3.5 80.4,3.4 81.5,3.6 82.5,3.6 83.5,3.7 84.5,3.8 85.5,3.8 86.5,3.5 87.5,3.7 88.5,3.6 89.5,3.6 90.5,3.7 91.5,3.5 92.5,3.4 93.5,3.3 94.5,3.1 95.5,3.0 96.5,12.4 97.5,9.2 98.5,3.3 99.6,3.2 100.6,3.1 101.6,3.1 102.6,3.0 103.6,3.0 104.6,3.0 105.6,2.9 106.6,3.1 107.6,3.0 108.6,3.2 109.6,3.0 110.6,2.9 111.6,3.2 112.6,3.4 113.6,3.2 114.6,3.4 115.6,3.4 116.6,3.6 117.7,3.7 118.7,4.0 119.7,3.7 120.7,3.7 121.7,3.8 122.7,3.7 123.7,3.4 124.7,3.6 125.7,3.7 126.7,3.7 127.7,3.9 128.7,3.8 129.7,3.8 130.7,3.7 131.7,3.7 132.7,3.9 133.7,4.1 134.7,3.9 135.8,3.9 136.8,3.9 137.8,3.8 138.8,4.0 139.8,3.8 140.8,3.5 141.8,3.6 142.8,3.5 143.8,3.4 144.8,3.5 145.8,3.6 146.8,3.6 147.8,3.6 148.8,10.0 149.8,3.7 150.8,3.9 151.8,4.0 152.8,3.8 153.9,3.9 154.9,3.7 155.9,3.5 156.9,3.4 157.9,3.6 158.9,3.5 159.9,3.3 160.9,3.2 161.9,3.0 162.9,3.2 163.9,3.1 164.9,3.3 165.9,3.2 166.9,3.0 167.9,3.2 168.9,3.2 169.9,3.1 170.9,3.1 172.0,2.9 173.0,3.1 174.0,3.4 175.0,3.6 176.0,3.4 177.0,3.3 178.0,3.1 179.0,3.2 180.0,3.2 180,44" fill="rgba(168,139,212,.08)"/>
+                <polyline vector-effect="non-scaling-stroke" points="0.0,3.6 1.0,3.8 2.0,3.7 3.0,3.8 4.0,3.8 5.0,3.9 6.0,3.9 7.0,3.6 8.0,3.4 9.1,3.7 10.1,3.5 11.1,3.7 12.1,3.9 13.1,3.6 14.1,3.4 15.1,3.4 16.1,3.3 17.1,3.5 18.1,3.5 19.1,3.4 20.1,3.2 21.1,3.3 22.1,3.2 23.1,3.3 24.1,3.5 25.1,3.3 26.1,3.5 27.2,3.4 28.2,3.5 29.2,3.5 30.2,3.2 31.2,3.1 32.2,2.9 33.2,2.7 34.2,2.7 35.2,2.6 36.2,2.6 37.2,2.8 38.2,10.8 39.2,8.4 40.2,2.9 41.2,2.7 42.2,2.6 43.2,2.6 44.2,2.8 45.3,2.6 46.3,2.8 47.3,3.0 48.3,2.8 49.3,3.1 50.3,3.0 51.3,2.8 52.3,2.8 53.3,3.1 54.3,3.1 55.3,3.1 56.3,3.0 57.3,3.1 58.3,3.2 59.3,3.5 60.3,3.7 61.3,3.9 62.3,3.7 63.4,3.9 64.4,3.8 65.4,3.6 66.4,3.4 67.4,3.6 68.4,3.8 69.4,3.6 70.4,3.6 71.4,3.6 72.4,3.8 73.4,3.6 74.4,3.5 75.4,3.3 76.4,3.2 77.4,3.5 78.4,3.6 79.4,3.5 80.4,3.4 81.5,3.6 82.5,3.6 83.5,3.7 84.5,3.8 85.5,3.8 86.5,3.5 87.5,3.7 88.5,3.6 89.5,3.6 90.5,3.7 91.5,3.5 92.5,3.4 93.5,3.3 94.5,3.1 95.5,3.0 96.5,12.4 97.5,9.2 98.5,3.3 99.6,3.2 100.6,3.1 101.6,3.1 102.6,3.0 103.6,3.0 104.6,3.0 105.6,2.9 106.6,3.1 107.6,3.0 108.6,3.2 109.6,3.0 110.6,2.9 111.6,3.2 112.6,3.4 113.6,3.2 114.6,3.4 115.6,3.4 116.6,3.6 117.7,3.7 118.7,4.0 119.7,3.7 120.7,3.7 121.7,3.8 122.7,3.7 123.7,3.4 124.7,3.6 125.7,3.7 126.7,3.7 127.7,3.9 128.7,3.8 129.7,3.8 130.7,3.7 131.7,3.7 132.7,3.9 133.7,4.1 134.7,3.9 135.8,3.9 136.8,3.9 137.8,3.8 138.8,4.0 139.8,3.8 140.8,3.5 141.8,3.6 142.8,3.5 143.8,3.4 144.8,3.5 145.8,3.6 146.8,3.6 147.8,3.6 148.8,10.0 149.8,3.7 150.8,3.9 151.8,4.0 152.8,3.8 153.9,3.9 154.9,3.7 155.9,3.5 156.9,3.4 157.9,3.6 158.9,3.5 159.9,3.3 160.9,3.2 161.9,3.0 162.9,3.2 163.9,3.1 164.9,3.3 165.9,3.2 166.9,3.0 167.9,3.2 168.9,3.2 169.9,3.1 170.9,3.1 172.0,2.9 173.0,3.1 174.0,3.4 175.0,3.6 176.0,3.4 177.0,3.3 178.0,3.1 179.0,3.2 180.0,3.2" stroke="var(--c-gpu)"/>
+              </svg>
+              <div class="ax"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="hd"><span class="lb">CPU</span><span class="sp"></span><b>34<em>%</em></b></div>
+              <div class="meter" style="--c:var(--c-cpu);--p:34%"><i></i></div>
+              <svg class="plot" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="CPU history">
+                <line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="11" y2="11"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="22" y2="22"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="33" y2="33"/>
+                <polygon points="0,44 0.0,28.6 1.0,27.9 2.0,28.5 3.0,28.1 4.0,28.4 5.0,28.2 6.0,28.6 7.0,27.9 8.0,27.7 9.1,27.7 10.1,27.5 11.1,27.2 12.1,27.5 13.1,27.2 14.1,26.7 15.1,26.3 16.1,25.9 17.1,26.4 18.1,26.4 19.1,26.2 20.1,26.8 21.1,26.9 22.1,27.4 23.1,27.2 24.1,27.5 25.1,27.2 26.1,27.5 27.2,27.3 28.2,27.4 29.2,27.4 30.2,26.9 31.2,27.2 32.2,27.5 33.2,27.5 34.2,28.1 35.2,27.6 36.2,27.2 37.2,27.8 38.2,28.2 39.2,28.2 40.2,28.0 41.2,28.4 42.2,28.0 43.2,28.5 44.2,28.9 45.3,28.8 46.3,29.4 47.3,29.3 48.3,28.7 49.3,28.3 50.3,29.0 51.3,29.3 52.3,29.6 53.3,29.1 54.3,29.2 55.3,29.3 56.3,29.0 57.3,28.8 58.3,28.9 59.3,29.3 60.3,29.4 61.3,28.8 62.3,28.8 63.4,29.2 64.4,29.7 65.4,30.2 66.4,29.8 67.4,29.8 68.4,30.0 69.4,29.5 70.4,29.2 71.4,28.7 72.4,28.8 73.4,28.9 74.4,29.3 75.4,29.5 76.4,29.7 77.4,29.2 78.4,29.3 79.4,29.5 80.4,29.6 81.5,30.1 82.5,29.4 83.5,29.0 84.5,29.5 85.5,30.0 86.5,30.0 87.5,30.0 88.5,30.1 89.5,30.0 90.5,30.2 91.5,30.0 92.5,29.2 93.5,28.7 94.5,28.7 95.5,28.1 96.5,28.3 97.5,28.6 98.5,29.0 99.6,29.1 100.6,28.9 101.6,28.3 102.6,28.7 103.6,28.8 104.6,28.4 105.6,28.1 106.6,28.0 107.6,28.0 108.6,28.1 109.6,27.8 110.6,27.8 111.6,27.6 112.6,27.6 113.6,28.0 114.6,28.2 115.6,27.7 116.6,28.3 117.7,28.5 118.7,29.0 119.7,29.4 120.7,29.6 121.7,29.4 122.7,29.4 123.7,29.9 124.7,30.1 125.7,30.2 126.7,30.2 127.7,29.9 128.7,30.3 129.7,30.4 130.7,30.0 131.7,30.2 132.7,30.6 133.7,30.5 134.7,30.8 135.8,30.4 136.8,30.9 137.8,30.7 138.8,30.2 139.8,29.6 140.8,29.9 141.8,29.9 142.8,29.6 143.8,29.4 144.8,28.9 145.8,28.5 146.8,29.0 147.8,29.1 148.8,29.1 149.8,29.4 150.8,29.3 151.8,29.3 152.8,29.0 153.9,29.2 154.9,29.0 155.9,28.8 156.9,29.2 157.9,29.5 158.9,29.9 159.9,29.4 160.9,29.3 161.9,28.8 162.9,28.3 163.9,28.7 164.9,29.3 165.9,29.7 166.9,29.3 167.9,28.8 168.9,29.1 169.9,28.5 170.9,28.0 172.0,27.7 173.0,27.5 174.0,28.0 175.0,28.1 176.0,28.3 177.0,27.8 178.0,28.0 179.0,27.7 180.0,28.4 180,44" fill="rgba(111,191,178,.09)"/>
+                <polyline vector-effect="non-scaling-stroke" points="0.0,28.6 1.0,27.9 2.0,28.5 3.0,28.1 4.0,28.4 5.0,28.2 6.0,28.6 7.0,27.9 8.0,27.7 9.1,27.7 10.1,27.5 11.1,27.2 12.1,27.5 13.1,27.2 14.1,26.7 15.1,26.3 16.1,25.9 17.1,26.4 18.1,26.4 19.1,26.2 20.1,26.8 21.1,26.9 22.1,27.4 23.1,27.2 24.1,27.5 25.1,27.2 26.1,27.5 27.2,27.3 28.2,27.4 29.2,27.4 30.2,26.9 31.2,27.2 32.2,27.5 33.2,27.5 34.2,28.1 35.2,27.6 36.2,27.2 37.2,27.8 38.2,28.2 39.2,28.2 40.2,28.0 41.2,28.4 42.2,28.0 43.2,28.5 44.2,28.9 45.3,28.8 46.3,29.4 47.3,29.3 48.3,28.7 49.3,28.3 50.3,29.0 51.3,29.3 52.3,29.6 53.3,29.1 54.3,29.2 55.3,29.3 56.3,29.0 57.3,28.8 58.3,28.9 59.3,29.3 60.3,29.4 61.3,28.8 62.3,28.8 63.4,29.2 64.4,29.7 65.4,30.2 66.4,29.8 67.4,29.8 68.4,30.0 69.4,29.5 70.4,29.2 71.4,28.7 72.4,28.8 73.4,28.9 74.4,29.3 75.4,29.5 76.4,29.7 77.4,29.2 78.4,29.3 79.4,29.5 80.4,29.6 81.5,30.1 82.5,29.4 83.5,29.0 84.5,29.5 85.5,30.0 86.5,30.0 87.5,30.0 88.5,30.1 89.5,30.0 90.5,30.2 91.5,30.0 92.5,29.2 93.5,28.7 94.5,28.7 95.5,28.1 96.5,28.3 97.5,28.6 98.5,29.0 99.6,29.1 100.6,28.9 101.6,28.3 102.6,28.7 103.6,28.8 104.6,28.4 105.6,28.1 106.6,28.0 107.6,28.0 108.6,28.1 109.6,27.8 110.6,27.8 111.6,27.6 112.6,27.6 113.6,28.0 114.6,28.2 115.6,27.7 116.6,28.3 117.7,28.5 118.7,29.0 119.7,29.4 120.7,29.6 121.7,29.4 122.7,29.4 123.7,29.9 124.7,30.1 125.7,30.2 126.7,30.2 127.7,29.9 128.7,30.3 129.7,30.4 130.7,30.0 131.7,30.2 132.7,30.6 133.7,30.5 134.7,30.8 135.8,30.4 136.8,30.9 137.8,30.7 138.8,30.2 139.8,29.6 140.8,29.9 141.8,29.9 142.8,29.6 143.8,29.4 144.8,28.9 145.8,28.5 146.8,29.0 147.8,29.1 148.8,29.1 149.8,29.4 150.8,29.3 151.8,29.3 152.8,29.0 153.9,29.2 154.9,29.0 155.9,28.8 156.9,29.2 157.9,29.5 158.9,29.9 159.9,29.4 160.9,29.3 161.9,28.8 162.9,28.3 163.9,28.7 164.9,29.3 165.9,29.7 166.9,29.3 167.9,28.8 168.9,29.1 169.9,28.5 170.9,28.0 172.0,27.7 173.0,27.5 174.0,28.0 175.0,28.1 176.0,28.3 177.0,27.8 178.0,28.0 179.0,27.7 180.0,28.4" stroke="var(--c-cpu)"/>
+              </svg>
+              <div class="ax"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="hd"><span class="lb">VRAM</span><span class="sp"></span><b>78<em>%</em></b></div>
+              <div class="meter" style="--c:var(--c-vram);--p:78%"><i></i></div>
+              <svg class="plot" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="VRAM history">
+                <line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="11" y2="11"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="22" y2="22"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="33" y2="33"/>
+                <polygon points="0,44 0.0,10.8 1.0,10.8 2.0,10.8 3.0,10.8 4.0,10.8 5.0,10.8 6.0,10.8 7.0,10.8 8.0,10.8 9.1,10.8 10.1,10.8 11.1,10.8 12.1,10.8 13.1,10.8 14.1,10.8 15.1,10.9 16.1,10.9 17.1,10.9 18.1,10.8 19.1,10.9 20.1,10.9 21.1,10.9 22.1,10.9 23.1,10.9 24.1,11.0 25.1,11.0 26.1,11.0 27.2,11.0 28.2,11.0 29.2,11.0 30.2,11.0 31.2,11.0 32.2,11.0 33.2,11.0 34.2,10.9 35.2,11.0 36.2,10.9 37.2,10.9 38.2,10.9 39.2,11.0 40.2,11.0 41.2,10.9 42.2,10.9 43.2,11.0 44.2,10.9 45.3,10.9 46.3,10.9 47.3,11.0 48.3,11.0 49.3,11.0 50.3,11.0 51.3,11.0 52.3,11.0 53.3,11.1 54.3,11.0 55.3,11.0 56.3,10.9 57.3,10.9 58.3,10.9 59.3,10.9 60.3,11.0 61.3,11.0 62.3,10.9 63.4,10.9 64.4,10.8 65.4,10.8 66.4,10.8 67.4,10.8 68.4,10.9 69.4,10.8 70.4,10.9 71.4,10.9 72.4,10.8 73.4,10.8 74.4,10.9 75.4,10.9 76.4,10.8 77.4,10.9 78.4,10.8 79.4,10.9 80.4,10.9 81.5,10.9 82.5,10.9 83.5,10.9 84.5,10.8 85.5,10.8 86.5,10.8 87.5,10.9 88.5,10.8 89.5,10.8 90.5,10.8 91.5,10.9 92.5,10.8 93.5,10.8 94.5,10.9 95.5,10.9 96.5,10.9 97.5,10.9 98.5,10.9 99.6,10.9 100.6,10.9 101.6,10.9 102.6,10.9 103.6,11.0 104.6,10.9 105.6,10.9 106.6,10.8 107.6,10.8 108.6,10.8 109.6,10.8 110.6,10.8 111.6,10.9 112.6,10.9 113.6,10.9 114.6,10.8 115.6,10.8 116.6,10.9 117.7,10.9 118.7,10.9 119.7,10.9 120.7,10.9 121.7,10.9 122.7,10.8 123.7,10.9 124.7,10.9 125.7,10.9 126.7,11.0 127.7,10.9 128.7,10.9 129.7,10.9 130.7,10.8 131.7,10.8 132.7,10.8 133.7,10.8 134.7,10.8 135.8,10.8 136.8,10.9 137.8,10.8 138.8,10.8 139.8,10.8 140.8,10.7 141.8,10.8 142.8,10.8 143.8,10.8 144.8,10.8 145.8,10.8 146.8,10.8 147.8,10.7 148.8,10.8 149.8,10.8 150.8,10.9 151.8,11.0 152.8,10.9 153.9,11.0 154.9,11.0 155.9,11.0 156.9,11.0 157.9,10.9 158.9,10.9 159.9,10.9 160.9,10.8 161.9,10.8 162.9,10.9 163.9,10.9 164.9,10.9 165.9,10.9 166.9,10.9 167.9,11.0 168.9,11.0 169.9,11.0 170.9,11.0 172.0,11.0 173.0,11.0 174.0,11.0 175.0,11.0 176.0,10.9 177.0,11.0 178.0,10.9 179.0,11.0 180.0,10.8 180,44" fill="rgba(232,164,79,.08)"/>
+                <polyline vector-effect="non-scaling-stroke" points="0.0,10.8 1.0,10.8 2.0,10.8 3.0,10.8 4.0,10.8 5.0,10.8 6.0,10.8 7.0,10.8 8.0,10.8 9.1,10.8 10.1,10.8 11.1,10.8 12.1,10.8 13.1,10.8 14.1,10.8 15.1,10.9 16.1,10.9 17.1,10.9 18.1,10.8 19.1,10.9 20.1,10.9 21.1,10.9 22.1,10.9 23.1,10.9 24.1,11.0 25.1,11.0 26.1,11.0 27.2,11.0 28.2,11.0 29.2,11.0 30.2,11.0 31.2,11.0 32.2,11.0 33.2,11.0 34.2,10.9 35.2,11.0 36.2,10.9 37.2,10.9 38.2,10.9 39.2,11.0 40.2,11.0 41.2,10.9 42.2,10.9 43.2,11.0 44.2,10.9 45.3,10.9 46.3,10.9 47.3,11.0 48.3,11.0 49.3,11.0 50.3,11.0 51.3,11.0 52.3,11.0 53.3,11.1 54.3,11.0 55.3,11.0 56.3,10.9 57.3,10.9 58.3,10.9 59.3,10.9 60.3,11.0 61.3,11.0 62.3,10.9 63.4,10.9 64.4,10.8 65.4,10.8 66.4,10.8 67.4,10.8 68.4,10.9 69.4,10.8 70.4,10.9 71.4,10.9 72.4,10.8 73.4,10.8 74.4,10.9 75.4,10.9 76.4,10.8 77.4,10.9 78.4,10.8 79.4,10.9 80.4,10.9 81.5,10.9 82.5,10.9 83.5,10.9 84.5,10.8 85.5,10.8 86.5,10.8 87.5,10.9 88.5,10.8 89.5,10.8 90.5,10.8 91.5,10.9 92.5,10.8 93.5,10.8 94.5,10.9 95.5,10.9 96.5,10.9 97.5,10.9 98.5,10.9 99.6,10.9 100.6,10.9 101.6,10.9 102.6,10.9 103.6,11.0 104.6,10.9 105.6,10.9 106.6,10.8 107.6,10.8 108.6,10.8 109.6,10.8 110.6,10.8 111.6,10.9 112.6,10.9 113.6,10.9 114.6,10.8 115.6,10.8 116.6,10.9 117.7,10.9 118.7,10.9 119.7,10.9 120.7,10.9 121.7,10.9 122.7,10.8 123.7,10.9 124.7,10.9 125.7,10.9 126.7,11.0 127.7,10.9 128.7,10.9 129.7,10.9 130.7,10.8 131.7,10.8 132.7,10.8 133.7,10.8 134.7,10.8 135.8,10.8 136.8,10.9 137.8,10.8 138.8,10.8 139.8,10.8 140.8,10.7 141.8,10.8 142.8,10.8 143.8,10.8 144.8,10.8 145.8,10.8 146.8,10.8 147.8,10.7 148.8,10.8 149.8,10.8 150.8,10.9 151.8,11.0 152.8,10.9 153.9,11.0 154.9,11.0 155.9,11.0 156.9,11.0 157.9,10.9 158.9,10.9 159.9,10.9 160.9,10.8 161.9,10.8 162.9,10.9 163.9,10.9 164.9,10.9 165.9,10.9 166.9,10.9 167.9,11.0 168.9,11.0 169.9,11.0 170.9,11.0 172.0,11.0 173.0,11.0 174.0,11.0 175.0,11.0 176.0,10.9 177.0,11.0 178.0,10.9 179.0,11.0 180.0,10.8" stroke="var(--c-vram)"/>
+              </svg>
+              <div class="ax"><span>24.9 / 32.0 GB</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="hd"><span class="lb">MEMORY</span><span class="sp"></span><b>41<em>%</em></b></div>
+              <div class="meter" style="--c:var(--c-mem);--p:41%"><i></i></div>
+              <svg class="plot" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="MEMORY history">
+                <line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="11" y2="11"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="22" y2="22"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="33" y2="33"/>
+                <polygon points="0,44 0.0,26.0 1.0,25.9 2.0,26.0 3.0,25.9 4.0,26.0 5.0,25.9 6.0,26.0 7.0,25.9 8.0,25.9 9.1,25.9 10.1,25.9 11.1,25.8 12.1,25.8 13.1,25.8 14.1,25.8 15.1,25.8 16.1,25.8 17.1,25.8 18.1,25.8 19.1,25.8 20.1,25.8 21.1,25.8 22.1,25.8 23.1,25.8 24.1,25.8 25.1,25.8 26.1,25.8 27.2,25.8 28.2,25.9 29.2,25.9 30.2,25.9 31.2,25.9 32.2,25.9 33.2,25.9 34.2,25.9 35.2,25.8 36.2,25.9 37.2,25.8 38.2,25.8 39.2,25.8 40.2,25.8 41.2,25.9 42.2,25.9 43.2,25.8 44.2,25.9 45.3,25.8 46.3,25.8 47.3,25.8 48.3,25.8 49.3,25.8 50.3,25.8 51.3,25.7 52.3,25.7 53.3,25.7 54.3,25.7 55.3,25.7 56.3,25.7 57.3,25.7 58.3,25.7 59.3,25.8 60.3,25.8 61.3,25.8 62.3,25.8 63.4,25.8 64.4,25.7 65.4,25.8 66.4,25.8 67.4,25.8 68.4,25.8 69.4,25.8 70.4,25.8 71.4,25.9 72.4,25.9 73.4,25.9 74.4,25.9 75.4,25.9 76.4,25.9 77.4,25.9 78.4,25.9 79.4,25.9 80.4,25.9 81.5,25.9 82.5,25.8 83.5,25.8 84.5,25.8 85.5,25.8 86.5,25.7 87.5,25.7 88.5,25.8 89.5,25.7 90.5,25.7 91.5,25.7 92.5,25.8 93.5,25.8 94.5,25.8 95.5,25.8 96.5,25.8 97.5,25.8 98.5,25.8 99.6,25.8 100.6,25.8 101.6,25.8 102.6,25.9 103.6,25.9 104.6,25.9 105.6,25.9 106.6,25.8 107.6,25.8 108.6,25.8 109.6,25.8 110.6,25.8 111.6,25.8 112.6,25.8 113.6,25.8 114.6,25.8 115.6,25.8 116.6,25.8 117.7,25.8 118.7,25.8 119.7,25.8 120.7,25.8 121.7,25.8 122.7,25.8 123.7,25.8 124.7,25.8 125.7,25.8 126.7,25.8 127.7,25.8 128.7,25.8 129.7,25.8 130.7,25.8 131.7,25.8 132.7,25.8 133.7,25.8 134.7,25.7 135.8,25.7 136.8,25.7 137.8,25.8 138.8,25.8 139.8,25.8 140.8,25.8 141.8,25.8 142.8,25.8 143.8,25.8 144.8,25.8 145.8,25.8 146.8,25.8 147.8,25.8 148.8,25.8 149.8,25.7 150.8,25.8 151.8,25.7 152.8,25.7 153.9,25.6 154.9,25.7 155.9,25.7 156.9,25.6 157.9,25.6 158.9,25.7 159.9,25.6 160.9,25.6 161.9,25.6 162.9,25.6 163.9,25.7 164.9,25.7 165.9,25.7 166.9,25.6 167.9,25.6 168.9,25.6 169.9,25.6 170.9,25.7 172.0,25.7 173.0,25.7 174.0,25.6 175.0,25.6 176.0,25.7 177.0,25.7 178.0,25.7 179.0,25.7 180.0,25.6 180,44" fill="rgba(127,196,222,.09)"/>
+                <polyline vector-effect="non-scaling-stroke" points="0.0,26.0 1.0,25.9 2.0,26.0 3.0,25.9 4.0,26.0 5.0,25.9 6.0,26.0 7.0,25.9 8.0,25.9 9.1,25.9 10.1,25.9 11.1,25.8 12.1,25.8 13.1,25.8 14.1,25.8 15.1,25.8 16.1,25.8 17.1,25.8 18.1,25.8 19.1,25.8 20.1,25.8 21.1,25.8 22.1,25.8 23.1,25.8 24.1,25.8 25.1,25.8 26.1,25.8 27.2,25.8 28.2,25.9 29.2,25.9 30.2,25.9 31.2,25.9 32.2,25.9 33.2,25.9 34.2,25.9 35.2,25.8 36.2,25.9 37.2,25.8 38.2,25.8 39.2,25.8 40.2,25.8 41.2,25.9 42.2,25.9 43.2,25.8 44.2,25.9 45.3,25.8 46.3,25.8 47.3,25.8 48.3,25.8 49.3,25.8 50.3,25.8 51.3,25.7 52.3,25.7 53.3,25.7 54.3,25.7 55.3,25.7 56.3,25.7 57.3,25.7 58.3,25.7 59.3,25.8 60.3,25.8 61.3,25.8 62.3,25.8 63.4,25.8 64.4,25.7 65.4,25.8 66.4,25.8 67.4,25.8 68.4,25.8 69.4,25.8 70.4,25.8 71.4,25.9 72.4,25.9 73.4,25.9 74.4,25.9 75.4,25.9 76.4,25.9 77.4,25.9 78.4,25.9 79.4,25.9 80.4,25.9 81.5,25.9 82.5,25.8 83.5,25.8 84.5,25.8 85.5,25.8 86.5,25.7 87.5,25.7 88.5,25.8 89.5,25.7 90.5,25.7 91.5,25.7 92.5,25.8 93.5,25.8 94.5,25.8 95.5,25.8 96.5,25.8 97.5,25.8 98.5,25.8 99.6,25.8 100.6,25.8 101.6,25.8 102.6,25.9 103.6,25.9 104.6,25.9 105.6,25.9 106.6,25.8 107.6,25.8 108.6,25.8 109.6,25.8 110.6,25.8 111.6,25.8 112.6,25.8 113.6,25.8 114.6,25.8 115.6,25.8 116.6,25.8 117.7,25.8 118.7,25.8 119.7,25.8 120.7,25.8 121.7,25.8 122.7,25.8 123.7,25.8 124.7,25.8 125.7,25.8 126.7,25.8 127.7,25.8 128.7,25.8 129.7,25.8 130.7,25.8 131.7,25.8 132.7,25.8 133.7,25.8 134.7,25.7 135.8,25.7 136.8,25.7 137.8,25.8 138.8,25.8 139.8,25.8 140.8,25.8 141.8,25.8 142.8,25.8 143.8,25.8 144.8,25.8 145.8,25.8 146.8,25.8 147.8,25.8 148.8,25.8 149.8,25.7 150.8,25.8 151.8,25.7 152.8,25.7 153.9,25.6 154.9,25.7 155.9,25.7 156.9,25.6 157.9,25.6 158.9,25.7 159.9,25.6 160.9,25.6 161.9,25.6 162.9,25.6 163.9,25.7 164.9,25.7 165.9,25.7 166.9,25.6 167.9,25.6 168.9,25.6 169.9,25.6 170.9,25.7 172.0,25.7 173.0,25.7 174.0,25.6 175.0,25.6 176.0,25.7 177.0,25.7 178.0,25.7 179.0,25.7 180.0,25.6" stroke="var(--c-mem)"/>
+              </svg>
+              <div class="ax"><span>26.2 / 64.0 GB</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="hd"><span class="lb">GPU TEMP</span><span class="sp"></span><b>68<em>°C</em></b></div>
+              <div class="meter" style="--c:var(--c-temp);--p:68%"><i></i></div>
+              <svg class="plot" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="GPU TEMP history">
+                <line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="11" y2="11"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="22" y2="22"/><line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="180" y1="33" y2="33"/>
+                <polygon points="0,44 0.0,15.8 1.0,15.8 2.0,15.8 3.0,15.8 4.0,15.8 5.0,15.7 6.0,15.7 7.0,15.7 8.0,15.7 9.1,15.7 10.1,15.7 11.1,15.7 12.1,15.7 13.1,15.7 14.1,15.7 15.1,15.7 16.1,15.6 17.1,15.6 18.1,15.6 19.1,15.6 20.1,15.6 21.1,15.6 22.1,15.6 23.1,15.6 24.1,15.6 25.1,15.6 26.1,15.6 27.2,15.5 28.2,15.5 29.2,15.5 30.2,15.5 31.2,15.5 32.2,15.5 33.2,15.4 34.2,15.5 35.2,15.5 36.2,15.5 37.2,15.4 38.2,15.4 39.2,15.4 40.2,15.3 41.2,15.4 42.2,15.3 43.2,15.3 44.2,15.3 45.3,15.3 46.3,15.3 47.3,15.3 48.3,15.3 49.3,15.3 50.3,15.3 51.3,15.3 52.3,15.3 53.3,15.3 54.3,15.3 55.3,15.2 56.3,15.2 57.3,15.2 58.3,15.2 59.3,15.2 60.3,15.2 61.3,15.2 62.3,15.2 63.4,15.2 64.4,15.2 65.4,15.2 66.4,15.2 67.4,15.2 68.4,15.2 69.4,15.2 70.4,15.2 71.4,15.2 72.4,15.2 73.4,15.2 74.4,15.1 75.4,15.2 76.4,15.1 77.4,15.1 78.4,15.1 79.4,15.1 80.4,15.1 81.5,15.1 82.5,15.2 83.5,15.1 84.5,15.1 85.5,15.1 86.5,15.1 87.5,15.1 88.5,15.1 89.5,15.1 90.5,15.1 91.5,15.1 92.5,15.1 93.5,15.1 94.5,15.1 95.5,15.1 96.5,15.0 97.5,15.1 98.5,15.1 99.6,15.0 100.6,15.1 101.6,15.1 102.6,15.1 103.6,15.0 104.6,15.1 105.6,15.0 106.6,15.0 107.6,15.0 108.6,15.0 109.6,15.0 110.6,15.0 111.6,15.1 112.6,15.0 113.6,15.0 114.6,15.0 115.6,15.0 116.6,15.0 117.7,15.0 118.7,15.0 119.7,15.0 120.7,15.0 121.7,15.0 122.7,15.0 123.7,15.0 124.7,15.0 125.7,15.0 126.7,15.0 127.7,15.0 128.7,15.0 129.7,15.0 130.7,15.0 131.7,15.0 132.7,15.0 133.7,15.0 134.7,15.0 135.8,15.0 136.8,15.0 137.8,15.0 138.8,14.9 139.8,14.9 140.8,14.9 141.8,15.0 142.8,15.0 143.8,14.9 144.8,15.0 145.8,15.0 146.8,15.0 147.8,15.0 148.8,15.0 149.8,15.0 150.8,15.0 151.8,15.0 152.8,15.0 153.9,14.9 154.9,14.9 155.9,15.0 156.9,15.0 157.9,15.0 158.9,15.0 159.9,15.0 160.9,15.0 161.9,15.0 162.9,14.9 163.9,14.9 164.9,14.9 165.9,14.9 166.9,14.9 167.9,14.9 168.9,14.9 169.9,14.9 170.9,14.9 172.0,14.9 173.0,14.9 174.0,14.9 175.0,14.9 176.0,14.9 177.0,14.9 178.0,14.9 179.0,14.9 180.0,14.8 180,44" fill="rgba(217,122,106,.08)"/>
+                <polyline vector-effect="non-scaling-stroke" points="0.0,15.8 1.0,15.8 2.0,15.8 3.0,15.8 4.0,15.8 5.0,15.7 6.0,15.7 7.0,15.7 8.0,15.7 9.1,15.7 10.1,15.7 11.1,15.7 12.1,15.7 13.1,15.7 14.1,15.7 15.1,15.7 16.1,15.6 17.1,15.6 18.1,15.6 19.1,15.6 20.1,15.6 21.1,15.6 22.1,15.6 23.1,15.6 24.1,15.6 25.1,15.6 26.1,15.6 27.2,15.5 28.2,15.5 29.2,15.5 30.2,15.5 31.2,15.5 32.2,15.5 33.2,15.4 34.2,15.5 35.2,15.5 36.2,15.5 37.2,15.4 38.2,15.4 39.2,15.4 40.2,15.3 41.2,15.4 42.2,15.3 43.2,15.3 44.2,15.3 45.3,15.3 46.3,15.3 47.3,15.3 48.3,15.3 49.3,15.3 50.3,15.3 51.3,15.3 52.3,15.3 53.3,15.3 54.3,15.3 55.3,15.2 56.3,15.2 57.3,15.2 58.3,15.2 59.3,15.2 60.3,15.2 61.3,15.2 62.3,15.2 63.4,15.2 64.4,15.2 65.4,15.2 66.4,15.2 67.4,15.2 68.4,15.2 69.4,15.2 70.4,15.2 71.4,15.2 72.4,15.2 73.4,15.2 74.4,15.1 75.4,15.2 76.4,15.1 77.4,15.1 78.4,15.1 79.4,15.1 80.4,15.1 81.5,15.1 82.5,15.2 83.5,15.1 84.5,15.1 85.5,15.1 86.5,15.1 87.5,15.1 88.5,15.1 89.5,15.1 90.5,15.1 91.5,15.1 92.5,15.1 93.5,15.1 94.5,15.1 95.5,15.1 96.5,15.0 97.5,15.1 98.5,15.1 99.6,15.0 100.6,15.1 101.6,15.1 102.6,15.1 103.6,15.0 104.6,15.1 105.6,15.0 106.6,15.0 107.6,15.0 108.6,15.0 109.6,15.0 110.6,15.0 111.6,15.1 112.6,15.0 113.6,15.0 114.6,15.0 115.6,15.0 116.6,15.0 117.7,15.0 118.7,15.0 119.7,15.0 120.7,15.0 121.7,15.0 122.7,15.0 123.7,15.0 124.7,15.0 125.7,15.0 126.7,15.0 127.7,15.0 128.7,15.0 129.7,15.0 130.7,15.0 131.7,15.0 132.7,15.0 133.7,15.0 134.7,15.0 135.8,15.0 136.8,15.0 137.8,15.0 138.8,14.9 139.8,14.9 140.8,14.9 141.8,15.0 142.8,15.0 143.8,14.9 144.8,15.0 145.8,15.0 146.8,15.0 147.8,15.0 148.8,15.0 149.8,15.0 150.8,15.0 151.8,15.0 152.8,15.0 153.9,14.9 154.9,14.9 155.9,15.0 156.9,15.0 157.9,15.0 158.9,15.0 159.9,15.0 160.9,15.0 161.9,15.0 162.9,14.9 163.9,14.9 164.9,14.9 165.9,14.9 166.9,14.9 167.9,14.9 168.9,14.9 169.9,14.9 170.9,14.9 172.0,14.9 173.0,14.9 174.0,14.9 175.0,14.9 176.0,14.9 177.0,14.9 178.0,14.9 179.0,14.9 180.0,14.8" stroke="var(--c-temp)"/>
+              </svg>
+              <div class="ax"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+          </div>
+
+          <div class="readout">
+            <div class="pct">45.8<em>%</em></div>
+            <div class="mid">
+              <div class="sent"><b>studio_b_4k</b> — inference を処理中</div>
+              <div class="scrub"><i style="--p:45.8%"></i></div>
+            </div>
+            <div class="eta">
+              <div class="cell"><span class="v">06:12</span><span class="l">経過時間</span></div>
+              <div class="cell"><span class="v">07:20</span><span class="l"><span class="led ok"></span>残り</span></div>
+              <div class="cell"><span class="v">13:32</span><span class="l">予測所要</span></div>
+            </div>
+          </div>
+
+          <div class="tl">
+            <div class="cell act"><div class="fill" style="--p:45%"></div><span class="lb">inference</span></div>
+            <div class="cell"><span class="lb">postprocess</span></div>
+            <div class="cell"><span class="lb">ovl combined_simple</span></div>
+            <div class="cell"><span class="lb">ovl combined_detailed</span></div>
+          </div>
+
+          <div class="phases">
+            <div class="phase">
+              <div class="hd"><span class="nm">性器推論</span><span class="sp"></span><span class="pc">45.0%</span></div>
+              <div class="scrub"><i style="--p:45%"></i></div>
+              <div class="mt"><span>フレーム処理</span><span class="ct">6,480 / 14,400 フレーム · 21.4 fps</span></div>
+            </div>
+            <div class="phase ok">
+              <div class="hd"><span class="nm">顔推論</span><span class="sp"></span><span class="pc">100.0%</span></div>
+              <div class="scrub ok"><i style="--p:100%"></i></div>
+              <div class="mt"><span>完了</span><span class="ct">14,400 / 14,400 フレーム · 181.3 fps</span></div>
+            </div>
+            <div class="phase off">
+              <div class="hd"><span class="nm">後処理</span><span class="sp"></span><span class="pc">—</span></div>
+              <div class="scrub empty"><i></i></div>
+              <div class="mt"><span>待機中</span><span class="ct">—</span></div>
+            </div>
+            <div class="phase off">
+              <div class="hd"><span class="nm">オーバーレイ</span><span class="sp"></span><span class="pc">—</span></div>
+              <div class="scrub empty"><i></i></div>
+              <div class="mt"><span>待機中</span><span class="ct">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======= LIVE tab ======= -->
+        <div class="tabpane" id="pane-live" hidden>
+          <div class="stagewrap">
+            <div class="frame" role="img" aria-label="処理フレーム 6480">
+              <div class="maskbox" style="left:34%;top:26%;width:13%;height:22%"></div>
+              <div class="maskbox" style="left:58%;top:44%;width:10%;height:16%"></div>
+              <div class="maskbox soft" style="left:36.5%;top:18%;width:8%;height:5%"></div>
+              <div class="scan"></div>
+              <div class="livebadge"><span class="dot"></span><span class="w">LIVE</span></div>
+              <div class="framecap">処理フレーム 6480</div>
+            </div>
+          </div>
+          <div class="livemeta">
+            <div class="cell"><span class="k">PHASE</span><span class="v">性器推論</span></div>
+            <div class="cell"><span class="k">FRAME</span><span class="v mono">6,480</span></div>
+            <div class="cell"><span class="k">TIMECODE</span><span class="v mono">04:30</span></div>
+            <div class="cell"><span class="k">MODEL</span><span class="v mono">dinov3_codino</span></div>
+            <div class="cell"><span class="k">DETAIL</span><span class="v mono">frames</span></div>
+            <div class="cell"><span class="k">COALESCED</span><span class="v mono">3</span></div>
+          </div>
+        </div>
+
+        <!-- ======= metrics strip (both tabs) ======= -->
+        <div class="mstrip">
+          <div class="cell"><span class="k">wall fps</span><span class="v">21.41</span></div>
+          <div class="cell"><span class="k">frames</span><span class="v">6,480 / 14,400</span></div>
+          <div class="cell"><span class="k">detections</span><span class="v">18,204</span></div>
+          <div class="cell"><span class="k">masks</span><span class="v dim">—</span></div>
+          <div class="cell"><span class="k">faces</span><span class="v">21,347</span></div>
+          <div class="cell"><span class="k">device</span><span class="v">cuda:0</span></div>
+          <div class="cell"><span class="k">codec</span><span class="v">h264_nvenc</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ INSPECTOR ============ -->
+    <section class="panel insp" id="inspector">
+      <div class="tbar">
+        <span class="ttl">Inspector</span><span class="sp"></span>
+        <div class="seg" id="viewseg">
+          <button class="on" data-view="simple">簡単</button>
+          <button data-view="adv">詳細</button>
+        </div>
+      </div>
+      <div class="pbody">
+
+        <!-- 推論 -->
+        <div class="sec">
+          <button class="sechd" aria-expanded="true">
+            <span class="chev"><svg class="ic"><use href="#i-chev"/></svg></span>
+            <span class="nm">推論</span><span class="sp"></span>
+            <span class="badge2"><span class="led ok"></span><span class="tx">on</span></span>
+          </button>
+          <div class="secbd">
+            <div class="row">
+              <span class="lb">推論</span>
+              <span class="ct"><label class="ck"><input type="checkbox" checked disabled><span class="box"></span>新規に実行</label></span>
+            </div>
+            <div class="row">
+              <span class="lb">処理モード</span>
+              <span class="ct"><span class="seg"><button disabled>性器</button><button class="on" disabled>両方</button><button disabled>顔</button></span></span>
+            </div>
+            <div class="row">
+              <span class="lb">性器モデル</span>
+              <span class="ct"><select class="field" disabled><option>V3</option></select></span>
+            </div>
+            <div class="row">
+              <span class="lb">推論エンジン</span>
+              <span class="ct"><select class="field" disabled><option>高速（デフォルト）</option></select></span>
+            </div>
+            <div class="row">
+              <span class="lb">顔モデル</span>
+              <span class="ct"><select class="field" disabled><option>Face V2</option></select></span>
+            </div>
+            <div class="row" title="選択中の顔モデルを実行するバックエンドです。現行モデルは新顔=TensorRT、旧顔=PyTorchに固定されています。">
+              <span class="lb">顔推論エンジン</span>
+              <span class="ct"><select class="field" disabled><option>高速（デフォルト）</option></select></span>
+            </div>
+
+            <div class="subh2 a">モデル入力・実行範囲</div>
+            <div class="row stack a" title="顔モデルの出力からSQLiteへ保存する対象です。Headは頭部box、Faceは顔領域です。少なくとも1つを選択します。">
+              <span class="lb">顔検出の保存対象</span>
+              <span class="ct"><span class="ckgrid">
+                <label class="ck"><input type="checkbox" checked disabled><span class="box"></span>Head（頭部box）</label>
+                <label class="ck"><input type="checkbox" checked disabled><span class="box"></span>Face（顔領域）</label>
+              </span></span>
+            </div>
+            <div class="row stack a" title="新顔モデルのTensorRT bundleだけを上書きします。">
+              <span class="lb">顔TRT bundle</span>
+              <span class="ct"><input class="field mono" placeholder="空欄: 自動選択" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">推論デバイス</span>
+              <span class="ct"><input class="field mono" value="cuda:0" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">処理上限</span>
+              <span class="ct"><input class="field num" placeholder="空欄: 全フレーム" style="width:110px" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">速度計測除外</span>
+              <span class="ct"><input class="field num" value="0" disabled><span class="unit">f</span></span>
+            </div>
+            <div class="row a">
+              <span class="lb">顔ウォームアップ</span>
+              <span class="ct"><input class="field num" value="3" disabled><span class="unit">回</span></span>
+            </div>
+
+            <div class="subh2 a">性能</div>
+            <div class="row a off">
+              <span class="lb">モデル同時推論</span>
+              <span class="ct"><label class="ck"><input type="checkbox" disabled><span class="box"></span>性器・顔モデルを同時実行</label></span>
+              <span class="hint">現在の組合せでは不可</span>
+            </div>
+            <div class="row a">
+              <span class="lb">SQLite書き込み</span>
+              <span class="ct"><label class="ck"><input type="checkbox" disabled><span class="box"></span>速度優先モード</label></span>
+              <span class="hint">高速化する代わりに異常終了時の耐性が低下</span>
+            </div>
+
+            <div class="subh2 a">専門設定</div>
+            <div class="row stack a" title="将来の未型付け引数を1トークン1行で指定します。主要引数の上書きは禁止されます。">
+              <span class="lb">追加引数</span>
+              <span class="ct"><textarea class="field" placeholder="--future-option&#10;value" disabled></textarea></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 後処理 -->
+        <div class="sec">
+          <button class="sechd" aria-expanded="true">
+            <span class="chev"><svg class="ic"><use href="#i-chev"/></svg></span>
+            <span class="nm">後処理</span><span class="sp"></span>
+            <span class="badge2"><span class="led ok"></span><span class="tx">性器 on</span></span>
+          </button>
+          <div class="secbd">
+            <div class="row">
+              <span class="lb">性器後処理</span>
+              <span class="ct"><label class="ck"><input type="checkbox" checked disabled><span class="box"></span>追跡・整形を実行</label></span>
+            </div>
+
+            <div class="subh2 simple-only">クラス別形状・キーフレーム</div>
+            <div class="row stack simple-only">
+              <span class="lb">クラス別設定</span>
+              <span class="ct"><div class="ctbl">
+                <div class="tr"><span class="hc">クラス</span><span class="hc">形状</span><span class="hc" style="text-align:right">KF間隔</span></div>
+                <div class="tr">
+                  <span class="cn">男性器</span>
+                  <span class="seg"><button class="on" disabled>ポリゴン</button><button disabled>楕円</button></span>
+                  <span class="kf"><input class="field num" value="2" disabled><span class="unit">f</span></span>
+                </div>
+                <div class="tr">
+                  <span class="cn">女性器</span>
+                  <span class="seg"><button disabled>ポリゴン</button><button class="on" disabled>楕円</button></span>
+                  <span class="kf"><input class="field num" value="2" disabled><span class="unit">f</span></span>
+                </div>
+                <div class="tr">
+                  <span class="cn">結合部分</span>
+                  <span class="seg"><button disabled>ポリゴン</button><button class="on" disabled>楕円</button></span>
+                  <span class="kf"><input class="field num" value="2" disabled><span class="unit">f</span></span>
+                </div>
+              </div></span>
+            </div>
+            <div class="row">
+              <span class="lb">検出スコア下限</span>
+              <span class="ct"><input class="field num" value="0.6" placeholder="設定既定値" disabled></span>
+            </div>
+            <div class="row" title="最終result.sqliteへ保存するプライバシーマスクです。">
+              <span class="lb">保存する顔マスク</span>
+              <span class="ct"><span class="seg"><button disabled>なし</button><button disabled>顔全体</button><button class="on" disabled>目元</button></span></span>
+            </div>
+            <div class="row">
+              <span class="lb">目元形状</span>
+              <span class="ct"><span class="seg"><button disabled>楕円</button><button class="on" disabled>長方形</button></span></span>
+            </div>
+
+            <div class="row a">
+              <span class="lb">既定KF間隔</span>
+              <span class="ct"><input class="field num" value="2" placeholder="設定既定値" disabled><span class="unit">f</span></span>
+            </div>
+            <div class="row a">
+              <span class="lb">カット検出</span>
+              <span class="ct"><label class="ck"><input type="checkbox" checked disabled><span class="box"></span>カット位置を保存し、trackを分割</label></span>
+            </div>
+            <div class="subh2 a">カット検出</div>
+            <div class="row a">
+              <span class="lb">検出方式</span>
+              <span class="ct"><select class="field" disabled><option>高精度（推奨・FFmpeg）</option></select></span>
+            </div>
+            <div class="row a" title="別のFFmpeg縮小decodeをCPUで動かし、GPU推論時間へ重ねます。">
+              <span class="lb">推論と同時検出</span>
+              <span class="ct"><label class="ck"><input type="checkbox" checked disabled><span class="box"></span>CPU検出をGPU推論と並行</label></span>
+            </div>
+            <div class="subh2 a">性器後処理 — 構成</div>
+            <div class="row stack a">
+              <span class="lb">パイプラインJSON</span>
+              <span class="ct"><input class="field mono" placeholder="空欄: 標準パイプライン" disabled></span>
+            </div>
+            <div class="row stack a">
+              <span class="lb">クラス別スコアJSON</span>
+              <span class="ct"><input class="field mono" placeholder="空欄: 共通の検出スコア下限" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">形状・KF・補完</span>
+              <span class="ct"><select class="field" disabled><option>クラス別GUI</option></select></span>
+            </div>
+            <div class="row stack a">
+              <span class="lb">クラス別ルール</span>
+              <span class="ct"><div class="ctbl rules">
+                <div class="tr"><span class="hc">確定クラス名</span><span class="hc">形状</span><span class="hc r">KF間隔</span><span class="hc r">補完上限</span><span class="hc"></span></div>
+                <div class="tr">
+                  <span class="cn" title="その他（未指定）">その他（未指定）</span>
+                  <select class="field" disabled><option>ポリゴン</option></select>
+                  <span class="kf"><input class="field num" value="2" disabled></span>
+                  <span class="kf"><input class="field num" value="0" disabled></span>
+                  <span></span>
+                </div>
+                <div class="tr">
+                  <span class="cn">男性器</span>
+                  <select class="field" disabled><option>ポリゴン</option></select>
+                  <span class="kf"><input class="field num" value="2" disabled></span>
+                  <span class="kf"><input class="field num" value="0" disabled></span>
+                  <button class="rm" title="行を削除" disabled>−</button>
+                </div>
+                <div class="tr">
+                  <span class="cn">女性器</span>
+                  <select class="field" disabled><option>楕円</option></select>
+                  <span class="kf"><input class="field num" value="2" disabled></span>
+                  <span class="kf"><input class="field num" value="0" disabled></span>
+                  <button class="rm" title="行を削除" disabled>−</button>
+                </div>
+                <div class="tr">
+                  <span class="cn">結合部分</span>
+                  <select class="field" disabled><option>楕円</option></select>
+                  <span class="kf"><input class="field num" value="2" disabled></span>
+                  <span class="kf"><input class="field num" value="0" disabled></span>
+                  <button class="rm" title="行を削除" disabled>−</button>
+                </div>
+                <div class="tfoot"><button class="btn quiet" disabled><svg class="ic"><use href="#i-plus"/></svg>クラスを追加</button></div>
+              </div></span>
+            </div>
+            <div class="subh2 a">性器後処理 — 追跡・補完</div>
+            <div class="row a">
+              <span class="lb">短命track上限</span>
+              <span class="ct"><input class="field num" value="10" disabled><span class="unit">f</span></span>
+              <span class="hint">指定フレーム以下のtrackを除去</span>
+            </div>
+            <div class="row a">
+              <span class="lb">既定補完上限</span>
+              <span class="ct"><input class="field num" value="0" disabled><span class="unit">f</span></span>
+            </div>
+            <div class="subh2 a">楕円近似（K2）</div>
+            <div class="row stack a">
+              <span class="lb">モデルroot</span>
+              <span class="ct"><input class="field mono" placeholder="空欄: 自動検出" disabled></span>
+            </div>
+            <div class="row stack a">
+              <span class="lb">K2 run directory</span>
+              <span class="ct"><input class="field mono" placeholder="空欄: model root/k2_v5" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">GPUバッチ数</span>
+              <span class="ct"><input class="field num" value="128" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">CPU前処理<wbr>worker</span>
+              <span class="ct"><input class="field num" value="4" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">計算精度</span>
+              <span class="ct"><select class="field" disabled><option>パイプライン既定</option></select></span>
+            </div>
+            <div class="row a">
+              <span class="lb">計算範囲</span>
+              <span class="ct"><select class="field" disabled><option>必要値のみ（推奨）</option></select></span>
+            </div>
+            <div class="row a">
+              <span class="lb">内部時間計測</span>
+              <span class="ct"><select class="field" disabled><option>計測しない（推奨）</option></select></span>
+            </div>
+            <div class="row a">
+              <span class="lb">cuDNN autotune</span>
+              <span class="ct"><select class="field" disabled><option>有効</option></select></span>
+            </div>
+            <div class="row a">
+              <span class="lb">TF32</span>
+              <span class="ct"><select class="field" disabled><option>パイプライン既定</option></select></span>
+            </div>
+            <div class="row a">
+              <span class="lb">K2デバイス</span>
+              <span class="ct"><input class="field mono" value="cuda:0" disabled></span>
+            </div>
+            <div class="subh2 a">互換出力</div>
+            <div class="row a">
+              <span class="lb">旧形式SQLite</span>
+              <span class="ct"><label class="ck"><input type="checkbox" disabled><span class="box"></span>旧形式も追加</label></span>
+            </div>
+            <div class="subh2 a">顔後処理 — 追跡・プライバシーマスク</div>
+            <div class="row a">
+              <span class="lb">目キーポイント<wbr>下限</span>
+              <span class="ct sliderrow"><input type="range" min="0" max="1" step="0.01" value="0.35" style="--p:35%" disabled><output>0.35</output></span>
+            </div>
+            <div class="row a">
+              <span class="lb">追跡保持gap</span>
+              <span class="ct"><input class="field num" value="5" disabled><span class="unit">f</span></span>
+              <span class="hint">未検出を許容する最大フレーム数</span>
+            </div>
+            <div class="row a">
+              <span class="lb">追跡high閾値</span>
+              <span class="ct sliderrow"><input type="range" min="0" max="1" step="0.01" value="0.5" style="--p:50%" disabled><output>0.50</output></span>
+            </div>
+            <div class="row a">
+              <span class="lb">追跡low閾値</span>
+              <span class="ct sliderrow"><input type="range" min="0" max="1" step="0.01" value="0.05" style="--p:5%" disabled><output>0.05</output></span>
+            </div>
+            <div class="row a">
+              <span class="lb">短命track上限</span>
+              <span class="ct"><input class="field num" value="2" disabled></span>
+              <span class="hint">観測回数（hits）で判定</span>
+            </div>
+            <div class="row a">
+              <span class="lb">短命保持スコア</span>
+              <span class="ct sliderrow"><input type="range" min="0" max="1" step="0.01" value="0.9" style="--p:90%" disabled><output>0.90</output></span>
+            </div>
+            <div class="row a">
+              <span class="lb">補完gap上限</span>
+              <span class="ct"><input class="field num" value="3" disabled><span class="unit">f</span></span>
+            </div>
+            <div class="subh2 a">専門設定</div>
+            <div class="row stack a" title="未型付けの将来オプション用です。上の管理済み引数は上書きできません。">
+              <span class="lb">追加CLI引数</span>
+              <span class="ct"><textarea class="field" disabled></textarea></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- オーバーレイ -->
+        <div class="sec">
+          <button class="sechd" aria-expanded="true">
+            <span class="chev"><svg class="ic"><use href="#i-chev"/></svg></span>
+            <span class="nm">オーバーレイ</span><span class="sp"></span>
+            <span class="badge2"><span class="led ok"></span><span class="tx">fast</span></span>
+          </button>
+          <div class="secbd">
+            <div class="row">
+              <span class="lb">確認動画</span>
+              <span class="ct"><label class="ck"><input type="checkbox" checked disabled><span class="box"></span>オーバーレイを生成</label></span>
+            </div>
+            <div class="row stack">
+              <span class="lb">表示プリセット</span>
+              <span class="ct"><span class="ckgrid">
+                <label class="ck"><input type="checkbox" disabled><span class="box"></span>性器・詳細</label>
+                <label class="ck"><input type="checkbox" disabled><span class="box"></span>性器・簡易</label>
+                <label class="ck"><input type="checkbox" disabled><span class="box"></span>顔・詳細</label>
+                <label class="ck"><input type="checkbox" disabled><span class="box"></span>顔・簡易</label>
+                <label class="ck"><input type="checkbox" checked disabled><span class="box"></span>両方・詳細</label>
+                <label class="ck"><input type="checkbox" checked disabled><span class="box"></span>両方・簡易</label>
+              </span></span>
+            </div>
+            <div class="row">
+              <span class="lb">エンコード</span>
+              <span class="ct"><span class="seg"><button disabled>CPU</button><button disabled>NVENC</button><button class="on" disabled>高速</button></span></span>
+            </div>
+            <div class="row">
+              <span class="lb">マスク濃度</span>
+              <span class="ct sliderrow"><input type="range" min="0" max="1" step="0.01" value="0.32" style="--p:32%" disabled><output>0.32</output></span>
+            </div>
+
+            <div class="subh2 a">旧形式の追加オーバーレイ（任意）</div>
+            <div class="row stack a" title="通常の表示プリセットとは別に、旧ソフト互換の工程別MP4を追加生成します。SQLiteの内容は増えません。">
+              <span class="lb">追加動画</span>
+              <span class="ct"><span class="ckgrid">
+                <label class="ck"><input type="checkbox" disabled><span class="box"></span>AI生出力（raw.mp4）</label>
+                <label class="ck"><input type="checkbox" disabled><span class="box"></span>追跡後（tracked.mp4）</label>
+                <label class="ck"><input type="checkbox" disabled><span class="box"></span>最終後処理（final.mp4）</label>
+                <label class="ck"><input type="checkbox" disabled><span class="box"></span>顔box（faces.mp4）</label>
+              </span></span>
+            </div>
+            <div class="row a">
+              <span class="lb">finalへ顔を追加</span>
+              <span class="ct"><label class="ck"><input type="checkbox" disabled><span class="box"></span>互換finalへ顔boxを合成</label></span>
+            </div>
+            <div class="subh2 a">描画内容</div>
+            <div class="row stack a">
+              <span class="lb">性器の描画データ</span>
+              <span class="ct"><span class="seg wrap"><button disabled>AI生マスク（後処理前）</button><button class="on" disabled>最終マスク（後処理後）</button></span></span>
+            </div>
+            <div class="row a" title="確認動画だけに顔/目元マスクを追加します。result.sqliteの保存内容は変更しません。">
+              <span class="lb">描画時追加マスク</span>
+              <span class="ct"><span class="seg"><button disabled>なし</button><button disabled>顔全体</button><button class="on" disabled>目元</button></span></span>
+            </div>
+            <div class="row a">
+              <span class="lb">追加目元マスク<wbr>形状</span>
+              <span class="ct"><span class="seg"><button disabled>楕円</button><button class="on" disabled>長方形</button></span></span>
+            </div>
+            <div class="row a">
+              <span class="lb">目キーポイント<wbr>下限</span>
+              <span class="ct sliderrow"><input type="range" min="0" max="1" step="0.01" value="0.35" style="--p:35%" disabled><output>0.35</output></span>
+            </div>
+            <div class="row stack a">
+              <span class="lb">顔詳細要素</span>
+              <span class="ct"><span class="ckgrid">
+                <label class="ck"><input type="checkbox" checked disabled><span class="box"></span>確率マスク</label>
+                <label class="ck"><input type="checkbox" checked disabled><span class="box"></span>キーポイント</label>
+                <label class="ck"><input type="checkbox" checked disabled><span class="box"></span>顔楕円</label>
+              </span></span>
+            </div>
+            <div class="row a">
+              <span class="lb">線幅</span>
+              <span class="ct"><input class="field num" value="2" style="width:44px" disabled><span class="unit">マスク</span><input class="field num" value="2" style="width:44px" disabled><span class="unit">box</span></span>
+            </div>
+            <div class="row a">
+              <span class="lb">ラベル</span>
+              <span class="ct"><label class="ck"><input type="checkbox" checked disabled><span class="box"></span>クラス・確信度・track ID</label></span>
+            </div>
+            <div class="subh2 a">エンコード品質・速度</div>
+            <div class="row a">
+              <span class="lb">CPU preset</span>
+              <span class="ct"><select class="field" disabled><option>veryfast</option></select></span>
+            </div>
+            <div class="row a">
+              <span class="lb">NVENC preset</span>
+              <span class="ct"><select class="field" disabled><option>p1</option></select></span>
+            </div>
+            <div class="row a">
+              <span class="lb">NVENC GPU</span>
+              <span class="ct"><input class="field num" value="0" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">目標ビットレート</span>
+              <span class="ct"><input class="field num" value="8" placeholder="8.0" disabled><span class="unit">Mbps</span></span>
+              <span class="hint">高速モードでは必須（空欄時8 Mbps）</span>
+            </div>
+            <div class="row a">
+              <span class="lb">分割worker総数</span>
+              <span class="ct"><input class="field num" value="6" disabled></span>
+            </div>
+            <div class="row a">
+              <span class="lb">CPU割当数</span>
+              <span class="ct"><input class="field num" value="0" disabled></span>
+              <span class="hint">残りをNVENCへ割当</span>
+            </div>
+            <div class="row a">
+              <span class="lb">音声保持</span>
+              <span class="ct"><label class="ck"><input type="checkbox" disabled><span class="box"></span>元音声をコピー</label></span>
+            </div>
+            <div class="row a">
+              <span class="lb">MP4 faststart</span>
+              <span class="ct"><label class="ck"><input type="checkbox" disabled><span class="box"></span>Web再生用に最適化</label></span>
+            </div>
+            <div class="row stack a">
+              <span class="lb">FFmpeg実行ファイル</span>
+              <span class="ct"><input class="field mono" placeholder="空欄: 同梱FFmpeg" disabled></span>
+            </div>
+            <div class="subh2 a">処理範囲・ログ</div>
+            <div class="row a">
+              <span class="lb">フレーム範囲</span>
+              <span class="ct"><input class="field num" value="0" disabled><input class="field num" placeholder="終端" disabled></span>
+              <span class="hint">開始 / 終了</span>
+            </div>
+            <div class="row a off">
+              <span class="lb">進捗ログ間隔</span>
+              <span class="ct"><input class="field num" value="300" disabled><span class="unit">f</span></span>
+              <span class="hint">分割高速モードでは内部管理</span>
+            </div>
+            <div class="subh2 a">専門設定</div>
+            <div class="row stack a">
+              <span class="lb">追加CLI引数</span>
+              <span class="ct"><textarea class="field" disabled></textarea></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 実行環境 -->
+        <div class="sec closed">
+          <button class="sechd" aria-expanded="false">
+            <span class="chev"><svg class="ic"><use href="#i-chev"/></svg></span>
+            <span class="nm">実行環境</span><span class="sp"></span>
+            <span class="badge2"><span class="led info"></span><span class="tx">native</span></span>
+          </button>
+          <div class="secbd">
+            <div class="row a">
+              <span class="lb">再開</span>
+              <span class="ct"><label class="ck"><input type="checkbox" disabled><span class="box"></span>完了済みstageを再利用</label></span>
+            </div>
+            <div class="row">
+              <span class="lb">バックエンド</span>
+              <span class="ct"><span class="seg"><button class="on" disabled>Native</button><button disabled>WSL2</button></span></span>
+            </div>
+            <div class="row stack">
+              <span class="lb">リポジトリroot</span>
+              <span class="ct"><span class="pathin">
+                <input class="field mono" value="/home/user/inference_backend2" disabled>
+                <button title="参照…" disabled><svg class="ic"><use href="#i-folder"/></svg></button>
+              </span></span>
+            </div>
+            <div class="row stack">
+              <span class="lb">実行Python</span>
+              <span class="ct"><span class="pathin">
+                <input class="field mono" value="/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10" disabled>
+                <button title="参照…" disabled><svg class="ic"><use href="#i-folder"/></svg></button>
+              </span></span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </div>
+
+  <!-- ================= CONSOLE ================= -->
+  <section class="console">
+    <div class="tbar">
+      <span class="ttl">Console</span>
+      <span class="stgchip"><span class="led run"></span><span class="tx">inference</span></span>
+      <span class="sp"></span>
+      <label class="ck"><input type="checkbox" checked><span class="box"></span>追従</label>
+      <input class="filter" placeholder="フィルタ">
+      <span class="cnt">132 lines</span>
+    </div>
+    <div class="logbody">
+      <div class="ln cmd"><span class="no">121</span><span class="tx">$ /home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10 -m orchestration --config /home/user/.config/mask-pipeline-studio/jobs/2026-08-01T10-58-24-512Z/orchestration.json</span></div>
+      <div class="ln"><span class="no">122</span><span class="tx"><span class="tag">[inference]</span> [orchestrator] role=face model=face_dino_v2 backend=tensorrt-fast</span></div>
+      <div class="ln"><span class="no">123</span><span class="tx"><span class="tag">[inference]</span> processed 14400 frames in 79.412s (181.334 fps)</span></div>
+      <div class="ln"><span class="no">124</span><span class="tx"><span class="tag">[inference]</span> measured compute throughput: 205.118 img/s</span></div>
+      <div class="ln"><span class="no">125</span><span class="tx"><span class="tag">[inference]</span> [orchestrator] frames=14400 detections=14283 classifications=14283 segmentations=0 face_observations=21347 face_keypoints=106735</span></div>
+      <div class="ln"><span class="no">126</span><span class="tx"><span class="tag">[inference]</span> [orchestrator] saved unified SQLite: /home/user/videos/mask_out/studio_b_4k/inference.sqlite</span></div>
+      <div class="ln"><span class="no">127</span><span class="tx"><span class="tag">[inference]</span> [orchestrator] role=segmentation model=dinov3_codino backend=tensorrt-fast</span></div>
+      <div class="ln"><span class="no">128</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=1440/14400 detections=4116 fps=21.198</span></div>
+      <div class="ln"><span class="no">129</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=2880/14400 detections=8102 fps=21.264</span></div>
+      <div class="ln"><span class="no">130</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=4320/14400 detections=12275 fps=21.377</span></div>
+      <div class="ln"><span class="no">131</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=5760/14400 detections=16204 fps=21.398</span></div>
+      <div class="ln"><span class="no">132</span><span class="tx"><span class="tag">[inference]</span> [progress] processed=6480/14400 detections=18204 fps=21.412</span></div>
+    </div>
+  </section>
+
+  <!-- ================= STATUSBAR ================= -->
+  <footer class="statusbar">
+    <div class="it"><span class="led run"></span><span class="st">実行中</span></div>
+    <div class="it"><span class="k">stage</span><span class="v">inference</span></div>
+    <div class="it"><span class="k">経過</span><span class="v">06:12</span></div>
+    <div class="it"><span class="k">開始</span><span class="v">10:58:24</span></div>
+    <div class="it"><span class="k">終了</span><span class="v">--:--:--</span></div>
+    <div class="it"><span class="k">exit</span><span class="v">—</span></div>
+    <span class="sp"></span>
+    <div class="it"><span class="bk">NATIVE</span></div>
+    <div class="it" title="/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10"><span class="k">python</span><span class="v">python3.10</span></div>
+    <div class="it" title="/home/user/inference_backend2"><span class="v path">/home/user/inference_backend2</span></div>
+  </footer>
+
+</div>
+</div>
+
+<script>
+// Monitor tabs
+const tabs = document.querySelectorAll('[data-tab]');
+const panes = { status: document.getElementById('pane-status'), live: document.getElementById('pane-live') };
+tabs.forEach(btn => btn.addEventListener('click', () => {
+  tabs.forEach(b => { b.classList.toggle('on', b === btn); b.setAttribute('aria-selected', b === btn); });
+  Object.entries(panes).forEach(([k, p]) => { p.hidden = k !== btn.dataset.tab; });
+}));
+
+// Inspector sections collapse
+document.querySelectorAll('.sechd').forEach(hd => hd.addEventListener('click', () => {
+  const sec = hd.closest('.sec');
+  const closed = sec.classList.toggle('closed');
+  hd.setAttribute('aria-expanded', String(!closed));
+}));
+
+// 簡単 / 詳細 view toggle
+const insp = document.getElementById('inspector');
+document.querySelectorAll('#viewseg [data-view]').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('#viewseg [data-view]').forEach(b => b.classList.toggle('on', b === btn));
+  insp.classList.toggle('adv', btn.dataset.view === 'adv');
+}));
+</script>
+</body>
+</html>

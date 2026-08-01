@@ -53,6 +53,8 @@ function mockJob(): JobSnapshot {
           estimated: false,
           detail: "complete",
           fps: 20.16,
+          activeElapsedSeconds: null,
+          updatedAtMs: Date.now(),
         },
         face_inference: {
           state: "complete",
@@ -62,6 +64,8 @@ function mockJob(): JobSnapshot {
           estimated: false,
           detail: "complete",
           fps: 25.4,
+          activeElapsedSeconds: null,
+          updatedAtMs: Date.now(),
         },
         postprocess: {
           state: "running",
@@ -71,6 +75,8 @@ function mockJob(): JobSnapshot {
           estimated: true,
           detail: "tracking:output-validation",
           fps: null,
+          activeElapsedSeconds: 18.4,
+          updatedAtMs: Date.now(),
         },
         overlay: {
           state: "pending",
@@ -80,6 +86,8 @@ function mockJob(): JobSnapshot {
           estimated: false,
           detail: "",
           fps: null,
+          activeElapsedSeconds: null,
+          updatedAtMs: null,
         },
       },
     },

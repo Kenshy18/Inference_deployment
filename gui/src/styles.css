@@ -1512,20 +1512,6 @@ textarea.ctl--mono {
   user-select: none;
 }
 
-.live-preview__scan {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.018) 0,
-    rgba(255, 255, 255, 0.018) 1px,
-    transparent 1px,
-    transparent 4px
-  );
-  mix-blend-mode: screen;
-}
-
 .live-preview__badge {
   position: absolute;
   top: 10px;
@@ -1551,6 +1537,58 @@ textarea.ctl--mono {
   background: #ff6577;
   box-shadow: 0 0 7px rgba(255, 101, 119, 0.8);
   animation: live-pulse 1.2s ease-in-out infinite;
+}
+
+.live-preview__activity {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  gap: 5px;
+  width: min(420px, calc(100% - 150px));
+  padding: 8px 10px;
+  border: 1px solid rgba(94, 139, 255, 0.28);
+  border-radius: 6px;
+  background: rgba(8, 10, 15, 0.86);
+  font-family: var(--mono);
+  backdrop-filter: blur(8px);
+}
+
+.live-preview__activity > div:first-child {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.live-preview__activity span,
+.live-preview__activity i {
+  overflow: hidden;
+  color: var(--dim);
+  font-size: 9px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-preview__activity strong {
+  color: var(--text-strong);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.live-preview__activity b {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.live-preview__activity.is-active {
+  border-color: rgba(52, 201, 142, 0.42);
+  box-shadow: 0 0 14px rgba(52, 201, 142, 0.08);
+}
+
+.live-preview__activity.is-waiting strong {
+  color: var(--run);
 }
 
 @keyframes live-pulse {
@@ -1588,7 +1626,7 @@ textarea.ctl--mono {
 
 .live-preview__meta {
   display: grid;
-  grid-template-columns: 0.9fr 0.65fr 0.75fr 1.8fr 0.75fr;
+  grid-template-columns: 0.9fr 0.65fr 0.75fr 1.2fr 1.8fr 0.75fr;
   gap: 5px;
   flex: 0 0 48px;
 }

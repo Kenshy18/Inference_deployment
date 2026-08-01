@@ -103,8 +103,10 @@ class StageGraphProgress:
             exact_progress = self.completed / self.total_units
             display_progress = exact_progress
             estimated = False
+            active_elapsed_seconds: float | None = None
             if state == "running" and self._active_started is not None:
                 elapsed = max(0.0, time.monotonic() - self._active_started)
+                active_elapsed_seconds = elapsed
                 # The exact counter advances only when a stage completes.  A
                 # bounded asymptotic estimate keeps a long stage visibly alive
                 # without ever claiming its final 6% before completion.
@@ -123,6 +125,7 @@ class StageGraphProgress:
                 "estimated": estimated,
                 "detail": self.detail,
                 "fps": None,
+                "active_elapsed_seconds": active_elapsed_seconds,
             }
         print(
             "[phase-progress] "

@@ -100,6 +100,8 @@ export interface PostprocessDraft {
   faceMaskTarget: FaceMaskTarget;
   eyeMaskShape: EyeMaskShape;
   minimumEyeConfidence: number;
+  faceDetectionScoreThreshold: number;
+  headDetectionScoreThreshold: number;
   faceTrackingMaxGapFrames: number;
   faceTrackingHighScoreThreshold: number;
   faceTrackingLowScoreThreshold: number;
@@ -190,6 +192,8 @@ export interface PhaseProgress {
   estimated: boolean;
   detail: string;
   fps: number | null;
+  activeElapsedSeconds: number | null;
+  updatedAtMs: number | null;
 }
 
 export type PhaseProgressMap = Record<ProgressPhase, PhaseProgress>;

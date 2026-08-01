@@ -123,6 +123,8 @@ def parser() -> argparse.ArgumentParser:
         default="ellipse",
     )
     result.add_argument("--minimum-eye-confidence", type=float, default=0.35)
+    result.add_argument("--face-detection-score-threshold", type=float, default=0.55)
+    result.add_argument("--head-detection-score-threshold", type=float, default=0.55)
     result.add_argument("--no-labels", action="store_true")
     result.add_argument("--copy-audio", action="store_true")
     result.add_argument("--output-dir", required=True, type=Path)
@@ -450,6 +452,8 @@ def materialize_fast_face_cache(
     face_privacy_target: str,
     eye_mask_shape: str,
     minimum_eye_confidence: float,
+    face_detection_score_threshold: float,
+    head_detection_score_threshold: float,
 ) -> dict[str, object]:
     started = time.perf_counter()
     from overlay_renderer.fast_face_cache import (
@@ -470,6 +474,8 @@ def materialize_fast_face_cache(
         face_privacy_target=face_privacy_target,
         eye_mask_shape=eye_mask_shape,
         minimum_eye_confidence=minimum_eye_confidence,
+        face_detection_score_threshold=face_detection_score_threshold,
+        head_detection_score_threshold=head_detection_score_threshold,
     )
     summary["seconds"] = time.perf_counter() - started
     return summary
@@ -481,6 +487,10 @@ def main() -> None:
         raise ValueError("--include-faces requires --face-sqlite")
     if args.face_sqlite is not None and not args.include_faces:
         raise ValueError("--face-sqlite requires --include-faces")
+    if not 0.0 <= args.face_detection_score_threshold <= 1.0:
+        raise ValueError("--face-detection-score-threshold must be between 0 and 1")
+    if not 0.0 <= args.head_detection_score_threshold <= 1.0:
+        raise ValueError("--head-detection-score-threshold must be between 0 and 1")
     renderer = args.renderer.expanduser().resolve()
     ffmpeg = args.ffmpeg_bin.expanduser().resolve()
     video = args.video.expanduser().resolve()
@@ -565,6 +575,8 @@ def main() -> None:
             face_privacy_target=args.face_mask_target,
             eye_mask_shape=args.eye_mask_shape,
             minimum_eye_confidence=args.minimum_eye_confidence,
+            face_detection_score_threshold=args.face_detection_score_threshold,
+            head_detection_score_threshold=args.head_detection_score_threshold,
         )
         if args.mode == "faces":
             worker_sqlites = [face_cache] * len(ranges)

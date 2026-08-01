@@ -215,6 +215,8 @@ class PostprocessConfig:
     face_mask_target: str = "none"
     eye_mask_shape: str = "ellipse"
     minimum_eye_confidence: float = 0.35
+    face_detection_score_threshold: float = 0.55
+    head_detection_score_threshold: float = 0.55
     face_tracking_max_gap_frames: int = 5
     face_tracking_high_score_threshold: float = 0.50
     face_tracking_low_score_threshold: float = 0.05
@@ -459,6 +461,8 @@ class OrchestrationConfig:
             "face_mask_target",
             "eye_mask_shape",
             "minimum_eye_confidence",
+            "face_detection_score_threshold",
+            "head_detection_score_threshold",
             "face_tracking_max_gap_frames",
             "face_tracking_high_score_threshold",
             "face_tracking_low_score_threshold",
@@ -581,6 +585,12 @@ class OrchestrationConfig:
             eye_mask_shape=str(postprocess_raw.get("eye_mask_shape", "ellipse")),
             minimum_eye_confidence=float(
                 postprocess_raw.get("minimum_eye_confidence", 0.35)
+            ),
+            face_detection_score_threshold=float(
+                postprocess_raw.get("face_detection_score_threshold", 0.55)
+            ),
+            head_detection_score_threshold=float(
+                postprocess_raw.get("head_detection_score_threshold", 0.55)
             ),
             face_tracking_max_gap_frames=int(
                 postprocess_raw.get("face_tracking_max_gap_frames", 5)
@@ -1028,6 +1038,14 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "postprocess.minimum_eye_confidence must be between 0 and 1"
             )
+        if not 0.0 <= self.postprocess.face_detection_score_threshold <= 1.0:
+            raise OrchestrationConfigError(
+                "postprocess.face_detection_score_threshold must be between 0 and 1"
+            )
+        if not 0.0 <= self.postprocess.head_detection_score_threshold <= 1.0:
+            raise OrchestrationConfigError(
+                "postprocess.head_detection_score_threshold must be between 0 and 1"
+            )
         if self.postprocess.face_tracking_max_gap_frames < 0:
             raise OrchestrationConfigError(
                 "postprocess.face_tracking_max_gap_frames must be non-negative"
@@ -1100,6 +1118,8 @@ class OrchestrationConfig:
                 "--face-mask-target",
                 "--eye-mask-shape",
                 "--minimum-eye-confidence",
+                "--face-detection-score-threshold",
+                "--head-detection-score-threshold",
                 "--face-tracking-max-gap-frames",
                 "--face-tracking-high-score-threshold",
                 "--face-tracking-low-score-threshold",

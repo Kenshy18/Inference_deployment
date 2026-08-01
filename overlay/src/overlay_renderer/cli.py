@@ -147,6 +147,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="minimum confidence for each eye keypoint before ellipse fallback",
     )
     parser.add_argument(
+        "--face-detection-score-threshold",
+        type=float,
+        default=0.55,
+        help="minimum face score rendered by final face overlays",
+    )
+    parser.add_argument(
+        "--head-detection-score-threshold",
+        type=float,
+        default=0.55,
+        help="minimum head score rendered by final face overlays",
+    )
+    parser.add_argument(
         "--codec",
         default=None,
         help=(
@@ -278,6 +290,10 @@ def _validate_mode_args(args: argparse.Namespace) -> None:
         raise ValueError("--face-sqlite requires --mode final --include-faces")
     if not 0.0 <= args.minimum_eye_confidence <= 1.0:
         raise ValueError("--minimum-eye-confidence must be between 0 and 1")
+    if not 0.0 <= args.face_detection_score_threshold <= 1.0:
+        raise ValueError("--face-detection-score-threshold must be between 0 and 1")
+    if not 0.0 <= args.head_detection_score_threshold <= 1.0:
+        raise ValueError("--head-detection-score-threshold must be between 0 and 1")
     if (
         args.face_mask_target != "none"
         and args.mode != "faces"
@@ -396,6 +412,10 @@ def _fast_command(
         args.eye_mask_shape,
         "--minimum-eye-confidence",
         str(args.minimum_eye_confidence),
+        "--face-detection-score-threshold",
+        str(args.face_detection_score_threshold),
+        "--head-detection-score-threshold",
+        str(args.head_detection_score_threshold),
         "--gpu-pipeline",
         "--compact-output",
     ]
@@ -527,6 +547,10 @@ def _run_fast(
                     ),
                     "minimum_eye_confidence": args.minimum_eye_confidence,
                 },
+                "score_thresholds": {
+                    "face": args.face_detection_score_threshold,
+                    "head": args.head_detection_score_threshold,
+                },
             },
             "encoding": {
                 "codec": "h264",
@@ -606,6 +630,8 @@ def main(argv: list[str] | None = None) -> None:
             display_style=(
                 "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
             ),
+            face_detection_score_threshold=args.face_detection_score_threshold,
+            head_detection_score_threshold=args.head_detection_score_threshold,
             start_frame=args.start_frame,
             end_frame=args.end_frame,
         )
@@ -626,6 +652,8 @@ def main(argv: list[str] | None = None) -> None:
             display_style=(
                 "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
             ),
+            face_detection_score_threshold=args.face_detection_score_threshold,
+            head_detection_score_threshold=args.head_detection_score_threshold,
             start_frame=args.start_frame,
             end_frame=args.end_frame,
         )
@@ -724,6 +752,10 @@ def main(argv: list[str] | None = None) -> None:
                     if options.face_privacy_target == "eyes"
                     else None
                 ),
+            },
+            "score_thresholds": {
+                "face": args.face_detection_score_threshold,
+                "head": args.head_detection_score_threshold,
             },
         },
         "encoding": {

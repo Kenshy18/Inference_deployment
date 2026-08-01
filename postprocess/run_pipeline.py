@@ -165,6 +165,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.35,
     )
+    parser.add_argument(
+        "--face-detection-score-threshold",
+        type=float,
+        default=0.55,
+    )
+    parser.add_argument(
+        "--head-detection-score-threshold",
+        type=float,
+        default=0.55,
+    )
     parser.add_argument("--face-tracking-max-gap-frames", type=int, default=5)
     parser.add_argument(
         "--face-tracking-high-score-threshold",
@@ -418,6 +428,10 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
         stages = upstream
     if not 0.0 <= args.minimum_eye_confidence <= 1.0:
         raise ValueError("--minimum-eye-confidence must be between 0 and 1")
+    if not 0.0 <= args.face_detection_score_threshold <= 1.0:
+        raise ValueError("--face-detection-score-threshold must be between 0 and 1")
+    if not 0.0 <= args.head_detection_score_threshold <= 1.0:
+        raise ValueError("--head-detection-score-threshold must be between 0 and 1")
     if args.face_mask_target != "none":
         stages.extend(
             (
@@ -428,6 +442,12 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                         "target": args.face_mask_target,
                         "eye_shape": args.eye_mask_shape,
                         "minimum_eye_confidence": args.minimum_eye_confidence,
+                        "face_detection_score_threshold": (
+                            args.face_detection_score_threshold
+                        ),
+                        "head_detection_score_threshold": (
+                            args.head_detection_score_threshold
+                        ),
                         "tracking_max_gap_frames": (args.face_tracking_max_gap_frames),
                         "tracking_high_score_threshold": (
                             args.face_tracking_high_score_threshold

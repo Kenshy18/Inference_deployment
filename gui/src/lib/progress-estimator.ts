@@ -120,7 +120,18 @@ function phaseRemaining(
     phase.completed > 0 &&
     nominalFps !== undefined
   ) {
-    const liveFps = finitePositive(phase.fps) ?? nominalFps;
+    // Cumulative FPS includes model loading at the beginning and can be only
+    // 1–3 fps for the first batches. Treating that as a steady rate made ETA
+    // explode exactly when frame progress started. Use the measured PC rate
+    // until enough frames have accumulated for a representative live sample.
+    const stableAfterFrames = Math.min(
+      256,
+      Math.max(64, Math.ceil(phase.total * 0.05)),
+    );
+    const liveFps =
+      phase.completed >= stableAfterFrames
+        ? finitePositive(phase.fps) ?? nominalFps
+        : nominalFps;
     return (
       Math.max(0, phase.total - phase.completed) / liveFps + tailSeconds
     );
@@ -129,6 +140,16 @@ function phaseRemaining(
     return plannedSeconds * Math.max(0, 1 - phase.progress);
   }
   return plannedSeconds;
+}
+
+function phaseFraction(phase: PhaseProgress): number {
+  if (phase.state === "complete") {
+    return 1;
+  }
+  if (phase.state !== "running" || phase.progress === null) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, phase.progress));
 }
 
 function overlayCount(draft: PipelineDraft): number {
@@ -171,6 +192,7 @@ export function estimatePipelineProgress(
   const inferenceParts: Array<{
     planned: number;
     remaining: number;
+    progress: number;
   }> = [];
   let hasLiveRate = false;
 
@@ -187,6 +209,7 @@ export function estimatePipelineProgress(
     inferenceParts.push({
       planned,
       remaining: phaseRemaining(phase, planned, nominal, 2),
+      progress: phaseFraction(phase),
     });
   }
 
@@ -201,27 +224,52 @@ export function estimatePipelineProgress(
     inferenceParts.push({
       planned,
       remaining: phaseRemaining(phase, planned, nominal, 2),
+      progress: phaseFraction(phase),
     });
   }
 
   let inferencePlanned = 0;
   let inferenceRemaining = 0;
+  let inferenceCompletedWork = 0;
   if (inferenceParts.length > 0) {
+    const allInferenceComplete = inferenceParts.every(
+      (part) => part.progress >= 1,
+    );
     if (draft.inference.parallelModels && inferenceParts.length > 1) {
       inferencePlanned =
         Math.max(...inferenceParts.map((part) => part.planned)) + 4;
       inferenceRemaining =
         Math.max(...inferenceParts.map((part) => part.remaining)) +
         (inferenceParts.every((part) => part.remaining === 0) ? 0 : 4);
+      const nominalRemaining =
+        Math.max(
+          ...inferenceParts.map(
+            (part) => part.planned * (1 - part.progress),
+          ),
+        ) + (allInferenceComplete ? 0 : 4);
+      inferenceCompletedWork = Math.max(
+        0,
+        inferencePlanned - nominalRemaining,
+      );
     } else {
       inferencePlanned =
         inferenceParts.reduce((sum, part) => sum + part.planned, 0) + 4;
       inferenceRemaining =
         inferenceParts.reduce((sum, part) => sum + part.remaining, 0) +
         (inferenceParts.every((part) => part.remaining === 0) ? 0 : 4);
+      const nominalRemaining =
+        inferenceParts.reduce(
+          (sum, part) => sum + part.planned * (1 - part.progress),
+          0,
+        ) + (allInferenceComplete ? 0 : 4);
+      inferenceCompletedWork = Math.max(
+        0,
+        inferencePlanned - nominalRemaining,
+      );
     }
   }
   const estimates: PhaseTimeEstimate[] = [];
+  let completedWorkSeconds = 0;
   if (inferencePlanned > 0) {
     estimates.push({
       id: "inference",
@@ -229,6 +277,7 @@ export function estimatePipelineProgress(
       plannedSeconds: inferencePlanned,
       remainingSeconds: inferenceRemaining,
     });
+    completedWorkSeconds += inferenceCompletedWork;
   }
 
   if (draft.postprocess.enabled) {
@@ -250,6 +299,8 @@ export function estimatePipelineProgress(
       plannedSeconds: planned,
       remainingSeconds: phaseRemaining(phases.postprocess, planned),
     });
+    completedWorkSeconds +=
+      planned * phaseFraction(phases.postprocess);
   }
 
   const overlays = draft.overlay.enabled ? overlayCount(draft) : 0;
@@ -280,6 +331,7 @@ export function estimatePipelineProgress(
       // Aggregate display_progress accounts for multiple overlay outputs.
       remainingSeconds: phaseRemaining(phase, planned),
     });
+    completedWorkSeconds += planned * phaseFraction(phase);
   }
 
   const packagingPlanned = 1.5 + frames / 4_500;
@@ -289,6 +341,9 @@ export function estimatePipelineProgress(
     plannedSeconds: packagingPlanned,
     remainingSeconds: job.status === "completed" ? 0 : packagingPlanned,
   });
+  if (job.status === "completed") {
+    completedWorkSeconds += packagingPlanned;
+  }
 
   const plannedSeconds = estimates.reduce(
     (sum, estimate) => sum + estimate.plannedSeconds,
@@ -309,10 +364,7 @@ export function estimatePipelineProgress(
       : running
         ? Math.min(
             0.999,
-            Math.max(
-              0,
-              elapsedSeconds / Math.max(0.001, elapsedSeconds + remainingSeconds),
-            ),
+            Math.max(0, completedWorkSeconds / Math.max(0.001, plannedSeconds)),
           )
         : null;
   const remaining = running ? remainingSeconds : null;

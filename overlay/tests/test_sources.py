@@ -215,6 +215,67 @@ class SourceTests(unittest.TestCase):
             self.assertEqual("face:0:7", frames[0].items[0].track_id)
             self.assertEqual("OBSERVED", frames[0].items[0].provenance)
 
+    def test_face_threshold_keeps_accepted_head_without_face_geometry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
+            with sqlite3.connect(path) as connection:
+                connection.execute("UPDATE detections SET score=0.40 WHERE id=20")
+                connection.execute(
+                    "UPDATE face_observations SET face_score=0.40 WHERE id=1"
+                )
+
+            detailed = list(iter_face_frames(path, display_style="detailed"))
+            simple = list(iter_face_frames(path, display_style="simple"))
+            legacy = list(iter_face_frames(path, display_style="legacy"))
+
+            self.assertEqual(1, len(detailed))
+            self.assertEqual(1, len(detailed[0].items))
+            head = detailed[0].items[0]
+            self.assertEqual("Head", head.label)
+            self.assertEqual(0.40, head.face_score)
+            self.assertFalse(head.face_present)
+            self.assertIsNotNone(head.box)
+            self.assertIsNone(head.ellipse)
+            self.assertEqual((), head.keypoints)
+            self.assertIsNone(head.face_mask)
+            self.assertEqual([], simple)
+            self.assertEqual(["Head"], [item.label for item in legacy[0].items])
+
+    def test_head_threshold_rejects_entire_rich_face_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
+            with sqlite3.connect(path) as connection:
+                connection.execute("UPDATE detections SET score=0.40 WHERE id=21")
+
+            self.assertEqual(
+                [],
+                list(iter_face_frames(path, display_style="detailed")),
+            )
+            self.assertEqual(
+                [],
+                list(iter_face_frames(path, display_style="simple")),
+            )
+
+    def test_face_threshold_is_configurable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "rich.sqlite")
+            with sqlite3.connect(path) as connection:
+                connection.execute("UPDATE detections SET score=0.40 WHERE id=20")
+                connection.execute(
+                    "UPDATE face_observations SET face_score=0.40 WHERE id=1"
+                )
+
+            frames = list(
+                iter_face_frames(
+                    path,
+                    display_style="simple",
+                    face_detection_score_threshold=0.35,
+                )
+            )
+
+            self.assertEqual(1, len(frames))
+            self.assertIsNotNone(frames[0].items[0].ellipse)
+
     def test_detailed_face_overlay_marks_removed_and_interpolated_tracks(
         self,
     ) -> None:

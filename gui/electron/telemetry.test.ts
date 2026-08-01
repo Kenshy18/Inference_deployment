@@ -87,12 +87,26 @@ describe("job telemetry parser", () => {
   it("keeps exact counts while accepting an explicitly estimated display value", () => {
     const telemetry = parseTelemetryLine(
       emptyTelemetry(),
-      '[postprocess] [phase-progress] {"phase":"postprocess","state":"running","completed":2,"total":10,"display_progress":0.257,"estimated":true,"detail":"tracking:running","fps":null}',
+      '[postprocess] [phase-progress] {"phase":"postprocess","state":"running","completed":2,"total":10,"display_progress":0.257,"estimated":true,"detail":"tracking:running","fps":null,"active_elapsed_seconds":8.4}',
     );
 
     expect(telemetry.phases.postprocess.completed).toBe(2);
     expect(telemetry.phases.postprocess.total).toBe(10);
     expect(telemetry.phases.postprocess.progress).toBe(0.257);
     expect(telemetry.phases.postprocess.estimated).toBe(true);
+    expect(telemetry.phases.postprocess.activeElapsedSeconds).toBe(8.4);
+    expect(telemetry.phases.postprocess.updatedAtMs).not.toBeNull();
+  });
+
+  it("never moves a running phase backward on a later estimate", () => {
+    let telemetry = parseTelemetryLine(
+      emptyTelemetry(),
+      '[postprocess] [phase-progress] {"phase":"postprocess","state":"running","completed":2,"total":10,"display_progress":0.29,"estimated":true}',
+    );
+    telemetry = parseTelemetryLine(
+      telemetry,
+      '[postprocess] [phase-progress] {"phase":"postprocess","state":"running","completed":2,"total":10,"display_progress":0.25,"estimated":true}',
+    );
+    expect(telemetry.phases.postprocess.progress).toBe(0.29);
   });
 });

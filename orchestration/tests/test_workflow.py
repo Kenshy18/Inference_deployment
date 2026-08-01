@@ -75,6 +75,14 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("combined-simple", command)
             self.assertIn("--genital-source", command)
             self.assertIn("--face-mask-target", command)
+            self.assertEqual(
+                "0.55",
+                command[command.index("--face-detection-score-threshold") + 1],
+            )
+            self.assertEqual(
+                "0.55",
+                command[command.index("--head-detection-score-threshold") + 1],
+            )
             self.assertIn("rectangle", command)
 
     def test_overlay_range_follows_bounded_inference_unless_explicit(self) -> None:

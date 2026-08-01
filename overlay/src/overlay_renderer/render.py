@@ -488,21 +488,190 @@ def _contours(item: OverlayItem, width: int, height: int) -> list[np.ndarray]:
     return output
 
 
+_CLASS_LABELS_JA = {
+    "男性器": "男性器",
+    "male": "男性器",
+    "male_genital": "男性器",
+    "女性器": "女性器",
+    "female": "女性器",
+    "female_genital": "女性器",
+    "結合部分": "結合部分",
+    "junction": "結合部分",
+    "contact": "結合部分",
+}
+
+_JAPANESE_GLYPHS: dict[str, tuple[int, ...]] = {
+    "男": (
+        0x0000,
+        0x0000,
+        0x3FFC,
+        0x318C,
+        0x3FFC,
+        0x318C,
+        0x318C,
+        0x3FFC,
+        0x0180,
+        0x7FFC,
+        0x030C,
+        0x070C,
+        0x3E7C,
+        0x3878,
+        0x0000,
+        0x0000,
+    ),
+    "性": (
+        0x0000,
+        0x1960,
+        0x1960,
+        0x1FFC,
+        0x7FFC,
+        0x7E60,
+        0x7E60,
+        0x7BF8,
+        0x1BFC,
+        0x1860,
+        0x1860,
+        0x1860,
+        0x1BFC,
+        0x1FFE,
+        0x0000,
+        0x0000,
+    ),
+    "器": (
+        0x0000,
+        0x0000,
+        0x3EFC,
+        0x32CC,
+        0x32CC,
+        0x3FFC,
+        0x0300,
+        0x7FFE,
+        0x1C38,
+        0x781E,
+        0x3FFC,
+        0x33CC,
+        0x3FFC,
+        0x33C8,
+        0x0000,
+        0x0000,
+    ),
+    "女": (
+        0x0000,
+        0x0300,
+        0x0300,
+        0x3FFC,
+        0x7FFE,
+        0x0630,
+        0x0C30,
+        0x0C30,
+        0x1E60,
+        0x07E0,
+        0x01E0,
+        0x07F0,
+        0x3F3C,
+        0x380C,
+        0x0000,
+        0x0000,
+    ),
+    "結": (
+        0x0000,
+        0x1830,
+        0x1830,
+        0x77FE,
+        0x3C30,
+        0x1E30,
+        0x1FFE,
+        0x7F00,
+        0x3A00,
+        0x3EFC,
+        0x3F8C,
+        0x6BCC,
+        0x28FC,
+        0x088C,
+        0x0000,
+        0x0000,
+    ),
+    "合": (
+        0x0000,
+        0x0380,
+        0x03C0,
+        0x0670,
+        0x1C3C,
+        0x7FFE,
+        0x2004,
+        0x0000,
+        0x1FF8,
+        0x1818,
+        0x1818,
+        0x1FF8,
+        0x1FF8,
+        0x1818,
+        0x0000,
+        0x0000,
+    ),
+    "部": (
+        0x0000,
+        0x0C3C,
+        0x3F7C,
+        0x7FEC,
+        0x336C,
+        0x3F68,
+        0x7FF8,
+        0x006C,
+        0x0064,
+        0x3F66,
+        0x337E,
+        0x337C,
+        0x3F60,
+        0x3160,
+        0x0000,
+        0x0000,
+    ),
+    "分": (
+        0x0000,
+        0x0660,
+        0x0660,
+        0x0C30,
+        0x1818,
+        0x3FFC,
+        0x7FFE,
+        0x0330,
+        0x0330,
+        0x0330,
+        0x0630,
+        0x0E30,
+        0x3CF0,
+        0x31F0,
+        0x0000,
+        0x0000,
+    ),
+}
+
+
+def _display_class_label(value: str | None) -> str:
+    if not value:
+        return ""
+    return _CLASS_LABELS_JA.get(value.casefold(), value)
+
+
 def _ascii_label(item: OverlayItem) -> str:
     components: list[str] = []
+    label = _display_class_label(item.label)
+    if label:
+        components.append(label)
     if item.track_id is not None:
         components.append(f"T{item.track_id}")
-    if item.label and item.label.isascii():
-        components.append(item.label)
     if item.score is not None:
         components.append(f"{item.score:.2f}")
     return " ".join(components)
 
 
 def _detailed_mask_label(item: OverlayItem) -> str:
-    components: list[str] = [_track_label(item.track_id)]
-    if item.label and item.label.isascii():
-        components.append(item.label)
+    components: list[str] = []
+    label = _display_class_label(item.label)
+    if label:
+        components.append(label)
+    components.append(_track_label(item.track_id))
     if item.score is not None:
         components.append(f"score={item.score:.2f}")
     else:
@@ -530,12 +699,23 @@ def _draw_label(
     color: tuple[int, int, int],
     *,
     scale: float = 0.52,
-    thickness: int = 1,
+    thickness: int = 2,
 ) -> None:
     if not text:
         return
     font = cv2.FONT_HERSHEY_SIMPLEX
-    (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
+    japanese_prefix = ""
+    for character in text:
+        if character not in _JAPANESE_GLYPHS:
+            break
+        japanese_prefix += character
+    suffix = text[len(japanese_prefix) :]
+    japanese_width = 16 * len(japanese_prefix)
+    (suffix_width, text_height), baseline = cv2.getTextSize(
+        suffix, font, scale, thickness
+    )
+    text_width = japanese_width + suffix_width
+    text_height = max(text_height, 16 if japanese_prefix else 0)
     x = max(0, min(origin[0], frame.shape[1] - text_width - 4))
     y = max(text_height + 4, min(origin[1], frame.shape[0] - baseline - 2))
     cv2.rectangle(
@@ -545,16 +725,29 @@ def _draw_label(
         (18, 18, 18),
         -1,
     )
-    cv2.putText(
-        frame,
-        text,
-        (x + 2, y - 2),
-        font,
-        scale,
-        color,
-        thickness,
-        cv2.LINE_AA,
-    )
+    for glyph_index, character in enumerate(japanese_prefix):
+        rows = _JAPANESE_GLYPHS[character]
+        glyph_x = x + 2 + glyph_index * 16
+        glyph_y = y - text_height - 2
+        for row_index, bits in enumerate(rows):
+            row_y = glyph_y + row_index
+            if not 0 <= row_y < frame.shape[0]:
+                continue
+            for column in range(16):
+                column_x = glyph_x + column
+                if bits & (1 << (15 - column)) and 0 <= column_x < frame.shape[1]:
+                    frame[row_y, column_x] = color
+    if suffix:
+        cv2.putText(
+            frame,
+            suffix,
+            (x + 2 + japanese_width, y - 2),
+            font,
+            scale,
+            color,
+            thickness,
+            cv2.LINE_AA,
+        )
 
 
 def _draw_cut_indicator(frame: np.ndarray) -> None:
@@ -991,7 +1184,7 @@ def _draw_items(
                     cv2.FONT_HERSHEY_SIMPLEX,
                     font_scale * 0.72,
                     point_color,
-                    max(1, options.box_thickness - 1),
+                    max(2, options.box_thickness),
                     cv2.LINE_AA,
                 )
         if options.display_style == "detailed" and label_origin is not None:
@@ -1018,7 +1211,7 @@ def _draw_items(
                 label_origin,
                 color,
                 scale=0.52,
-                thickness=1,
+                thickness=2,
             )
         elif (
             options.display_style == "legacy"

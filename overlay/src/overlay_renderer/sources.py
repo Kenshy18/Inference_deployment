@@ -850,16 +850,22 @@ def iter_face_frames(
     include_probability_masks: bool = True,
     display_style: str = "legacy",
     require_privacy_geometry: bool = False,
+    face_detection_score_threshold: float = 0.55,
+    head_detection_score_threshold: float = 0.55,
     start_frame: int = 0,
     end_frame: int | None = None,
 ) -> Iterator[FrameOverlay]:
-    """Stream boxes plus optional rich face ellipses/keypoints by frame."""
+    """Stream confidence-filtered face/head primitives by frame."""
 
     resolved = Path(path).expanduser().resolve()
     if start_frame < 0:
         raise ValueError("start_frame must be non-negative")
     if end_frame is not None and end_frame < start_frame:
         raise ValueError("end_frame must be >= start_frame")
+    if not 0.0 <= face_detection_score_threshold <= 1.0:
+        raise ValueError("face_detection_score_threshold must be between 0 and 1")
+    if not 0.0 <= head_detection_score_threshold <= 1.0:
+        raise ValueError("head_detection_score_threshold must be between 0 and 1")
     frame_limit = (2**31 - 1) if end_frame is None else end_frame
     connection = _connect_read_only(resolved)
     try:
@@ -937,6 +943,9 @@ def iter_face_frames(
             def iter_observations() -> Iterator[tuple[int, OverlayItem]]:
                 for row in rows:
                     observation_id = int(row["observation_id"])
+                    head_score = float(row["head_score"])
+                    if head_score < head_detection_score_threshold:
+                        continue
                     removed = bool(row["removed_by_short_track"])
                     if removed and display_style != "detailed":
                         continue
@@ -949,7 +958,12 @@ def iter_face_frames(
                             else str(row["final_track_id"])
                         )
                     )
-                    has_face = bool(row["face_present"])
+                    face_score = float(row["face_score"])
+                    has_face = bool(row["face_present"]) and (
+                        face_score >= face_detection_score_threshold
+                    )
+                    if display_style == "simple" and not has_face:
+                        continue
                     details = (
                         detail_reader.get(observation_id) if has_face else ((), None)
                     )
@@ -983,7 +997,7 @@ def iter_face_frames(
                         ),
                         kind="face",
                         label="Head",
-                        score=float(row["head_score"]),
+                        score=head_score,
                         box=(
                             (
                                 float(row["head_x1"]),
@@ -1005,7 +1019,7 @@ def iter_face_frames(
                             and display_style == "detailed"
                             else None
                         ),
-                        face_score=float(row["face_score"]),
+                        face_score=face_score,
                         face_present=has_face,
                         track_id=track_id,
                         provenance=("REMOVED_SHORT_TRACK" if removed else "OBSERVED"),
@@ -1062,6 +1076,7 @@ def iter_face_frames(
             """
             , fo.id AS observation_id,
               fo.face_detection_id,
+              fo.face_score AS observation_face_score,
               fo.face_present,
               fo.geometry_type,
               fo.ellipse_cx,
@@ -1074,6 +1089,7 @@ def iter_face_frames(
             else """
             , NULL AS observation_id,
               NULL AS face_detection_id,
+              NULL AS observation_face_score,
               NULL AS face_present,
               NULL AS geometry_type,
               NULL AS ellipse_cx,
@@ -1114,6 +1130,15 @@ def iter_face_frames(
             for row in rows:
                 frame = int(row["frame_index"])
                 label = str(row["class_name"])
+                normalized_label = label.casefold()
+                score = float(row["score"])
+                threshold = (
+                    head_detection_score_threshold
+                    if normalized_label == "head"
+                    else face_detection_score_threshold
+                )
+                if score < threshold:
+                    continue
                 detection_id = int(row["detection_id"])
                 observation_id = (
                     None
@@ -1121,7 +1146,7 @@ def iter_face_frames(
                     else int(row["observation_id"])
                 )
                 is_rich_face = (
-                    label.lower() == "face"
+                    normalized_label == "face"
                     and observation_id is not None
                     and bool(row["face_present"])
                     and row["geometry_type"] == "ellipse"
@@ -1149,7 +1174,7 @@ def iter_face_frames(
                     color_key=f"face:{label}",
                     kind="face",
                     label=label,
-                    score=float(row["score"]),
+                    score=score,
                     box=(
                         None
                         if is_rich_face and include_ellipses
@@ -1165,10 +1190,12 @@ def iter_face_frames(
                     face_mask=(rich_details[1] if include_probability_masks else None),
                 )
                 if (
-                    label.lower() == "head"
+                    normalized_label == "head"
                     and observation_id is not None
                     and row["face_detection_id"] is None
                     and bool(row["face_present"])
+                    and float(row["observation_face_score"])
+                    >= face_detection_score_threshold
                     and row["geometry_type"] == "ellipse"
                     and include_ellipses
                 ):

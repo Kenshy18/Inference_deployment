@@ -60,6 +60,8 @@ describe("PC pipeline progress estimator", () => {
       estimated: false,
       detail: "frames",
       fps: 150,
+      activeElapsedSeconds: 12,
+      updatedAtMs: Date.now(),
     };
     const value = estimatePipelineProgress(
       draft(),
@@ -73,6 +75,43 @@ describe("PC pipeline progress estimator", () => {
     expect(value.remainingSeconds).toBeGreaterThan(0);
     expect(value.completionAt).not.toBeNull();
     expect(value.confidence).toBe("live");
+  });
+
+  it("does not invent startup progress or reset when frame progress begins", () => {
+    const currentJob = job();
+    currentJob.status = "running";
+    currentJob.telemetry.phases.segmentation_inference = {
+      ...currentJob.telemetry.phases.segmentation_inference,
+      state: "running",
+      detail: "model-loading",
+      updatedAtMs: Date.now(),
+    };
+    const loading = estimatePipelineProgress(
+      draft(),
+      currentJob,
+      VIDEO,
+      12,
+    );
+    expect(loading.overall).toBe(0);
+
+    currentJob.telemetry.phases.segmentation_inference = {
+      ...currentJob.telemetry.phases.segmentation_inference,
+      completed: 16,
+      total: 5_290,
+      progress: 16 / 5_290,
+      detail: "frames",
+      fps: 3,
+    };
+    const running = estimatePipelineProgress(
+      draft(),
+      currentJob,
+      VIDEO,
+      16,
+    );
+    expect(running.overall).toBeGreaterThanOrEqual(loading.overall!);
+    expect(running.estimatedTotalSeconds).toBeLessThan(
+      loading.estimatedTotalSeconds! + 10,
+    );
   });
 
   it("accounts for the larger rendering cost of 4K", () => {

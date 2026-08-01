@@ -102,12 +102,14 @@ npm run dev:renderer
 推論とオーバーレイは処理済みフレーム数、後処理は完了ステージ数を正値とし、
 実行中ステージ内の補間値にはGUI上で「約」を付けます。構造化進捗イベントは
 通常ログへ保存しないため、ジョブログの容量は更新頻度に比例して増えません。
-Liveプレビューも通常ログへ保存せず、3枚のJPEGリングだけを更新します。推論は
-5入力フレームごと、後処理は壁時計で最大5fpsです。Liveタブを開いている間だけ
+Liveプレビューも通常ログへ保存せず、3枚のJPEGリングだけを更新します。推論・
+後処理とも壁時計で最大10fpsです。Liveタブを開いている間だけ
 有効になり、後処理側のキューはステージごとに最新1件、全体で最大12件です。
 推論previewの縮小/JPEG化はlatest-wins workerで行い、推論threadを止めません。
 後処理のstage通知は直前画像を再利用し、geometryが変わった時だけ1-thread decoderで
-seekします。GPU/VRAM/温度は起動済みの`nvidia-smi dmon` 1 processを読み、推論中に
+seekします。映像が変わらない長いstageでも、現在stage、約進捗、stage経過秒、
+最終進捗信号時刻を0.1秒間隔で表示します。GPU/VRAM/温度は起動済みの
+`nvidia-smi dmon` 1 processを読み、推論中に
 毎秒新しい`nvidia-smi`を生成しません。WSL driverがsamplingを保留する区間は最後の
 GPU値を維持し、CPU/RAMとGUI event loopは更新を続けます。
 

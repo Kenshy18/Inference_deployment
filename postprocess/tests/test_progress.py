@@ -31,8 +31,10 @@ class StageGraphProgressTests(unittest.TestCase):
         self.assertGreater(events[1]["display_progress"], 0.2)
         self.assertLess(events[1]["display_progress"], 0.3)
         self.assertTrue(events[1]["estimated"])
+        self.assertEqual(8.0, events[1]["active_elapsed_seconds"])
         self.assertEqual(0.3, events[2]["display_progress"])
         self.assertFalse(events[2]["estimated"])
+        self.assertIsNone(events[2]["active_elapsed_seconds"])
 
 
 if __name__ == "__main__":

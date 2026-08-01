@@ -39,7 +39,9 @@ postprocess/
 GUI用Liveプレビューは`common/live_preview.py`の単一非同期workerへ、各stageが
 フレーム番号と軽量な図形だけを通知します。元動画のデコード・960×540描画・JPEG
 生成はアルゴリズムの実行スレッド外で行い、ステージごとに最新1件だけを保持します。
-環境変数`MASK_PIPELINE_PREVIEW_PATH`がない場合は完全に無効です。
+構造化進捗はstage内経過秒を含む独立したheartbeatを出すため、画像が静止する
+最適化stageでも停止と処理継続を区別できます。環境変数
+`MASK_PIPELINE_PREVIEW_PATH`がない場合は完全に無効です。
 
 ## 実行
 

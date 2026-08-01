@@ -38,6 +38,10 @@ Head box、face moment-maskの点線境界、顔楕円、可視/遮蔽keypoint�
 `TRACK <番号> / SCENE <番号>`付きの実線、両端観測間の補完Headを黄の点線、
 短命削除対象を赤枠と斜線で表示します。簡易表示は性器の最終binary maskと、
 顔楕円・keypointだけです。
+顔・頭部の描画には既定でそれぞれ確信度`0.55`を適用します。Headが閾値未満の
+観測は全体を除外し、Headは合格してFaceだけが閾値未満の場合、詳細表示には
+Head boxだけを残して顔楕円・keypoint・確率maskを表示しません。判定は高速cache
+作成前に行うため、native描画ループの負荷は増えません。
 左上の全体HUDは表示しません。
 性器を含む簡易presetは固定ピンク`RGB(255, 105, 180)`、mask alphaは
 既定`0.45`です。詳細版および従来表示のalphaは`0.32`です。必要なら
@@ -233,6 +237,8 @@ overlay-render \
 --face-mask-target       none / face / eyes
 --eye-mask-shape         ellipse / rectangle
 --minimum-eye-confidence Eye点を直接使う最低confidence（既定0.35）
+--face-detection-score-threshold  顔楕円等を描画する最低confidence（既定0.55）
+--head-detection-score-threshold  観測全体を描画する最低confidence（既定0.55）
 --h264-crf 18            CPU H.264品質（小さいほど高品質）
 --h264-preset veryfast   libx264 preset
 --nvenc-cq 18            通常NVENC品質（小さいほど高品質）

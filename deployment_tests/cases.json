@@ -1,0 +1,416 @@
+{
+  "schema_version": 1,
+  "name": "mask-pipeline-studio-8h-deployment-gate",
+  "total_budget_minutes": 480,
+  "fixed_overhead_minutes": {
+    "fixtures_and_preflight": 15,
+    "artifact_validation_and_visual_review": 30,
+    "reporting": 10,
+    "reserve": 34
+  },
+  "new_job_deadline_minutes": 455,
+  "forced_finalization_minutes": 465,
+  "required_coverage": [
+    "gui:simple",
+    "gui:advanced",
+    "gui:source-queue",
+    "gui:output-queue",
+    "gui:monitor",
+    "gui:live",
+    "gui:console",
+    "gui:reprocess",
+    "model:v3",
+    "model:v3-lite",
+    "model:v2",
+    "model:v1",
+    "model:face-v2",
+    "model:face-v1",
+    "pipeline:postprocess",
+    "pipeline:no-postprocess",
+    "shape:polygon",
+    "shape:ellipse",
+    "shape:mixed",
+    "face-mask:none",
+    "face-mask:eyes-rectangle",
+    "face-mask:eyes-ellipse",
+    "face-mask:full-face",
+    "overlay:simple",
+    "overlay:detailed",
+    "overlay:cpu",
+    "overlay:nvenc",
+    "overlay:fast",
+    "media:4k",
+    "media:portrait",
+    "media:vfr",
+    "media:h264",
+    "media:h265",
+    "media:mp4",
+    "media:mkv",
+    "media:mov",
+    "media:audio",
+    "media:no-audio",
+    "resilience:cancel-segmentation",
+    "resilience:cancel-face",
+    "resilience:cancel-postprocess",
+    "resilience:cancel-overlay",
+    "resilience:close-running",
+    "resilience:resume",
+    "resilience:output-collision",
+    "stress:long",
+    "stress:batch",
+    "quality:schema",
+    "quality:overlay",
+    "quality:cleanup",
+    "quality:memory",
+    "quality:performance"
+  ],
+  "cases": [
+    {
+      "id": "G00_gui_inspector_controls",
+      "priority": "P0",
+      "budget_minutes": 20,
+      "pipeline_run": false,
+      "description": "GUI全基本操作、簡単/詳細、Inspector control、Dry Run、Monitor/LIVE/Console、queueとblack-screen回帰",
+      "tags": [
+        "gui:simple",
+        "gui:advanced",
+        "gui:source-queue",
+        "gui:output-queue",
+        "gui:monitor",
+        "gui:live",
+        "gui:console",
+        "gui:reprocess"
+      ]
+    },
+    {
+      "id": "S00_v3_120m_single_load",
+      "priority": "P0",
+      "budget_minutes": 175,
+      "pipeline_run": true,
+      "source_duration_minutes": 120,
+      "max_frames": 216000,
+      "segmentation_model": "dinov3_codino",
+      "description": "唯一のV3負荷試験。2時間動画でengine/classifier、mixed後処理、性器overlay、resource slopeとcleanupを確認",
+      "settings": {
+        "mode": "segmentation",
+        "postprocess": "mixed-polygon-ellipse",
+        "face_mask": "none",
+        "overlays": ["genital-simple", "genital-detailed"],
+        "overlay_execution": "fast",
+        "live": false
+      },
+      "tags": [
+        "model:v3",
+        "pipeline:postprocess",
+        "shape:mixed",
+        "shape:polygon",
+        "shape:ellipse",
+        "face-mask:none",
+        "overlay:simple",
+        "overlay:detailed",
+        "overlay:fast",
+        "media:h264",
+        "media:mp4",
+        "media:audio",
+        "stress:long",
+        "quality:schema",
+        "quality:overlay",
+        "quality:cleanup",
+        "quality:memory",
+        "quality:performance"
+      ]
+    },
+    {
+      "id": "G02_v3lite_facev2_recommended",
+      "priority": "P0",
+      "budget_minutes": 15,
+      "pipeline_run": true,
+      "source_duration_minutes": 5,
+      "segmentation_model": "dinov3_codino_mh0",
+      "face_model": "face_dino_v2",
+      "description": "推奨v3-lite + Face V2、クラス別shape/KF/gap、簡易・詳細、LIVEを完走",
+      "settings": {
+        "mode": "segmentation-face",
+        "postprocess": "mixed-polygon-ellipse",
+        "face_mask": "eyes-ellipse",
+        "overlays": ["combined-simple", "combined-detailed"],
+        "overlay_execution": "fast",
+        "live": true
+      },
+      "tags": [
+        "model:v3-lite",
+        "model:face-v2",
+        "pipeline:postprocess",
+        "shape:mixed",
+        "face-mask:eyes-ellipse",
+        "overlay:simple",
+        "overlay:detailed",
+        "overlay:fast",
+        "gui:live",
+        "quality:schema",
+        "quality:overlay"
+      ]
+    },
+    {
+      "id": "G03_v3lite_raw_no_postprocess",
+      "priority": "P0",
+      "budget_minutes": 8,
+      "pipeline_run": true,
+      "source_duration_minutes": 2,
+      "segmentation_model": "dinov3_codino_mh0",
+      "description": "性器推論のみ、後処理なし、生出力詳細overlayでも固定schemaを維持",
+      "settings": {
+        "mode": "segmentation",
+        "postprocess": "disabled",
+        "overlays": ["genital-detailed"],
+        "genital_source": "raw",
+        "overlay_execution": "fast"
+      },
+      "tags": [
+        "model:v3-lite",
+        "pipeline:no-postprocess",
+        "face-mask:none",
+        "overlay:detailed",
+        "overlay:fast",
+        "quality:schema"
+      ]
+    },
+    {
+      "id": "G04_facev2_privacy_shapes",
+      "priority": "P0",
+      "budget_minutes": 14,
+      "pipeline_run": true,
+      "source_duration_minutes": 1,
+      "repetitions": 4,
+      "face_model": "face_dino_v2",
+      "description": "顔のみをnone、eyes rectangle、eyes ellipse、full faceの4ジョブで生成",
+      "settings": {
+        "mode": "face",
+        "face_masks": ["none", "eyes-rectangle", "eyes-ellipse", "full-face"],
+        "overlays": ["face-simple", "face-detailed"],
+        "overlay_execution": "fast"
+      },
+      "tags": [
+        "model:face-v2",
+        "face-mask:none",
+        "face-mask:eyes-rectangle",
+        "face-mask:eyes-ellipse",
+        "face-mask:full-face",
+        "overlay:simple",
+        "overlay:detailed",
+        "quality:schema",
+        "quality:overlay"
+      ]
+    },
+    {
+      "id": "G05_legacy_models_short",
+      "priority": "P1",
+      "budget_minutes": 20,
+      "pipeline_run": true,
+      "source_duration_minutes": 0.75,
+      "description": "V1、V2、Face V1を短尺で起動し、正常終了と固定schemaだけを保証",
+      "subcases": [
+        "eva02_cascade+tensorrt-backbone",
+        "dinov3_cascade+tensorrt-backbone",
+        "rtdetr_head_face+pytorch"
+      ],
+      "tags": [
+        "model:v1",
+        "model:v2",
+        "model:face-v1",
+        "pipeline:postprocess",
+        "shape:polygon",
+        "shape:ellipse",
+        "quality:schema"
+      ]
+    },
+    {
+      "id": "G06_overlay_encoder_matrix",
+      "priority": "P1",
+      "budget_minutes": 12,
+      "pipeline_run": true,
+      "source_duration_minutes": 2,
+      "segmentation_model": "dinov3_codino_mh0",
+      "description": "同じ正常SQLiteをGUIの再利用入力としてCPU、NVENC、高速overlayへ渡す",
+      "settings": {
+        "reuse_inference_sqlite": true,
+        "overlay_executions": ["cpu", "nvenc", "fast"],
+        "overlays": ["combined-simple", "combined-detailed"]
+      },
+      "tags": [
+        "overlay:cpu",
+        "overlay:nvenc",
+        "overlay:fast",
+        "overlay:simple",
+        "overlay:detailed",
+        "quality:overlay",
+        "quality:performance"
+      ]
+    },
+    {
+      "id": "M01_metadata_mixed_batch",
+      "priority": "P0",
+      "budget_minutes": 20,
+      "pipeline_run": true,
+      "segmentation_model": "dinov3_codino_mh0",
+      "batch_size": 8,
+      "description": "短尺8本を同じGUI queueで処理し、container/codec/FPS/向き/audio/pathをpairwise網羅",
+      "fixtures": [
+        "golden_1080p2997_h264_aac.mp4",
+        "landscape_720p24_h265.mkv",
+        "portrait_720x1280_30_h264.mp4",
+        "vfr_pts_gap_h264.mp4",
+        "long_gop_bframes.mov",
+        "short_60fps.mp4",
+        "unicode_日本語 space.mp4",
+        "h264_noaudio.mp4"
+      ],
+      "settings": {
+        "mode": "segmentation",
+        "postprocess": "mixed-polygon-ellipse",
+        "overlays": ["genital-simple"],
+        "overlay_execution": "fast"
+      },
+      "tags": [
+        "model:v3-lite",
+        "pipeline:postprocess",
+        "media:portrait",
+        "media:vfr",
+        "media:h264",
+        "media:h265",
+        "media:mp4",
+        "media:mkv",
+        "media:mov",
+        "media:audio",
+        "media:no-audio",
+        "stress:batch",
+        "quality:cleanup"
+      ]
+    },
+    {
+      "id": "M02_4k_full_pipeline",
+      "priority": "P0",
+      "budget_minutes": 15,
+      "pipeline_run": true,
+      "source_duration_minutes": 0.33,
+      "segmentation_model": "dinov3_codino_mh0",
+      "face_model": "face_dino_v2",
+      "description": "4K 20秒、音声なしで推論・後処理・顔・詳細overlayと座標scaleを確認",
+      "settings": {
+        "mode": "segmentation-face",
+        "postprocess": "mixed-polygon-ellipse",
+        "face_mask": "full-face",
+        "overlays": ["combined-detailed"],
+        "overlay_execution": "fast"
+      },
+      "tags": [
+        "model:v3-lite",
+        "model:face-v2",
+        "pipeline:postprocess",
+        "media:4k",
+        "media:h265",
+        "media:no-audio",
+        "face-mask:full-face",
+        "overlay:detailed",
+        "quality:overlay"
+      ]
+    },
+    {
+      "id": "M03_invalid_then_valid_queue",
+      "priority": "P1",
+      "budget_minutes": 7,
+      "pipeline_run": true,
+      "description": "破損動画を明確に拒否し、未完成成果物を公開せず、後続の正常短尺を処理",
+      "fixtures": ["invalid_truncated.mp4", "golden_short.mp4"],
+      "expected_failure_count": 1,
+      "tags": [
+        "gui:source-queue",
+        "quality:cleanup"
+      ]
+    },
+    {
+      "id": "R01_cancel_each_phase",
+      "priority": "P0",
+      "budget_minutes": 20,
+      "pipeline_run": true,
+      "segmentation_model": "dinov3_codino_mh0",
+      "face_model": "face_dino_v2",
+      "description": "GUI停止を性器推論、顔推論、後処理、CPU overlayで各1回実行",
+      "cancel_phases": ["segmentation_inference", "face_inference", "postprocess", "overlay"],
+      "tags": [
+        "resilience:cancel-segmentation",
+        "resilience:cancel-face",
+        "resilience:cancel-postprocess",
+        "resilience:cancel-overlay",
+        "quality:cleanup",
+        "quality:memory"
+      ]
+    },
+    {
+      "id": "R02_close_relaunch_resume",
+      "priority": "P0",
+      "budget_minutes": 15,
+      "pipeline_run": true,
+      "segmentation_model": "dinov3_codino_mh0",
+      "description": "running中の通常closeと強制close、再起動後の状態、resumeと最初から再処理",
+      "tags": [
+        "resilience:close-running",
+        "resilience:resume",
+        "quality:cleanup",
+        "quality:memory"
+      ]
+    },
+    {
+      "id": "R03_collision_and_reprocess",
+      "priority": "P1",
+      "budget_minutes": 10,
+      "pipeline_run": true,
+      "segmentation_model": "dinov3_codino_mh0",
+      "description": "同じ入力を3回処理し、_2/_3、input履歴、output queue、open-outputを確認",
+      "tags": [
+        "gui:reprocess",
+        "gui:output-queue",
+        "resilience:output-collision",
+        "quality:cleanup"
+      ]
+    },
+    {
+      "id": "S02_ten_item_batch",
+      "priority": "P0",
+      "budget_minutes": 30,
+      "pipeline_run": true,
+      "batch_size": 10,
+      "segmentation_model": "dinov3_codino_mh0",
+      "face_model": "face_dino_v2",
+      "description": "内容・解像度・長さが異なる10本を連続処理し、job間解放とqueue整合を確認",
+      "tags": [
+        "model:v3-lite",
+        "model:face-v2",
+        "stress:batch",
+        "gui:source-queue",
+        "gui:output-queue",
+        "quality:cleanup",
+        "quality:memory",
+        "quality:performance"
+      ]
+    },
+    {
+      "id": "S03_live_on_off_ab",
+      "priority": "P1",
+      "budget_minutes": 10,
+      "pipeline_run": true,
+      "source_duration_minutes": 5,
+      "repetitions": 2,
+      "segmentation_model": "dinov3_codino_mh0",
+      "face_model": "face_dino_v2",
+      "description": "同じ動画・設定でLIVE OFF/ONを比較し、速度影響、heartbeat、dropped、phase静止を測定",
+      "tags": [
+        "gui:live",
+        "model:v3-lite",
+        "model:face-v2",
+        "quality:performance",
+        "quality:memory"
+      ]
+    }
+  ]
+}

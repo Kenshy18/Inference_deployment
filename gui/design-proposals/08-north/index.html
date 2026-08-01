@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mask Pipeline Studio — North</title>
+<style>
+/* ================= NORTH — tokens ================= */
+:root{
+  --bg:#1A1B1E;            /* canvas + inset wells + fields */
+  --panel:#202124;         /* panels, top/status bars */
+  --raised:#26272B;        /* buttons, chips, active surfaces */
+  --raised2:#2E3035;       /* segment active cell, hover */
+  --hover:#232428;         /* row hover / quiet raise / disabled fill */
+  --line:rgba(255,255,255,.08);
+  --line-soft:rgba(255,255,255,.05);
+  --line-strong:rgba(255,255,255,.13);
+  --track:rgba(255,255,255,.07);  /* every progress/slider groove */
+  --done-fill:#3E5A78;            /* every completed bar / link fill */
+  --t1:#E0E1E4; --t2:#A4A6AB; --t3:#6F7176;
+  --acc:#5490DE; --acc-text:#7AA6E0;
+  --ok:#5EA87D; --warn:#C9A35C; --err:#CC6E62; --err-text:#D98A7F;
+  --r:6px; --r-s:4px; --r-xs:3px;
+  --ui:"Segoe UI Variable Text","Segoe UI",system-ui,"Helvetica Neue",Arial,"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
+  --mono:"Cascadia Code","Cascadia Mono",Consolas,"SF Mono",ui-monospace,Menlo,"Noto Sans JP",monospace;
+  --c-fps:#6D9BD3; --c-gpu:#9C89C6; --c-cpu:#66AC9C; --c-vram:#C79B6A; --c-mem:#7FB2C9; --c-temp:#C57F76;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--t1);font:400 13px/1.5 var(--ui);overflow:hidden;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:rgba(84,144,222,.38)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:disabled{cursor:default}
+input,select,textarea{font:inherit;color:var(--t1)}
+:focus{outline:none}
+:focus-visible{outline:2px solid rgba(102,160,230,.85);outline-offset:1px}
+[hidden]{display:none!important}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#35373C;border-radius:5px;border:2px solid var(--panel);background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#3F4147;border:2px solid var(--panel);background-clip:padding-box}
+::-webkit-scrollbar-corner{background:transparent}
+svg.ic{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.micro{font-family:var(--ui);font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+
+/* ================= frame ================= */
+.viewport{height:100vh;overflow:auto}
+.app{height:100vh;min-height:720px;min-width:1280px;display:flex;flex-direction:column;background:var(--bg)}
+.main{flex:1;min-height:0;display:grid;grid-template-columns:250px 6px minmax(0,1fr) 6px 296px;padding:6px 8px 0}
+.split{cursor:col-resize}
+.hsplit{height:6px;flex:none;cursor:row-resize}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+.phead{height:34px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--line)}
+.ptitle{color:var(--t2)}
+.pmeta{font-size:11px;color:var(--t3)}
+.pbody{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}
+
+/* ================= topbar ================= */
+.topbar{height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;
+  background:var(--panel);border-bottom:1px solid var(--line)}
+.logo{width:28px;height:28px;flex:none;display:grid;place-items:center;background:var(--raised);
+  border:1px solid var(--line);border-radius:var(--r);color:var(--t2)}
+.fchip{height:28px;display:flex;align-items:center;gap:8px;padding:0 10px;background:var(--raised);
+  border:1px solid var(--line);border-radius:var(--r)}
+.fchip .k{color:var(--t3)}
+.fchip .v{font-size:12px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.tsp{flex:1}
+.btn{height:28px;display:inline-flex;align-items:center;gap:8px;padding:0 12px;font-size:12px;font-weight:600;
+  background:var(--raised);border:1px solid var(--line-strong);border-radius:var(--r);color:var(--t1)}
+.btn:hover:not(:disabled){background:var(--raised2)}
+.btn:disabled{color:var(--t3);border-color:var(--line);background:var(--hover)}
+.btn.danger{color:var(--err-text);border-color:rgba(204,110,98,.5)}
+.btn.danger:hover{background:#2B2426}
+
+/* ================= common controls ================= */
+.field{height:26px;padding:0 8px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);
+  font-size:12px;color:var(--t1);width:100%;min-width:0}
+.field::placeholder{color:var(--t3)}
+.field:disabled{color:#8E9095}
+textarea.field{height:54px;padding:4px 8px;resize:none;line-height:1.45}
+.num-f{width:72px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.unit{font-size:11px;color:var(--t3);flex:none}
+.pathrow{display:flex;gap:6px;align-items:center}
+.pathrow .field{font-family:var(--mono)}
+.fbtn{width:26px;height:26px;flex:none;display:grid;place-items:center;background:var(--raised);
+  border:1px solid var(--line);border-radius:var(--r);color:var(--t2)}
+.fbtn:hover:not(:disabled){background:var(--raised2)}
+.seg{display:inline-flex;gap:2px;padding:2px;height:26px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r)}
+.seg button{padding:0 10px;border-radius:var(--r-s);font-size:12px;color:var(--t2);display:flex;align-items:center;white-space:nowrap}
+.seg button.on{background:var(--raised2);color:var(--t1)}
+.seg.grow{display:flex}
+.seg.grow button{flex:1;justify-content:center}
+.seg.tight button{display:block;min-width:0;padding:0 4px;line-height:22px;text-align:center;
+  overflow:hidden;text-overflow:ellipsis;font-feature-settings:"palt"}
+.sel{height:26px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 6px 0 8px;
+  background:var(--bg);border:1px solid var(--line);border-radius:var(--r);font-size:12px;color:var(--t1);width:100%;min-width:0;text-align:left}
+.sel .ic{width:12px;height:12px;color:var(--t3)}
+.sel span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.check{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--t1);white-space:nowrap}
+.cbox{width:15px;height:15px;flex:none;display:grid;place-items:center;border-radius:var(--r-xs);
+  border:1px solid #46484E;background:var(--bg);color:#fff}
+.cbox svg{width:9px;height:9px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:none}
+.cbox.on{background:var(--acc);border-color:var(--acc)}
+.cbox.on svg{display:block}
+.slider{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+.sl-track{flex:1;height:4px;border-radius:2px;background:var(--track);position:relative}
+.sl-track i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc)}
+.sl-track b{position:absolute;top:50%;width:12px;height:12px;border-radius:50%;background:#C9CBCF;transform:translate(-50%,-50%)}
+.sl-v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--t2);width:34px;text-align:right}
+.dis{opacity:.58;pointer-events:none}
+
+/* ================= source pane ================= */
+.src-body{padding-bottom:10px}
+.repo{padding:10px 12px 2px}
+.flabel{font-size:12px;color:var(--t2);margin-bottom:4px}
+.hint{font-size:11px;color:var(--t3);margin-top:4px}
+.lsub{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;margin-top:8px;white-space:nowrap;
+  border-top:1px solid var(--line-soft);font-size:11px;font-weight:600;color:var(--t2)}
+.lsub .note{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:10px;font-weight:400;color:var(--t3)}
+.lsub .sp{flex:1;min-width:4px}
+.lsub .subhint{font-size:10px;font-weight:400;color:var(--t3);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.minibtn{height:22px;display:inline-flex;align-items:center;gap:4px;padding:0 8px;font-size:11px;font-weight:600;
+  color:var(--t2);background:var(--raised);border:1px solid var(--line);border-radius:var(--r-s)}
+.minibtn:hover{background:var(--raised2);color:var(--t1)}
+.minibtn .ic{width:11px;height:11px}
+.qlist{display:flex;flex-direction:column;gap:4px;padding:2px 6px 0}
+.qitem{position:relative;display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:6px;border:1px solid transparent;border-radius:var(--r);overflow:hidden;text-align:left}
+.qitem:hover{background:var(--hover)}
+.qitem.is-proc{background:var(--hover);border-color:var(--line)}
+.thumb{position:relative;width:48px;height:27px;border-radius:var(--r-xs);overflow:hidden;background:var(--hover)}
+.thumb svg{display:block;width:100%;height:100%}
+.dur{position:absolute;right:2px;bottom:2px;padding:0 4px;border-radius:2px;background:rgba(12,13,15,.75);
+  font:500 10px/14px var(--mono);font-variant-numeric:tabular-nums;color:#C9CBCE}
+.qmain{min-width:0}
+.qtitle{display:block;font-size:12px;font-weight:600;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qmeta{display:block;font-size:11px;color:var(--t3);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.qbadge{flex:none;padding:1px 5px;border-radius:var(--r-xs);border:1px solid var(--line);font-size:10px;font-weight:600;color:var(--t2);white-space:nowrap}
+.qbadge.is-proc{color:var(--acc-text);border-color:rgba(84,144,222,.45)}
+.qbadge.is-done{color:var(--ok);border-color:rgba(94,168,125,.4)}
+.qbadge.is-fail{color:var(--err-text);border-color:rgba(204,110,98,.45)}
+.qprog{position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--track)}
+.qprog i{display:block;height:100%;background:var(--acc)}
+.oitem{width:calc(100% - 12px);margin:2px 6px 0;display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:6px;border:1px solid transparent;border-radius:var(--r);text-align:left}
+.oitem:hover{background:var(--hover);border-color:var(--line)}
+.oitem .ic{color:var(--t3)}
+
+/* ================= monitor ================= */
+.tabs{display:flex;gap:14px;align-self:stretch;margin-left:6px}
+.tab{position:relative;display:flex;align-items:center;color:var(--t3)}
+.tab:hover{color:var(--t2)}
+.tab.on{color:var(--t1)}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--acc)}
+.jobchip{margin-left:auto;height:22px;display:flex;align-items:center;padding:0 8px;border:1px solid var(--line);
+  border-radius:var(--r-s);font:500 10px var(--mono);font-variant-numeric:tabular-nums;color:var(--t3);white-space:nowrap}
+.mon-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.tabpane{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px;padding:14px}
+.hud{display:flex;font:500 11px var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.04em;color:var(--t3)}
+.hud span{flex:1}
+.hud .c{text-align:center}
+.hud .r{text-align:right;letter-spacing:normal} /* JP — never letterspaced */
+.hud .run{color:var(--acc-text)}
+/* flow */
+.flow{display:flex;align-items:stretch;flex:none}
+.fnode{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;
+  display:flex;flex-direction:column;gap:4px}
+.fnode.is-active{border-color:rgba(84,144,222,.65)}
+.fn-top{display:flex;align-items:center;gap:6px}
+.fn-num{font:600 10px var(--mono);color:var(--t3);letter-spacing:.05em}
+.fn-badge{font-size:10px;font-weight:600;color:var(--t3);border:1px solid var(--line);border-radius:2px;padding:0 4px}
+.fn-dot{margin-left:auto;width:6px;height:6px;border-radius:50%;background:#45474C}
+.fnode.is-done .fn-dot{background:var(--ok)}
+.fnode.is-active .fn-dot{background:var(--acc)}
+.fn-name{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden}
+.fn-name .ic{width:13px;height:13px;color:var(--t2)}
+.fnode.is-wait .fn-name{color:var(--t2)}
+.fnode.is-wait .fn-name .ic{color:var(--t3)}
+.fn-val{font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fn-bar{height:3px;border-radius:2px;background:var(--track);margin-top:2px;overflow:hidden}
+.fn-bar i{display:block;height:100%;background:var(--done-fill)}
+.fnode.is-active .fn-bar i{background:var(--acc)}
+.flink{flex:none;width:14px;height:1px;background:var(--line-strong);align-self:center}
+.flink.is-done{background:var(--done-fill)}
+/* scopes */
+.scopes{flex:1;min-height:150px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:10px}
+.scope{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;
+  display:flex;flex-direction:column;min-height:0}
+.s-h{display:flex;align-items:baseline;justify-content:space-between}
+.s-l{color:var(--t3)}
+.s-v{font:600 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--t1)}
+.s-v em{font:400 10px var(--ui);font-style:normal;color:var(--t3);margin-left:3px}
+.s-c{flex:1;min-height:28px;margin:6px 0 4px}
+.s-c svg{display:block;width:100%;height:100%}
+.s-c line{stroke:rgba(255,255,255,.05);stroke-width:1;vector-effect:non-scaling-stroke}
+.s-c polygon{fill-opacity:.09;stroke:none}
+.s-c polyline{fill:none;stroke-width:1.25;vector-effect:non-scaling-stroke}
+.s-a{display:flex;justify-content:space-between;font:400 10px var(--mono);font-variant-numeric:tabular-nums;color:var(--t3)}
+/* readout + timeline */
+.readout{display:flex;align-items:center;gap:16px;flex:none}
+.ro-pct{font:600 20px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--t1)}
+.ro-sum{font-size:12px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ro-eta{margin-left:auto;display:flex;flex:none}
+.eta{display:flex;flex-direction:column;align-items:flex-end;gap:1px;padding:0 14px}
+.eta + .eta{border-left:1px solid var(--line)}
+.eta:last-child{padding-right:0}
+.eta-v{font:600 13px var(--mono);font-variant-numeric:tabular-nums;color:var(--t1)}
+.eta-l{font-size:11px;color:var(--t3)}
+.tl{flex:none;display:flex;height:30px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--bg)}
+.tl-cell{flex:1;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;
+  font:500 11px var(--mono);color:var(--t3);border-left:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-cell:first-child{border-left:0}
+.tl-cell.is-active{color:var(--t1)}
+.tl-cell.is-active i{position:absolute;left:0;bottom:0;height:2px;background:var(--acc)}
+/* phase grid */
+.phases{flex:none;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.phase{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px}
+.ph-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.ph-l{font-size:12px;font-weight:600;color:var(--t1)}
+.ph-p{font:600 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--acc-text)}
+.phase.is-done .ph-p{color:var(--t2)}
+.phase.is-wait .ph-l{color:var(--t2)}
+.phase.is-wait .ph-p{color:var(--t3)}
+.ph-track{height:4px;border-radius:2px;background:var(--track);margin:8px 0 4px;overflow:hidden}
+.ph-track i{display:block;height:100%;background:var(--acc)}
+.phase.is-done .ph-track i{background:var(--done-fill)}
+.ph-m{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--t3)}
+.ph-m .cnt{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* metrics strip */
+.mstrip{flex:none;height:38px;display:flex;align-items:stretch;border-top:1px solid var(--line)}
+.mcell{flex:1 1 auto;display:flex;align-items:center;gap:8px;padding:0 14px;border-left:1px solid var(--line-soft);min-width:0}
+.mcell:first-child{border-left:0}
+.m-l{font-size:11px;color:var(--t3);white-space:nowrap}
+.m-v{font:500 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* live tab */
+.live-stage{flex:1;min-height:0;position:relative;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);
+  overflow:hidden;display:grid;place-items:center}
+.live-stage > svg{width:100%;height:100%;object-fit:contain}
+.live-badge{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;height:20px;padding:0 8px;
+  border-radius:var(--r-xs);background:rgba(12,13,15,.72);color:var(--t1)}
+.live-badge i{width:6px;height:6px;border-radius:50%;background:var(--err)}
+.live-meta{flex:none;display:flex;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);height:44px}
+.lm{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px;padding:0 12px;border-left:1px solid var(--line-soft)}
+.lm:first-child{border-left:0}
+.lm .k{color:var(--t3)}
+.lm .v{font:500 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ================= inspector ================= */
+.vt{display:inline-flex;gap:2px;padding:2px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);margin-left:auto}
+.vt button{height:20px;padding:0 8px;border-radius:var(--r-s);font-size:11px;color:var(--t2)}
+.vt button.on{background:var(--raised2);color:var(--t1)}
+.isec{border-bottom:1px solid var(--line-soft)}
+.isec-h{width:100%;height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;text-align:left}
+.isec-h:hover{background:var(--hover)}
+.isec-h .chev{width:12px;height:12px;color:var(--t3);transition:transform .15s}
+.isec.is-open .isec-h .chev{transform:rotate(90deg)}
+.isec-t{font-size:12px;font-weight:600;color:var(--t1)}
+.ibadge{margin-left:auto;padding:1px 7px;border-radius:var(--r-xs);border:1px solid var(--line);
+  font:600 10px var(--mono);color:var(--t2);white-space:nowrap}
+.ibadge.is-ok{color:var(--ok);border-color:rgba(94,168,125,.4)}
+.isec-b{display:none;padding:2px 0 12px}
+.isec.is-open .isec-b{display:block}
+.row{display:flex;align-items:center;gap:8px;min-height:28px;padding:1px 12px}
+.rlabel{width:96px;flex:none;font-size:12px;line-height:1.35;color:var(--t2)}
+.rctl{flex:1;min-width:0;display:flex;align-items:center;gap:6px}
+.rctl > .check{white-space:normal;align-items:flex-start;line-height:18px}
+.rctl > .check .cbox{margin-top:2px}
+.row.stack{display:block;padding-top:4px;padding-bottom:2px}
+.row.stack .rlabel{display:block;width:auto;margin-bottom:4px}
+.row.is-off .rlabel,.row.is-off .rctl{opacity:.55}
+.rhint{padding:0 12px 4px 116px;font-size:11px;color:var(--t3)}
+.rhint.full{padding-left:12px}
+.sub{margin:10px 12px 2px;padding-top:8px;border-top:1px solid var(--line-soft);
+  font-size:11px;font-weight:600;color:var(--t2)}
+.checks{display:flex;flex-wrap:wrap;gap:4px 16px}
+.checks.col{flex-direction:column;align-items:flex-start;gap:4px}
+.checks.grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
+.ctable{margin-top:2px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--bg)}
+.ctr{display:grid;grid-template-columns:minmax(0,1fr) 102px 60px;align-items:center;border-top:1px solid var(--line-soft)}
+.ctr:first-child{border-top:0}
+.ctr.head span{font-size:10px;color:var(--t3);padding:3px 8px}
+.ctr > *{padding:3px 8px;min-width:0}
+.ct-name{font-size:12px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg.mini{height:20px;padding:1px;gap:1px}
+.seg.mini button{padding:0 5px;font-size:10px;border-radius:2px}
+.ct-kf{display:flex;align-items:center;gap:4px}
+.ct-kf input{height:20px;width:30px;padding:0 4px;font-size:11px}
+/* 4-column クラス別ルール editor (詳細) */
+.ctr.r4{grid-template-columns:minmax(0,1fr) 80px 38px 38px 22px}
+.ctr.r4 > *{padding:3px 4px}
+.ctr.r4.head span{padding:3px 4px}
+.ctr.r4 .ct-name{font-size:11px;font-feature-settings:"palt"}
+.ctr.r4 .seg.mini button{padding:0 2px}
+.ctr.r4 .ct-rmc{padding:0;display:grid;place-items:center}
+.ct-rm{width:16px;height:16px;display:grid;place-items:center;border:1px solid var(--line);border-radius:var(--r-xs);
+  color:var(--t3);font:400 12px/1 var(--mono)}
+.ct-rm:hover{background:var(--raised2);color:var(--t1)}
+.insp:not(.is-adv) .adv{display:none}
+.insp.is-adv .simple-only{display:none}
+
+/* ================= console ================= */
+.conwrap{flex:none;height:220px;margin:0 8px 6px}
+.conwrap .panel{height:100%}
+.con-head{height:30px}
+.con-meta{font:500 10px var(--mono);color:var(--t3);border:1px solid var(--line);border-radius:var(--r-s);padding:0 6px;line-height:18px}
+.con-sp{flex:1}
+.con-follow{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t2)}
+.con-follow .cbox{width:13px;height:13px}
+.con-filter{height:22px;width:150px;padding:0 8px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-s);
+  font-size:11px;color:var(--t1)}
+.con-filter::placeholder{color:var(--t3)}
+.con-count{font:400 10px var(--mono);font-variant-numeric:tabular-nums;color:var(--t3)}
+.con-body{flex:1;min-height:0;overflow:auto;padding:4px 0;font:400 11px/15px var(--mono);font-variant-numeric:tabular-nums}
+.cl{display:flex;white-space:pre}
+.cl .ln{flex:none;width:42px;text-align:right;padding-right:12px;color:var(--t3);user-select:none}
+.cl .ct{color:var(--t2)}
+.cl .ct i{font-style:normal;color:#7C9CC4}
+.cl.cmd .ct{color:#CDCFD3}
+.cl.cmd .ct b{font-weight:600}
+
+/* ================= statusbar ================= */
+.statusbar{height:26px;flex:none;display:flex;align-items:center;gap:16px;padding:0 12px;
+  background:var(--panel);border-top:1px solid var(--line);font-size:11px;color:var(--t3)}
+.sb-status{display:flex;align-items:center;gap:8px;color:var(--t1);font-weight:600;font-size:11px}
+.sb-dot{width:7px;height:7px;border-radius:50%;background:var(--acc);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
+.sb i{font-style:normal;color:var(--t3)}
+.sb b{font-weight:400;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--t2);margin-left:4px}
+.sb-r{margin-left:auto;display:flex;align-items:center;gap:16px}
+.sb-path{font-family:var(--mono);color:var(--t3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ================= responsive tightening (1366) ================= */
+@media (max-width:1520px){
+  .tabpane{padding:10px;gap:8px}
+  .scopes{gap:8px;min-height:118px}
+  .s-c{min-height:20px;margin:4px 0 2px}
+  .fnode{padding:6px 8px;gap:2px}
+  .flink{width:10px}
+  .ro-pct{font-size:18px}
+  .phases{gap:8px}
+  .phase{padding:6px 10px}
+  .ph-track{margin:4px 0 4px}
+  .mcell{padding:0 10px}
+  .mstrip{height:34px}
+  .eta{padding:0 10px}
+  .sb-path{max-width:180px}
+  .tl{height:26px}
+  .conwrap{height:206px}
+  .con-body{line-height:14px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs>
+  <filter id="blur6" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="5"/></filter>
+  <filter id="blur12" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="7"/></filter>
+  <symbol id="i-film" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M5.5 3v10M10.5 3v10M2.5 6.5h3M2.5 9.5h3M10.5 6.5h3M10.5 9.5h3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 2h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></symbol>
+  <symbol id="i-chd" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></symbol>
+  <symbol id="i-chr" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></symbol>
+  <symbol id="i-video" viewBox="0 0 16 16"><rect x="2" y="4.5" width="8.5" height="7" rx="1"/><path d="M10.5 7.5l3.5-2v5l-3.5-2z"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 16 16"><rect x="4.5" y="4.5" width="7" height="7" rx="1"/><path d="M6.5 1.8v2.7M9.5 1.8v2.7M6.5 11.5v2.7M9.5 11.5v2.7M1.8 6.5h2.7M1.8 9.5h2.7M11.5 6.5h2.7M11.5 9.5h2.7"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.8 8s2.4-4.3 6.2-4.3S14.2 8 14.2 8 11.8 12.3 8 12.3 1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.9"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 16 16"><path d="M8 2.5l6 3-6 3-6-3z"/><path d="M2 10.5l6 3 6-3"/></symbol>
+  <symbol id="i-db" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5.5" ry="2"/><path d="M2.5 4v8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2V4"/><path d="M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"/></symbol>
+</defs>
+</svg>
+
+<div class="viewport">
+<div class="app">
+
+  <!-- ============ TOPBAR ============ -->
+  <header class="topbar">
+    <div class="logo"><svg class="ic"><use href="#i-film"/></svg></div>
+    <div class="fchip" title="入力キューの状態"><span class="k micro">Queue</span><span class="v">4本 · 残り2</span></div>
+    <div class="fchip" title="/home/user/videos/mask_out"><span class="k micro">Out</span><span class="v">mask_out</span></div>
+    <div class="tsp"></div>
+    <button class="btn" disabled title="設定と入力だけを検証 (Ctrl+D)"><svg class="ic"><use href="#i-check"/></svg>Dry Run</button>
+    <button class="btn danger" title="キューの処理を停止 (Esc)"><svg class="ic"><use href="#i-stop"/></svg>停止</button>
+  </header>
+
+  <div class="main">
+
+    <!-- ============ SOURCE ============ -->
+    <section class="panel">
+      <div class="phead"><span class="ptitle micro">Source</span><span class="pmeta mono">4本</span></div>
+      <div class="pbody src-body">
+        <div class="repo">
+          <div class="flabel">出力リポジトリ</div>
+          <div class="pathrow">
+            <input class="field" value="/home/user/videos/mask_out" placeholder="全ジョブ共通の出力先" disabled>
+            <button class="fbtn" title="参照…" disabled><svg class="ic" style="width:13px;height:13px"><use href="#i-folder"/></svg></button>
+          </div>
+          <div class="hint">処理中は変更できません</div>
+        </div>
+
+        <div class="lsub"><span>入力キュー</span><span class="note">残り2</span><span class="sp"></span>
+          <button class="minibtn" title="動画ファイルを選択して追加"><svg class="ic"><use href="#i-plus"/></svg>追加</button>
+        </div>
+        <div class="qlist">
+          <div class="qitem" title="/home/user/videos/interview_a_1080p.mp4&#10;右クリックで操作">
+            <span class="thumb">
+              <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice"><rect width="96" height="54" fill="#2C2E32"/><g filter="url(#blur6)"><rect x="10" y="18" width="24" height="32" rx="8" fill="#585D63"/><rect x="58" y="20" width="23" height="30" rx="8" fill="#4A4F55"/><rect x="30" y="4" width="42" height="9" rx="4" fill="#666B71" opacity=".55"/></g></svg>
+            </span>
+            <span class="qmain">
+              <span class="qtitle">interview_a_1080p</span>
+              <span class="qmeta">V3 + Face V2 · ポリゴン · overlay fast</span>
+            </span>
+            <span class="qbadge is-done">処理済み</span>
+          </div>
+          <div class="qitem is-proc" title="/home/user/videos/studio_b_4k.mp4&#10;右クリックで操作">
+            <span class="thumb">
+              <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice"><rect width="96" height="54" fill="#303236"/><g filter="url(#blur6)"><rect x="36" y="12" width="26" height="36" rx="9" fill="#6C7177"/><rect x="6" y="38" width="84" height="12" rx="3" fill="#45484D"/><rect x="8" y="6" width="20" height="16" rx="3" fill="#53575D" opacity=".7"/></g></svg>
+            </span>
+            <span class="qmain">
+              <span class="qtitle">studio_b_4k</span>
+              <span class="qmeta">V3 + Face V2 · ポリゴン · overlay fast</span>
+            </span>
+            <span class="qbadge is-proc">処理中</span>
+            <span class="qprog"><i style="width:46%"></i></span>
+          </div>
+          <div class="qitem" title="/home/user/videos/daily_scrum_720p.mp4&#10;右クリックで操作">
+            <span class="thumb">
+              <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice"><rect width="96" height="54" fill="#2A2D31"/><g filter="url(#blur6)"><rect x="8" y="22" width="18" height="26" rx="7" fill="#51565C"/><rect x="40" y="20" width="18" height="28" rx="7" fill="#585D63"/><rect x="70" y="24" width="17" height="24" rx="7" fill="#4B5056"/><rect x="14" y="4" width="68" height="8" rx="3" fill="#61666C" opacity=".5"/></g></svg>
+              <span class="dur">05:21</span>
+            </span>
+            <span class="qmain">
+              <span class="qtitle">daily_scrum_720p</span>
+              <span class="qmeta">05:21 · 1280×720 · 30.00 fps</span>
+            </span>
+            <span class="qbadge">未処理</span>
+          </div>
+          <div class="qitem" title="/home/user/videos/night_walk_b_1080p.mp4&#10;右クリックで操作">
+            <span class="thumb">
+              <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice"><rect width="96" height="54" fill="#1C1D21"/><g filter="url(#blur6)"><rect x="0" y="34" width="96" height="12" rx="2" fill="#35383D"/><rect x="40" y="16" width="14" height="22" rx="5" fill="#3E4147"/></g><rect x="12" y="12" width="3" height="3" rx="1" fill="#A9ADB2"/><rect x="74" y="9" width="3" height="3" rx="1" fill="#93979D"/><rect x="58" y="14" width="2" height="2" rx="1" fill="#7C8086"/></svg>
+              <span class="dur">03:47</span>
+            </span>
+            <span class="qmain">
+              <span class="qtitle">night_walk_b_1080p</span>
+              <span class="qmeta">03:47 · 1920×1080 · 59.94 fps</span>
+            </span>
+            <span class="qbadge">未処理</span>
+          </div>
+        </div>
+
+        <div class="lsub"><span>出力キュー</span><span class="note">1本完了</span><span class="sp"></span><span class="subhint">クリックでフォルダを開く</span></div>
+        <button class="oitem" title="/home/user/videos/mask_out/interview_a_1080p&#10;クリックして出力フォルダを開く" aria-label="出力フォルダを開く">
+          <span class="thumb">
+            <svg viewBox="0 0 96 54" preserveAspectRatio="xMidYMid slice"><rect width="96" height="54" fill="#2C2E32"/><g filter="url(#blur6)"><rect x="10" y="18" width="24" height="32" rx="8" fill="#585D63"/><rect x="58" y="20" width="23" height="30" rx="8" fill="#4A4F55"/><rect x="30" y="4" width="42" height="9" rx="4" fill="#666B71" opacity=".55"/></g></svg>
+          </span>
+          <span class="qmain">
+            <span class="qtitle">interview_a_1080p</span>
+            <span class="qmeta">08/01 10:52 · 9成果物 · V3 + Face V2 · ポリゴン · overlay fast</span>
+          </span>
+          <svg class="ic"><use href="#i-folder"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <div class="split" aria-hidden="true"></div>
+
+    <!-- ============ MONITOR ============ -->
+    <section class="panel">
+      <div class="phead">
+        <span class="ptitle micro">Monitor</span><span class="pmeta">性器 + 顔</span>
+        <div class="tabs" role="tablist" aria-label="Monitor view">
+          <button class="tab micro on" role="tab" aria-selected="true" data-pane="status">Status</button>
+          <button class="tab micro" role="tab" aria-selected="false" data-pane="live">Live</button>
+        </div>
+        <span class="jobchip">JOB 2026-08-01T10-58-24</span>
+      </div>
+      <div class="mon-body">
+
+        <!-- STATUS tab -->
+        <div class="tabpane" id="pane-status" role="tabpanel">
+          <div class="hud">
+            <span>PIPELINE · 6 STEPS</span>
+            <span class="c">BATCH 2 / 4</span>
+            <span class="r"><span class="run">実行中</span> · 性器推論</span>
+          </div>
+
+          <div class="flow">
+            <div class="fnode is-done">
+              <span class="fn-top"><span class="fn-num">01</span><span class="fn-dot"></span></span>
+              <span class="fn-name"><svg class="ic"><use href="#i-video"/></svg>入力</span>
+              <span class="fn-val">studio_b_4k</span>
+              <span class="fn-bar"><i style="width:100%"></i></span>
+            </div>
+            <span class="flink is-done"></span>
+            <div class="fnode is-active">
+              <span class="fn-top"><span class="fn-num">02</span><span class="fn-dot"></span></span>
+              <span class="fn-name"><svg class="ic"><use href="#i-cpu"/></svg>性器推論</span>
+              <span class="fn-val">V3</span>
+              <span class="fn-bar"><i style="width:45%"></i></span>
+            </div>
+            <span class="flink is-done"></span>
+            <div class="fnode is-done">
+              <span class="fn-top"><span class="fn-num">03</span><span class="fn-dot"></span></span>
+              <span class="fn-name"><svg class="ic"><use href="#i-eye"/></svg>顔推論</span>
+              <span class="fn-val">Face V2</span>
+              <span class="fn-bar"><i style="width:100%"></i></span>
+            </div>
+            <span class="flink"></span>
+            <div class="fnode is-wait">
+              <span class="fn-top"><span class="fn-num">04</span><span class="fn-dot"></span></span>
+              <span class="fn-name"><svg class="ic"><use href="#i-layers"/></svg>後処理</span>
+              <span class="fn-val">3クラス個別 · カット先行</span>
+              <span class="fn-bar"></span>
+            </div>
+            <span class="flink"></span>
+            <div class="fnode is-wait">
+              <span class="fn-top"><span class="fn-num">05</span><span class="fn-dot"></span></span>
+              <span class="fn-name"><svg class="ic"><use href="#i-film"/></svg>オーバーレイ</span>
+              <span class="fn-val">2本 · 高速</span>
+              <span class="fn-bar"></span>
+            </div>
+            <span class="flink"></span>
+            <div class="fnode is-wait">
+              <span class="fn-top"><span class="fn-num">06</span><span class="fn-dot"></span></span>
+              <span class="fn-name"><svg class="ic"><use href="#i-db"/></svg>出力</span>
+              <span class="fn-val">SQLite + 動画</span>
+              <span class="fn-bar"></span>
+            </div>
+          </div>
+
+          <div class="scopes">
+            <div class="scope">
+              <div class="s-h"><span class="s-l micro">FPS</span><span class="s-v">21.4<em>fps</em></span></div>
+              <div class="s-c"><svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true">
+                <line x1="0" y1="14" x2="300" y2="14"/><line x1="0" y1="28" x2="300" y2="28"/><line x1="0" y1="42" x2="300" y2="42"/>
+                <polygon fill="#6D9BD3" points="0,14 10,13 20,14.5 30,12.5 40,13.8 50,12 60,13 70,11.5 80,12.8 90,11 100,12.2 110,10.5 120,12 130,11.2 140,9.8 150,11.4 160,10.2 170,11.6 180,9.4 190,10.8 200,8.6 210,10.2 220,9.2 230,10.6 240,6.9 250,9.6 260,8.8 270,10 280,8.4 290,9.4 300,8.8 300,56 0,56"/>
+                <polyline stroke="#6D9BD3" points="0,14 10,13 20,14.5 30,12.5 40,13.8 50,12 60,13 70,11.5 80,12.8 90,11 100,12.2 110,10.5 120,12 130,11.2 140,9.8 150,11.4 160,10.2 170,11.6 180,9.4 190,10.8 200,8.6 210,10.2 220,9.2 230,10.6 240,6.9 250,9.6 260,8.8 270,10 280,8.4 290,9.4 300,8.8"/>
+              </svg></div>
+              <div class="s-a"><span>peak 23.9</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="s-h"><span class="s-l micro">GPU</span><span class="s-v">97<em>%</em></span></div>
+              <div class="s-c"><svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true">
+                <line x1="0" y1="14" x2="300" y2="14"/><line x1="0" y1="28" x2="300" y2="28"/><line x1="0" y1="42" x2="300" y2="42"/>
+                <polygon fill="#9C89C6" points="0,7 10,6 20,6.6 30,5.4 40,6.2 50,5.8 60,6.6 70,5.2 80,6 90,5.6 100,6.4 110,5 120,5.8 130,6.4 140,10.4 150,6 160,5.4 170,6.2 180,4.8 190,5.8 200,6.6 210,5.2 220,5.8 230,4.9 240,5.6 250,6.2 260,5 270,5.7 280,4.8 290,5.5 300,5.2 300,56 0,56"/>
+                <polyline stroke="#9C89C6" points="0,7 10,6 20,6.6 30,5.4 40,6.2 50,5.8 60,6.6 70,5.2 80,6 90,5.6 100,6.4 110,5 120,5.8 130,6.4 140,10.4 150,6 160,5.4 170,6.2 180,4.8 190,5.8 200,6.6 210,5.2 220,5.8 230,4.9 240,5.6 250,6.2 260,5 270,5.7 280,4.8 290,5.5 300,5.2"/>
+              </svg></div>
+              <div class="s-a"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="s-h"><span class="s-l micro">CPU</span><span class="s-v">34<em>%</em></span></div>
+              <div class="s-c"><svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true">
+                <line x1="0" y1="14" x2="300" y2="14"/><line x1="0" y1="28" x2="300" y2="28"/><line x1="0" y1="42" x2="300" y2="42"/>
+                <polygon fill="#66AC9C" points="0,40 10,38.5 20,39.6 30,37.8 40,39 50,40.2 60,38 70,39.4 80,37.5 90,38.8 100,40 110,38.2 120,39.2 130,37.6 140,38.6 150,40 160,38.4 170,39 180,37.8 190,39.6 200,38 210,39.2 220,37.4 230,38.8 240,40 250,38.2 260,39 270,37.9 280,38.6 290,39.8 300,38.3 300,56 0,56"/>
+                <polyline stroke="#66AC9C" points="0,40 10,38.5 20,39.6 30,37.8 40,39 50,40.2 60,38 70,39.4 80,37.5 90,38.8 100,40 110,38.2 120,39.2 130,37.6 140,38.6 150,40 160,38.4 170,39 180,37.8 190,39.6 200,38 210,39.2 220,37.4 230,38.8 240,40 250,38.2 260,39 270,37.9 280,38.6 290,39.8 300,38.3"/>
+              </svg></div>
+              <div class="s-a"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="s-h"><span class="s-l micro">VRAM</span><span class="s-v">78<em>%</em></span></div>
+              <div class="s-c"><svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true">
+                <line x1="0" y1="14" x2="300" y2="14"/><line x1="0" y1="28" x2="300" y2="28"/><line x1="0" y1="42" x2="300" y2="42"/>
+                <polygon fill="#C79B6A" points="0,27.6 20,27.4 40,27.6 60,27.3 80,27.5 100,27.4 120,27.6 140,27.4 150,22.5 160,16.2 180,15.6 200,15.4 220,15.5 240,15.3 260,15.5 280,15.4 300,15.4 300,56 0,56"/>
+                <polyline stroke="#C79B6A" points="0,27.6 20,27.4 40,27.6 60,27.3 80,27.5 100,27.4 120,27.6 140,27.4 150,22.5 160,16.2 180,15.6 200,15.4 220,15.5 240,15.3 260,15.5 280,15.4 300,15.4"/>
+              </svg></div>
+              <div class="s-a"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="s-h"><span class="s-l micro">MEMORY</span><span class="s-v">41<em>%</em></span></div>
+              <div class="s-c"><svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true">
+                <line x1="0" y1="14" x2="300" y2="14"/><line x1="0" y1="28" x2="300" y2="28"/><line x1="0" y1="42" x2="300" y2="42"/>
+                <polygon fill="#7FB2C9" points="0,36.8 30,36.6 60,36.3 90,36 120,35.7 150,35.4 180,35.2 210,35 240,34.9 270,34.8 300,34.7 300,56 0,56"/>
+                <polyline stroke="#7FB2C9" points="0,36.8 30,36.6 60,36.3 90,36 120,35.7 150,35.4 180,35.2 210,35 240,34.9 270,34.8 300,34.7"/>
+              </svg></div>
+              <div class="s-a"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+            <div class="scope">
+              <div class="s-h"><span class="s-l micro">GPU Temp</span><span class="s-v">68<em>°C</em></span></div>
+              <div class="s-c"><svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true">
+                <line x1="0" y1="14" x2="300" y2="14"/><line x1="0" y1="28" x2="300" y2="28"/><line x1="0" y1="42" x2="300" y2="42"/>
+                <polygon fill="#C57F76" points="0,25.8 30,25.2 60,24.4 90,23.6 120,22.9 150,22.3 180,21.8 210,21.4 240,21 270,20.8 300,20.6 300,56 0,56"/>
+                <polyline stroke="#C57F76" points="0,25.8 30,25.2 60,24.4 90,23.6 120,22.9 150,22.3 180,21.8 210,21.4 240,21 270,20.8 300,20.6"/>
+              </svg></div>
+              <div class="s-a"><span>scale 100%</span><span>180 pt</span></div>
+            </div>
+          </div>
+
+          <div class="readout">
+            <span class="ro-pct">45.8%</span>
+            <span class="ro-sum">studio_b_4k — inference を処理中</span>
+            <div class="ro-eta">
+              <div class="eta"><span class="eta-v">06:12</span><span class="eta-l">経過時間</span></div>
+              <div class="eta"><span class="eta-v">13:32</span><span class="eta-l">予測所要</span></div>
+            </div>
+          </div>
+
+          <div class="tl">
+            <div class="tl-cell is-active">inference<i style="width:45%"></i></div>
+            <div class="tl-cell">postprocess</div>
+            <div class="tl-cell">ovl combined_simple</div>
+            <div class="tl-cell">ovl combined_detailed</div>
+          </div>
+
+          <div class="phases">
+            <div class="phase">
+              <div class="ph-h"><span class="ph-l">性器推論</span><span class="ph-p">45.0%</span></div>
+              <div class="ph-track"><i style="width:45%"></i></div>
+              <div class="ph-m"><span>フレーム処理</span><span class="cnt">6,480 / 14,400 フレーム · 21.4 fps</span></div>
+            </div>
+            <div class="phase is-done">
+              <div class="ph-h"><span class="ph-l">顔推論</span><span class="ph-p">100.0%</span></div>
+              <div class="ph-track"><i style="width:100%"></i></div>
+              <div class="ph-m"><span>完了</span><span class="cnt">14,400 / 14,400 フレーム · 181.3 fps</span></div>
+            </div>
+            <div class="phase is-wait">
+              <div class="ph-h"><span class="ph-l">後処理</span><span class="ph-p">—</span></div>
+              <div class="ph-track"></div>
+              <div class="ph-m"><span>待機中</span><span class="cnt">—</span></div>
+            </div>
+            <div class="phase is-wait">
+              <div class="ph-h"><span class="ph-l">オーバーレイ</span><span class="ph-p">—</span></div>
+              <div class="ph-track"></div>
+              <div class="ph-m"><span>待機中</span><span class="cnt">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LIVE tab -->
+        <div class="tabpane" id="pane-live" role="tabpanel" hidden>
+          <div class="live-stage">
+            <svg viewBox="0 0 960 540" preserveAspectRatio="xMidYMid slice" role="img" aria-label="処理フレーム 6,480">
+              <rect width="960" height="540" fill="#26282B"/>
+              <g filter="url(#blur12)">
+                <rect x="0" y="392" width="960" height="148" fill="#37393E"/>
+                <rect x="392" y="150" width="176" height="290" rx="52" fill="#54585D"/>
+                <ellipse cx="480" cy="150" rx="62" ry="72" fill="#5C6066"/>
+                <rect x="90" y="70" width="190" height="140" rx="14" fill="#42454A" opacity=".8"/>
+                <rect x="700" y="90" width="150" height="230" rx="12" fill="#3C3F44" opacity=".8"/>
+              </g>
+              <ellipse cx="480" cy="150" rx="70" ry="84" fill="#5490DE" fill-opacity=".1" stroke="#5490DE" stroke-opacity=".65" stroke-width="2"/>
+              <rect x="424" y="122" width="112" height="32" rx="5" fill="#5490DE" fill-opacity=".18" stroke="#5490DE" stroke-opacity=".75" stroke-width="2"/>
+            </svg>
+            <span class="live-badge"><i></i><span class="micro">Live</span></span>
+          </div>
+          <div class="live-meta">
+            <div class="lm"><span class="k micro">Phase</span><span class="v">性器推論</span></div>
+            <div class="lm"><span class="k micro">Frame</span><span class="v">6,480</span></div>
+            <div class="lm"><span class="k micro">Timecode</span><span class="v">04:30</span></div>
+            <div class="lm"><span class="k micro">Model</span><span class="v">dinov3_codino</span></div>
+            <div class="lm"><span class="k micro">Detail</span><span class="v">frames</span></div>
+            <div class="lm"><span class="k micro">Coalesced</span><span class="v">3</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mstrip">
+        <div class="mcell"><span class="m-l">wall fps</span><span class="m-v">21.41</span></div>
+        <div class="mcell"><span class="m-l">frames</span><span class="m-v">6,480 / 14,400</span></div>
+        <div class="mcell"><span class="m-l">detections</span><span class="m-v">18,204</span></div>
+        <div class="mcell"><span class="m-l">masks</span><span class="m-v">—</span></div>
+        <div class="mcell"><span class="m-l">faces</span><span class="m-v">21,347</span></div>
+        <div class="mcell"><span class="m-l">device</span><span class="m-v">cuda:0</span></div>
+        <div class="mcell"><span class="m-l">codec</span><span class="m-v">h264_nvenc</span></div>
+      </div>
+    </section>
+
+    <div class="split" aria-hidden="true"></div>
+
+    <!-- ============ INSPECTOR ============ -->
+    <section class="panel insp">
+      <div class="phead">
+        <span class="ptitle micro">Inspector</span>
+        <div class="vt" role="group" aria-label="設定表示">
+          <button class="on" data-view="simple">簡単</button>
+          <button data-view="advanced">詳細</button>
+        </div>
+      </div>
+      <div class="pbody">
+
+        <!-- 推論 -->
+        <section class="isec is-open">
+          <button class="isec-h" aria-expanded="true">
+            <svg class="ic chev"><use href="#i-chr"/></svg><span class="isec-t">推論</span><span class="ibadge is-ok">on</span>
+          </button>
+          <div class="isec-b">
+            <div class="row"><span class="rlabel">推論</span><div class="rctl">
+              <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>新規に実行</label>
+            </div></div>
+            <div class="row"><span class="rlabel">処理モード</span><div class="rctl">
+              <div class="seg grow dis" style="flex:1"><button>性器</button><button class="on">両方</button><button>顔</button></div>
+            </div></div>
+            <div class="row"><span class="rlabel">性器モデル</span><div class="rctl">
+              <button class="sel dis"><span>V3</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+            <div class="row"><span class="rlabel">推論エンジン</span><div class="rctl">
+              <button class="sel dis"><span>高速（デフォルト）</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+            <div class="row"><span class="rlabel">顔モデル</span><div class="rctl">
+              <button class="sel dis"><span>Face V2</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+            <div class="row" title="選択中の顔モデルを実行するバックエンドです。現行モデルは新顔=TensorRT、旧顔=PyTorchに固定されています。">
+              <span class="rlabel">顔推論エンジン</span><div class="rctl">
+              <button class="sel dis"><span>高速（デフォルト）</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+
+            <div class="sub adv">モデル入力・実行範囲</div>
+            <div class="row stack adv" title="顔モデルの出力からSQLiteへ保存する対象です。Headは頭部box、Faceは顔領域です。少なくとも1つを選択します。">
+              <span class="rlabel">顔検出の保存対象</span>
+              <div class="rctl checks">
+                <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>Head（頭部box）</label>
+                <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>Face（顔領域）</label>
+              </div>
+            </div>
+            <div class="row stack adv" title="新顔モデルのTensorRT bundleだけを上書きします。">
+              <span class="rlabel">顔TRT bundle</span>
+              <div class="rctl"><input class="field mono" placeholder="空欄: 自動選択" disabled></div>
+            </div>
+            <div class="row adv"><span class="rlabel">推論デバイス</span><div class="rctl">
+              <input class="field mono" value="cuda:0" disabled style="max-width:120px">
+            </div></div>
+            <div class="row adv"><span class="rlabel">処理上限</span><div class="rctl">
+              <input class="field num-f" placeholder="空欄: 全フレーム" disabled style="width:120px;text-align:left">
+            </div></div>
+            <div class="row adv"><span class="rlabel">速度計測除外</span><div class="rctl">
+              <input class="field num-f" value="0" disabled><span class="unit">f</span>
+            </div></div>
+            <div class="row adv"><span class="rlabel">顔ウォームアップ</span><div class="rctl">
+              <input class="field num-f" value="3" disabled><span class="unit">回</span>
+            </div></div>
+
+            <div class="sub adv">性能</div>
+            <div class="row adv is-off"><span class="rlabel">モデル同時推論</span><div class="rctl">
+              <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>性器・顔モデルを同時実行</label>
+            </div></div>
+            <div class="rhint adv">現在の組合せでは不可</div>
+            <div class="row adv"><span class="rlabel">SQLite書き込み</span><div class="rctl">
+              <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>速度優先モード</label>
+            </div></div>
+            <div class="rhint adv">高速化する代わりに異常終了時の耐性が低下</div>
+
+            <div class="sub adv">専門設定</div>
+            <div class="row stack adv" title="将来の未型付け引数を1トークン1行で指定します。主要引数の上書きは禁止されます。">
+              <span class="rlabel">追加引数</span>
+              <div class="rctl"><textarea class="field mono" placeholder="--future-option&#10;value" disabled></textarea></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 後処理 -->
+        <section class="isec is-open">
+          <button class="isec-h" aria-expanded="true">
+            <svg class="ic chev"><use href="#i-chr"/></svg><span class="isec-t">後処理</span><span class="ibadge is-ok">性器 on</span>
+          </button>
+          <div class="isec-b">
+            <div class="row"><span class="rlabel">性器後処理</span><div class="rctl">
+              <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>追跡・整形を実行</label>
+            </div></div>
+
+            <div class="sub simple-only">クラス別形状・キーフレーム</div>
+            <div class="row stack simple-only"><span class="rlabel">クラス別設定</span>
+              <div class="ctable dis">
+                <div class="ctr head"><span>クラス</span><span>形状</span><span>KF間隔</span></div>
+                <div class="ctr">
+                  <span class="ct-name">男性器</span>
+                  <span><span class="seg mini"><button class="on">ポリゴン</button><button>楕円</button></span></span>
+                  <span class="ct-kf"><input class="field mono" value="2"><span class="unit">f</span></span>
+                </div>
+                <div class="ctr">
+                  <span class="ct-name">女性器</span>
+                  <span><span class="seg mini"><button>ポリゴン</button><button class="on">楕円</button></span></span>
+                  <span class="ct-kf"><input class="field mono" value="2"><span class="unit">f</span></span>
+                </div>
+                <div class="ctr">
+                  <span class="ct-name">結合部分</span>
+                  <span><span class="seg mini"><button>ポリゴン</button><button class="on">楕円</button></span></span>
+                  <span class="ct-kf"><input class="field mono" value="2"><span class="unit">f</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="row"><span class="rlabel">検出スコア下限</span><div class="rctl">
+              <input class="field num-f" value="0.6" disabled>
+            </div></div>
+            <div class="row" title="最終result.sqliteへ保存するプライバシーマスクです。"><span class="rlabel">保存する顔マスク</span><div class="rctl">
+              <div class="seg grow dis" style="flex:1"><button>なし</button><button>顔全体</button><button class="on">目元</button></div>
+            </div></div>
+            <div class="row"><span class="rlabel">目元形状</span><div class="rctl">
+              <div class="seg grow dis" style="flex:1"><button>楕円</button><button class="on">長方形</button></div>
+            </div></div>
+
+            <!-- 既定形状: hidden — 形状・KF・補完 = クラス別GUI なので非表示 (spec 5.2#1) -->
+            <div class="row adv"><span class="rlabel">既定KF間隔</span><div class="rctl">
+              <input class="field num-f" value="2" disabled><span class="unit">f</span>
+            </div></div>
+            <div class="row adv"><span class="rlabel">カット検出</span><div class="rctl">
+              <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>カット位置を保存し、trackを分割</label>
+            </div></div>
+
+            <div class="sub adv">性器後処理 — 構成</div>
+            <div class="row adv"><span class="rlabel">形状・KF・補完</span><div class="rctl">
+              <button class="sel dis"><span>クラス別GUI</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+            <div class="row stack adv"><span class="rlabel">クラス別ルール</span>
+              <div class="ctable dis">
+                <div class="ctr r4 head"><span>確定クラス名</span><span>形状</span><span>KF間隔</span><span>補完上限</span></div>
+                <div class="ctr r4">
+                  <span class="ct-name">その他（未指定）</span>
+                  <span><span class="seg mini"><button class="on">ポリゴン</button><button>楕円</button></span></span>
+                  <span class="ct-kf"><input class="field mono" value="2"></span>
+                  <span class="ct-kf"><input class="field mono" value="0"></span>
+                </div>
+                <div class="ctr r4">
+                  <span class="ct-name">男性器</span>
+                  <span><span class="seg mini"><button class="on">ポリゴン</button><button>楕円</button></span></span>
+                  <span class="ct-kf"><input class="field mono" value="2"></span>
+                  <span class="ct-kf"><input class="field mono" value="0"></span>
+                </div>
+                <div class="ctr r4">
+                  <span class="ct-name">女性器</span>
+                  <span><span class="seg mini"><button>ポリゴン</button><button class="on">楕円</button></span></span>
+                  <span class="ct-kf"><input class="field mono" value="2"></span>
+                  <span class="ct-kf"><input class="field mono" value="0"></span>
+                </div>
+                <div class="ctr r4">
+                  <span class="ct-name">結合部分</span>
+                  <span><span class="seg mini"><button>ポリゴン</button><button class="on">楕円</button></span></span>
+                  <span class="ct-kf"><input class="field mono" value="2"></span>
+                  <span class="ct-kf"><input class="field mono" value="0"></span>
+                </div>
+              </div>
+              <div style="margin-top:6px"><button class="minibtn dis">＋ クラスを追加</button></div>
+            </div>
+
+            <div class="sub adv">カット検出</div>
+            <div class="row adv"><span class="rlabel">検出方式</span><div class="rctl">
+              <button class="sel dis"><span>高精度（推奨・FFmpeg）</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+            <div class="row adv" title="別のFFmpeg縮小decodeをCPUで動かし、GPU推論時間へ重ねます。"><span class="rlabel">推論と同時検出</span><div class="rctl">
+              <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>CPU検出をGPU推論と並行</label>
+            </div></div>
+
+            <div class="sub adv">性器後処理 — 追跡・補完</div>
+            <div class="row adv"><span class="rlabel">短命track上限</span><div class="rctl">
+              <input class="field num-f" value="10" disabled><span class="unit">f</span>
+            </div></div>
+            <div class="rhint adv">指定フレーム以下のtrackを除去</div>
+            <div class="row adv"><span class="rlabel">既定補完上限</span><div class="rctl">
+              <input class="field num-f" value="0" disabled><span class="unit">f</span>
+            </div></div>
+
+            <div class="sub adv">楕円近似（K2）</div>
+            <div class="row adv"><span class="rlabel">GPUバッチ数</span><div class="rctl">
+              <input class="field num-f" value="128" disabled>
+            </div></div>
+            <div class="row adv"><span class="rlabel">計算精度</span><div class="rctl">
+              <button class="sel dis"><span>パイプライン既定</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+            <div class="row adv"><span class="rlabel">K2デバイス</span><div class="rctl">
+              <input class="field mono" value="cuda:0" disabled style="max-width:120px">
+            </div></div>
+
+            <div class="sub adv">互換出力</div>
+            <div class="row adv"><span class="rlabel">旧形式SQLite</span><div class="rctl">
+              <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>旧形式も追加</label>
+            </div></div>
+
+            <div class="sub adv">顔後処理 — 追跡・プライバシーマスク</div>
+            <div class="row adv"><span class="rlabel">目キーポイント下限</span><div class="rctl">
+              <div class="slider dis"><div class="sl-track"><i style="width:35%"></i><b style="left:35%"></b></div><span class="sl-v">0.35</span></div>
+            </div></div>
+            <div class="row adv"><span class="rlabel">追跡保持gap</span><div class="rctl">
+              <input class="field num-f" value="5" disabled><span class="unit">f</span>
+            </div></div>
+            <div class="rhint adv">未検出を許容する最大フレーム数</div>
+            <div class="row adv"><span class="rlabel">追跡high閾値</span><div class="rctl">
+              <div class="slider dis"><div class="sl-track"><i style="width:50%"></i><b style="left:50%"></b></div><span class="sl-v">0.50</span></div>
+            </div></div>
+            <div class="row adv"><span class="rlabel">追跡low閾値</span><div class="rctl">
+              <div class="slider dis"><div class="sl-track"><i style="width:5%"></i><b style="left:5%"></b></div><span class="sl-v">0.05</span></div>
+            </div></div>
+            <div class="row adv"><span class="rlabel">短命track上限</span><div class="rctl">
+              <input class="field num-f" value="2" disabled>
+            </div></div>
+            <div class="rhint adv">観測回数（hits）で判定</div>
+            <div class="row adv"><span class="rlabel">短命保持スコア</span><div class="rctl">
+              <div class="slider dis"><div class="sl-track"><i style="width:90%"></i><b style="left:90%"></b></div><span class="sl-v">0.90</span></div>
+            </div></div>
+            <div class="row adv"><span class="rlabel">補完gap上限</span><div class="rctl">
+              <input class="field num-f" value="3" disabled><span class="unit">f</span>
+            </div></div>
+
+            <div class="sub adv">専門設定</div>
+            <div class="row stack adv" title="未型付けの将来オプション用です。上の管理済み引数は上書きできません。">
+              <span class="rlabel">追加CLI引数</span>
+              <div class="rctl"><textarea class="field mono" disabled></textarea></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- オーバーレイ -->
+        <section class="isec is-open">
+          <button class="isec-h" aria-expanded="true">
+            <svg class="ic chev"><use href="#i-chr"/></svg><span class="isec-t">オーバーレイ</span><span class="ibadge">fast</span>
+          </button>
+          <div class="isec-b">
+            <div class="row"><span class="rlabel">確認動画</span><div class="rctl">
+              <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>オーバーレイを生成</label>
+            </div></div>
+            <div class="row stack"><span class="rlabel">表示プリセット</span>
+              <div class="rctl checks grid2">
+                <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>性器・詳細</label>
+                <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>性器・簡易</label>
+                <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>顔・詳細</label>
+                <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>顔・簡易</label>
+                <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>両方・詳細</label>
+                <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>両方・簡易</label>
+              </div>
+            </div>
+            <div class="row"><span class="rlabel">エンコード</span><div class="rctl">
+              <div class="seg grow dis" style="flex:1"><button>CPU</button><button>NVENC</button><button class="on">高速</button></div>
+            </div></div>
+            <div class="row"><span class="rlabel">マスク濃度</span><div class="rctl">
+              <div class="slider dis"><div class="sl-track"><i style="width:32%"></i><b style="left:32%"></b></div><span class="sl-v">0.32</span></div>
+            </div></div>
+
+            <div class="sub adv">旧形式の追加オーバーレイ（任意）</div>
+            <div class="row stack adv" title="通常の表示プリセットとは別に、旧ソフト互換の工程別MP4を追加生成します。SQLiteの内容は増えません。">
+              <span class="rlabel">追加動画</span>
+              <div class="rctl checks col">
+                <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>AI生出力（raw.mp4）</label>
+                <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>追跡後（tracked.mp4）</label>
+                <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>最終後処理（final.mp4）</label>
+                <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>顔box（faces.mp4）</label>
+              </div>
+            </div>
+            <div class="row adv"><span class="rlabel">finalへ顔を追加</span><div class="rctl">
+              <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>互換finalへ顔boxを合成</label>
+            </div></div>
+
+            <div class="sub adv">描画内容</div>
+            <div class="row stack adv"><span class="rlabel">性器の描画データ</span>
+              <div class="rctl"><div class="seg grow tight dis" style="flex:1"><button>AI生マスク（後処理前）</button><button class="on">最終マスク（後処理後）</button></div></div>
+            </div>
+            <div class="row adv" title="確認動画だけに顔/目元マスクを追加します。result.sqliteの保存内容は変更しません。"><span class="rlabel">描画時追加マスク</span><div class="rctl">
+              <div class="seg grow dis" style="flex:1"><button>なし</button><button>顔全体</button><button class="on">目元</button></div>
+            </div></div>
+            <div class="row adv"><span class="rlabel">追加目元マスク形状</span><div class="rctl">
+              <div class="seg grow dis" style="flex:1"><button>楕円</button><button class="on">長方形</button></div>
+            </div></div>
+            <div class="row adv"><span class="rlabel">目キーポイント下限</span><div class="rctl">
+              <div class="slider dis"><div class="sl-track"><i style="width:35%"></i><b style="left:35%"></b></div><span class="sl-v">0.35</span></div>
+            </div></div>
+            <div class="row stack adv"><span class="rlabel">顔詳細要素</span>
+              <div class="rctl checks">
+                <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>確率マスク</label>
+                <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>キーポイント</label>
+                <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>顔楕円</label>
+              </div>
+            </div>
+            <div class="row adv"><span class="rlabel">線幅</span><div class="rctl">
+              <input class="field num-f" value="2" disabled style="width:52px"><span class="unit">マスク</span>
+              <input class="field num-f" value="2" disabled style="width:52px"><span class="unit">box</span>
+            </div></div>
+            <div class="row adv"><span class="rlabel">ラベル</span><div class="rctl">
+              <label class="check dis"><span class="cbox on"><svg><use href="#i-check"/></svg></span>クラス・確信度・track ID</label>
+            </div></div>
+
+            <div class="sub adv">エンコード品質・速度</div>
+            <div class="row adv"><span class="rlabel">CPU preset</span><div class="rctl">
+              <button class="sel dis"><span>veryfast</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+            <div class="row adv"><span class="rlabel">NVENC preset</span><div class="rctl">
+              <button class="sel dis"><span>p1</span><svg class="ic"><use href="#i-chd"/></svg></button>
+            </div></div>
+            <div class="row adv"><span class="rlabel">NVENC GPU</span><div class="rctl">
+              <input class="field num-f" value="0" disabled>
+            </div></div>
+            <div class="row stack adv"><span class="rlabel">FFmpeg実行ファイル</span>
+              <div class="rctl"><input class="field mono" placeholder="空欄: 同梱FFmpeg" disabled></div>
+            </div>
+            <div class="row adv"><span class="rlabel">目標ビットレート</span><div class="rctl">
+              <input class="field num-f" value="8.0" disabled><span class="unit">Mbps</span>
+            </div></div>
+            <div class="rhint adv">高速モードでは必須（空欄時8 Mbps）</div>
+            <div class="row adv"><span class="rlabel">分割worker総数</span><div class="rctl">
+              <input class="field num-f" value="6" disabled>
+            </div></div>
+            <div class="row adv"><span class="rlabel">CPU割当数</span><div class="rctl">
+              <input class="field num-f" value="0" disabled>
+            </div></div>
+            <div class="rhint adv">残りをNVENCへ割当</div>
+            <div class="row adv"><span class="rlabel">音声保持</span><div class="rctl">
+              <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>元音声をコピー</label>
+            </div></div>
+            <div class="row adv"><span class="rlabel">MP4 faststart</span><div class="rctl">
+              <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>Web再生用に最適化</label>
+            </div></div>
+
+            <div class="sub adv">処理範囲・ログ</div>
+            <div class="row adv"><span class="rlabel">フレーム範囲</span><div class="rctl">
+              <input class="field num-f" value="0" disabled style="width:64px"><input class="field num-f" placeholder="終端" disabled style="width:64px">
+            </div></div>
+            <div class="rhint adv">開始 / 終了</div>
+            <div class="row adv is-off"><span class="rlabel">進捗ログ間隔</span><div class="rctl">
+              <input class="field num-f" value="300" disabled><span class="unit">f</span>
+            </div></div>
+            <div class="rhint adv">分割高速モードでは内部管理</div>
+
+            <div class="sub adv">専門設定</div>
+            <div class="row stack adv"><span class="rlabel">追加CLI引数</span>
+              <div class="rctl"><textarea class="field mono" disabled></textarea></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 実行環境 -->
+        <section class="isec">
+          <button class="isec-h" aria-expanded="false">
+            <svg class="ic chev"><use href="#i-chr"/></svg><span class="isec-t">実行環境</span><span class="ibadge">native</span>
+          </button>
+          <div class="isec-b">
+            <div class="row adv"><span class="rlabel">再開</span><div class="rctl">
+              <label class="check dis"><span class="cbox"><svg><use href="#i-check"/></svg></span>完了済みstageを再利用</label>
+            </div></div>
+            <div class="row"><span class="rlabel">バックエンド</span><div class="rctl">
+              <div class="seg grow dis" style="flex:1"><button class="on">Native</button><button>WSL2</button></div>
+            </div></div>
+            <div class="row stack"><span class="rlabel">リポジトリroot</span>
+              <div class="rctl pathrow" style="flex:none;display:flex">
+                <input class="field" value="/home/user/inference_backend2" placeholder="/home/user/inference_backend2" disabled>
+                <button class="fbtn" title="参照…" disabled><svg class="ic" style="width:13px;height:13px"><use href="#i-folder"/></svg></button>
+              </div>
+            </div>
+            <div class="row stack"><span class="rlabel">実行Python</span>
+              <div class="rctl pathrow" style="flex:none;display:flex">
+                <input class="field" value="/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10" placeholder="/path/to/python3.10" disabled>
+                <button class="fbtn" title="参照…" disabled><svg class="ic" style="width:13px;height:13px"><use href="#i-folder"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </section>
+  </div>
+
+  <div class="hsplit" aria-hidden="true"></div>
+
+  <!-- ============ CONSOLE ============ -->
+  <div class="conwrap">
+    <section class="panel">
+      <div class="phead con-head">
+        <span class="ptitle micro">Console</span>
+        <span class="con-meta">inference</span>
+        <span class="con-sp"></span>
+        <label class="con-follow"><span class="cbox on"><svg><use href="#i-check"/></svg></span>追従</label>
+        <input class="con-filter" placeholder="フィルタ">
+        <span class="con-count">132 lines</span>
+      </div>
+      <div class="con-body">
+        <div class="cl cmd"><span class="ln">121</span><span class="ct"><b>$</b> /home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10 -m orchestration --config /home/user/.config/mask-pipeline-studio/jobs/2026-08-01T10-58-24-512Z/orchestration.json</span></div>
+        <div class="cl"><span class="ln">122</span><span class="ct"><i>[inference]</i> [orchestrator] role=face model=face_dino_v2 backend=tensorrt-fast</span></div>
+        <div class="cl"><span class="ln">123</span><span class="ct"><i>[inference]</i> processed 14400 frames in 79.412s (181.334 fps)</span></div>
+        <div class="cl"><span class="ln">124</span><span class="ct"><i>[inference]</i> measured compute throughput: 205.118 img/s</span></div>
+        <div class="cl"><span class="ln">125</span><span class="ct"><i>[inference]</i> [orchestrator] frames=14400 detections=14283 classifications=14283 segmentations=0 face_observations=21347 face_keypoints=106735</span></div>
+        <div class="cl"><span class="ln">126</span><span class="ct"><i>[inference]</i> [orchestrator] saved unified SQLite: /home/user/videos/mask_out/studio_b_4k/inference.sqlite</span></div>
+        <div class="cl"><span class="ln">127</span><span class="ct"><i>[inference]</i> [orchestrator] role=segmentation model=dinov3_codino backend=tensorrt-fast</span></div>
+        <div class="cl"><span class="ln">128</span><span class="ct"><i>[inference]</i> [progress] processed=1440/14400 detections=4116 fps=21.198</span></div>
+        <div class="cl"><span class="ln">129</span><span class="ct"><i>[inference]</i> [progress] processed=2880/14400 detections=8102 fps=21.264</span></div>
+        <div class="cl"><span class="ln">130</span><span class="ct"><i>[inference]</i> [progress] processed=4320/14400 detections=12275 fps=21.377</span></div>
+        <div class="cl"><span class="ln">131</span><span class="ct"><i>[inference]</i> [progress] processed=5760/14400 detections=16204 fps=21.398</span></div>
+        <div class="cl"><span class="ln">132</span><span class="ct"><i>[inference]</i> [progress] processed=6480/14400 detections=18204 fps=21.412</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ STATUSBAR ============ -->
+  <footer class="statusbar">
+    <span class="sb-status"><span class="sb-dot"></span>実行中</span>
+    <span class="sb"><i>stage</i><b>inference</b></span>
+    <span class="sb"><i>経過</i><b>06:12</b></span>
+    <span class="sb"><i>開始</i><b>10:58:24</b></span>
+    <span class="sb"><i>終了</i><b>--:--:--</b></span>
+    <span class="sb"><i>exit</i><b>—</b></span>
+    <span class="sb-r">
+      <span class="micro" style="color:var(--t2)">Native</span>
+      <span class="sb"><i>python</i><b title="/home/user/.local/share/video-mask-runtime/envs/production/bin/python3.10">python3.10</b></span>
+      <span class="sb-path" title="/home/user/inference_backend2">/home/user/inference_backend2</span>
+    </span>
+  </footer>
+
+</div>
+</div>
+
+<script>
+/* class-toggling only */
+const $  = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+
+/* Monitor tabs */
+$$('.tab').forEach(t => t.addEventListener('click', () => {
+  $$('.tab').forEach(x => { x.classList.toggle('on', x === t); x.setAttribute('aria-selected', x === t); });
+  $('#pane-status').hidden = t.dataset.pane !== 'status';
+  $('#pane-live').hidden   = t.dataset.pane !== 'live';
+}));
+
+/* Inspector sections */
+$$('.isec-h').forEach(h => h.addEventListener('click', () => {
+  const open = h.parentElement.classList.toggle('is-open');
+  h.setAttribute('aria-expanded', open);
+}));
+
+/* 簡単 / 詳細 */
+$$('.vt button').forEach(b => b.addEventListener('click', () => {
+  $$('.vt button').forEach(x => x.classList.toggle('on', x === b));
+  $('.insp').classList.toggle('is-adv', b.dataset.view === 'advanced');
+}));
+
+/* console follows tail */
+const cb = $('.con-body');
+cb.scrollTop = cb.scrollHeight;
+</script>
+</body>
+</html>

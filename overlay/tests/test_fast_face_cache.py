@@ -118,6 +118,36 @@ class FastFaceCacheTests(unittest.TestCase):
                     ).fetchone()[0],
                 )
 
+    def test_cache_filters_before_materializing_face_primitives(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = create_rich_face_sqlite(root / "rich.sqlite")
+            with sqlite3.connect(source) as connection:
+                connection.execute("UPDATE detections SET score=0.40 WHERE id=21")
+            output = root / "cache.sqlite"
+
+            summary = materialize_fast_face_cache(
+                source,
+                output,
+                display_style="detailed",
+                start_frame=0,
+                end_frame=10,
+                head_detection_score_threshold=0.55,
+            )
+
+            self.assertEqual(0, summary["items"])
+            self.assertEqual(0.55, summary["head_detection_score_threshold"])
+            with sqlite3.connect(output) as connection:
+                self.assertEqual(
+                    "0.55",
+                    connection.execute(
+                        """
+                        SELECT value FROM fast_face_cache_info
+                        WHERE key='head_detection_score_threshold'
+                        """
+                    ).fetchone()[0],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
