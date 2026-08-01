@@ -8,6 +8,8 @@ result SQLite schema remains unchanged.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -23,6 +25,35 @@ from .preparation import apply_border_expansion, apply_endpoint_extension
 ROOT = Path(__file__).resolve().parents[2]
 VENDOR_RUNTIME = ROOT / "vendor" / "original_polygon" / "original_run_standalone.py"
 DEFAULT_PREDICTOR = ROOT / "models" / "polygon_point_predictor"
+DEFAULT_NUM_WORKERS = max(1, min(4, os.cpu_count() or 1))
+
+
+def _resolve_cpp_compiler() -> str | None:
+    """Find the C++ compiler shipped beside the active runtime, if needed.
+
+    The production environment intentionally does not put its Conda compiler
+    on ``PATH``.  The original v22 runtime therefore used to fall back to the
+    byte-identical Python DP implementation even though its native DP was
+    available.  Selecting the compiler only changes how that same DP is
+    executed; it does not change optimizer parameters or output geometry.
+    """
+
+    explicit = os.environ.get("CXX", "").strip()
+    if explicit:
+        return explicit
+    for name in ("g++", "c++"):
+        resolved = shutil.which(name)
+        if resolved:
+            return resolved
+    runtime_bin = Path(sys.executable).resolve().parent
+    candidates = [
+        runtime_bin / "x86_64-conda-linux-gnu-g++",
+        *sorted(runtime_bin.glob("*-g++")),
+    ]
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def _label_maps(reference: Path) -> tuple[dict[tuple[int, str], str], dict[str, str]]:
@@ -138,6 +169,9 @@ class ProductionPolygonV22Stage:
             preparation["endpoint_extension"] = endpoint_summary
 
         vendor_output = context.stage_dir / "vendor_output"
+        num_workers = int(self.options.get("num_workers", DEFAULT_NUM_WORKERS))
+        if num_workers < 1:
+            raise ValueError("num_workers must be >= 1")
         command = [
             sys.executable,
             str(VENDOR_RUNTIME),
@@ -173,14 +207,23 @@ class ProductionPolygonV22Stage:
             "--max-gap",
             str(int(self.options.get("keyframe_max_gap", 30))),
             "--num-workers",
-            str(int(self.options.get("num_workers", 1))),
+            str(num_workers),
             "--stream-sqlite-rows",
             "--evaluate-exact",
             "--write-pred-sqlite",
             "--adaptive-anchor-counts" if adaptive else "--no-adaptive-anchor-counts",
             "--gapfill-enabled" if gap > 0 else "--no-gapfill-enabled",
         ]
-        subprocess.run(command, check=True, cwd=str(ROOT))
+        environment = os.environ.copy()
+        cpp_compiler = _resolve_cpp_compiler()
+        if cpp_compiler is not None:
+            environment["CXX"] = cpp_compiler
+        subprocess.run(
+            command,
+            check=True,
+            cwd=str(ROOT),
+            env=environment,
+        )
 
         summary_path = vendor_output / "summary.json"
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -207,10 +250,15 @@ class ProductionPolygonV22Stage:
                 "interval_frames": interval,
                 "max_gap": gap,
                 "adaptive_anchor_counts": adaptive,
+                "num_workers": num_workers,
+                "native_dp_compiler": cpp_compiler,
                 "preparation": preparation,
                 "optimizer": summary.get("optimizer_summary", {}),
             },
         )
 
 
-__all__ = ["ProductionPolygonV22Stage"]
+__all__ = [
+    "DEFAULT_NUM_WORKERS",
+    "ProductionPolygonV22Stage",
+]

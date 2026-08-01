@@ -109,6 +109,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--polygon-num-workers",
+        type=int,
+        help=(
+            "parallel workers used by the exact production polygon optimizer; "
+            "defaults to 4 (or the available CPU count when lower)"
+        ),
+    )
     parser.add_argument("--k2-batch-size", type=int)
     parser.add_argument("--k2-prep-workers", type=int)
     parser.add_argument("--k2-precision", choices=("fp32", "fp16"))
@@ -251,6 +259,10 @@ def _polygon_stage_options(
         options["endpoint_extend"] = bool(args.polygon_endpoint_extend)
     else:
         options.setdefault("endpoint_extend", True)
+    if args.polygon_num_workers is not None:
+        if args.polygon_num_workers < 1:
+            raise ValueError("--polygon-num-workers must be >= 1")
+        options["num_workers"] = int(args.polygon_num_workers)
     return options
 
 

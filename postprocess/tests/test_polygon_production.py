@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from approximation.polygon.production import (
+    DEFAULT_NUM_WORKERS,
+    _resolve_cpp_compiler,
+)
 from approximation.polygon.preparation import (
     apply_border_expansion,
     apply_endpoint_extension,
@@ -54,6 +60,14 @@ class PolygonProductionPreparationTests(unittest.TestCase):
             self.assertEqual(20, len(rows))
             self.assertEqual(5, rows[0].frame)
             self.assertEqual(24, rows[-1].frame)
+
+    def test_native_compiler_respects_explicit_environment(self) -> None:
+        with mock.patch.dict(os.environ, {"CXX": "/test/compiler"}):
+            self.assertEqual("/test/compiler", _resolve_cpp_compiler())
+
+    def test_parallel_default_is_bounded_for_interactive_use(self) -> None:
+        self.assertGreaterEqual(DEFAULT_NUM_WORKERS, 1)
+        self.assertLessEqual(DEFAULT_NUM_WORKERS, 4)
 
 
 if __name__ == "__main__":
