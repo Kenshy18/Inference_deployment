@@ -1,14 +1,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { _electron as electron } from "playwright";
+import { _electron as electron, chromium } from "playwright";
 
 const guiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repositoryRoot = path.resolve(guiRoot, "..");
-const matrixRoot = path.join(repositoryRoot, "output", "gui_matrix_20260801");
+const repositoryRoot = process.env.GUI_MATRIX_REPOSITORY_ROOT?.trim() || path.resolve(guiRoot, "..");
+const matrixRoot =
+  process.env.GUI_MATRIX_ROOT?.trim() ||
+  path.join(repositoryRoot, "output", "gui_matrix_20260801");
 const runRoot = path.join(matrixRoot, "runs");
 const artifactRoot = path.join(matrixRoot, "artifacts");
+const installedExe = process.env.GUI_MATRIX_INSTALLED_EXE?.trim() || null;
 const runtimeLibraries = path.join(
   guiRoot,
   ".runtime-libs",
@@ -432,6 +436,120 @@ function copyJobInputs(userData, destination) {
   return copied;
 }
 
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.off("exit", done);
+      resolve(false);
+    }, timeoutMs);
+    const done = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    child.once("exit", done);
+  });
+}
+
+async function connectInstalledApp(specification, userData, caseOutput) {
+  const port = 9400 + Math.floor(Math.random() * 1000);
+  const childOutput = [];
+  const child = spawn(
+    installedExe,
+    [
+      `--automation-port=${port}`,
+      `--user-data-dir=${userData}`,
+      ...specification.videos.map((video) => `--automation-video=${video}`),
+      `--automation-output=${caseOutput}`,
+    ],
+    {
+      env: {
+        ...process.env,
+        MASK_STUDIO_AUTOMATION_NO_EXTERNAL: "1",
+      },
+      windowsHide: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  for (const stream of [child.stdout, child.stderr]) {
+    stream?.setEncoding("utf8");
+    stream?.on("data", (chunk) => {
+      childOutput.push(String(chunk));
+      if (childOutput.length > 2000) childOutput.splice(0, 1000);
+    });
+  }
+  const endpoint = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 45_000;
+  let browser = null;
+  let lastError = null;
+  while (Date.now() < deadline && child.exitCode === null) {
+    try {
+      browser = await chromium.connectOverCDP(endpoint);
+      break;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  if (!browser) {
+    if (child.exitCode === null) child.kill();
+    throw new Error(
+      `installed Electron CDP did not start: ${lastError}\n${childOutput.join("").slice(-8000)}`,
+    );
+  }
+  const context = browser.contexts()[0];
+  let window = context?.pages()[0] ?? null;
+  if (!window) {
+    window = await context.waitForEvent("page", { timeout: 30_000 });
+  }
+  return {
+    window,
+    childOutput,
+    async close() {
+      await window.close().catch(() => undefined);
+      if (!(await waitForExit(child, 10_000))) {
+        child.kill();
+        if (!(await waitForExit(child, 5_000)) && process.platform === "win32") {
+          const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+            windowsHide: true,
+            stdio: "ignore",
+          });
+          await waitForExit(killer, 10_000);
+        }
+      }
+      await browser.close().catch(() => undefined);
+    },
+  };
+}
+
+async function launchApp(specification, userData, caseOutput) {
+  if (installedExe) {
+    return connectInstalledApp(specification, userData, caseOutput);
+  }
+  const app = await electron.launch({
+    args: [
+      ".",
+      "--software-rendering",
+      ...specification.videos.map((video) => `--automation-video=${video}`),
+      `--automation-output=${caseOutput}`,
+      `--user-data-dir=${userData}`,
+    ],
+    cwd: guiRoot,
+    env: {
+      ...process.env,
+      MASK_STUDIO_AUTOMATION_NO_EXTERNAL: "1",
+      LD_LIBRARY_PATH: [runtimeLibraries, process.env.LD_LIBRARY_PATH]
+        .filter(Boolean)
+        .join(":"),
+    },
+  });
+  return {
+    window: await app.firstWindow(),
+    childOutput: [],
+    close: () => app.close(),
+  };
+}
+
 async function runCase(specification) {
   for (const video of specification.videos) {
     if (!fs.existsSync(video)) throw new Error(`missing input: ${video}`);
@@ -450,24 +568,8 @@ async function runCase(specification) {
   let timedOut = false;
   let dryRun = null;
   try {
-    app = await electron.launch({
-      args: [
-        ".",
-        "--software-rendering",
-        ...specification.videos.map((video) => `--automation-video=${video}`),
-        `--automation-output=${caseOutput}`,
-        `--user-data-dir=${userData}`,
-      ],
-      cwd: guiRoot,
-      env: {
-        ...process.env,
-        MASK_STUDIO_AUTOMATION_NO_EXTERNAL: "1",
-        LD_LIBRARY_PATH: [runtimeLibraries, process.env.LD_LIBRARY_PATH]
-          .filter(Boolean)
-          .join(":"),
-      },
-    });
-    const window = await app.firstWindow();
+    app = await launchApp(specification, userData, caseOutput);
+    const window = app.window;
     window.on("pageerror", (error) => rendererErrors.push(`page: ${error.message}`));
     window.on("console", (message) => {
       if (message.type() === "error") rendererErrors.push(`console: ${message.text()}`);
@@ -715,6 +817,8 @@ async function runCase(specification) {
       ),
       jobSamples,
       generatedInputs,
+      installedExe,
+      appOutputTail: app.childOutput.join("").slice(-16_000),
     };
   } catch (error) {
     copyJobInputs(userData, path.join(caseArtifacts, "job-inputs"));
@@ -728,6 +832,8 @@ async function runCase(specification) {
       rendererErrors,
       jobSamples,
       hardware,
+      installedExe,
+      appOutputTail: app?.childOutput?.join("").slice(-16_000) ?? "",
     };
   } finally {
     await app?.close();
