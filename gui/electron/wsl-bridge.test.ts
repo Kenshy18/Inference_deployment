@@ -88,7 +88,9 @@ describe("Windows/WSL bridge", () => {
     expect(args).toContain("/mnt/d/新しいフォルダー/output");
   });
 
-  it("copies a successful staged output atomically and removes staging", () => {
+  it.skipIf(process.platform === "win32")(
+    "copies a successful staged output atomically and removes staging",
+    () => {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "mask-studio-wsl-runner-test-"),
     );
@@ -141,5 +143,6 @@ describe("Windows/WSL bridge", () => {
         force: true,
       });
     }
-  });
+    },
+  );
 });

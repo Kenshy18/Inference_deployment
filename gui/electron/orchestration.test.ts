@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AppSettings, PipelineDraft } from "../shared/types";
 import {
@@ -67,7 +68,7 @@ describe("orchestration bridge", () => {
   it("builds a native dry-run command", () => {
     const launch = buildLaunchSpec(settings, "/tmp/job.json", true);
     expect(launch.executable).toBe("/opt/runtime/bin/python");
-    expect(launch.cwd).toBe("/opt/inference_backend2");
+    expect(launch.cwd).toBe(path.resolve("/opt/inference_backend2"));
     expect(launch.args).toEqual([
       "-m",
       "orchestration",
