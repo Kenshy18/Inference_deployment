@@ -141,6 +141,7 @@ class ClassPostprocessTests(unittest.TestCase):
                     str(policy),
                     "--device",
                     "cpu",
+                    "--no-polygon-endpoint-extend",
                 ]
             )
             manifest = run_pipeline(args)

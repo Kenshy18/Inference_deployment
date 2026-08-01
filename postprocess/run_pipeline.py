@@ -97,6 +97,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-root", type=Path)
     parser.add_argument("--k2-run-dir", type=Path)
     parser.add_argument("--device")
+    parser.add_argument(
+        "--polygon-border-expand",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--polygon-endpoint-extend",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--k2-batch-size", type=int)
     parser.add_argument("--k2-prep-workers", type=int)
     parser.add_argument("--k2-precision", choices=("fp32", "fp16"))
@@ -214,6 +226,34 @@ def _ellipse_stage_options(
     return options
 
 
+def _polygon_stage_options(
+    args: argparse.Namespace,
+    initial: dict[str, object] | None = None,
+) -> dict[str, object]:
+    options = {} if initial is None else dict(initial)
+    model_root = (
+        args.model_root.expanduser().resolve()
+        if args.model_root is not None
+        else Path(__file__).resolve().parent / "models"
+    )
+    options.setdefault(
+        "point_predictor_model_dir", str(model_root / "polygon_point_predictor")
+    )
+    if args.device is not None:
+        options["predictor_device"] = choose_device(args.device)
+    else:
+        options.setdefault("predictor_device", choose_device("auto"))
+    if args.polygon_border_expand is not None:
+        options["border_expand"] = bool(args.polygon_border_expand)
+    else:
+        options.setdefault("border_expand", True)
+    if args.polygon_endpoint_extend is not None:
+        options["endpoint_extend"] = bool(args.polygon_endpoint_extend)
+    else:
+        options.setdefault("endpoint_extend", True)
+    return options
+
+
 def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
     if (
         args.pipeline_config is not None
@@ -289,10 +329,18 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             options["remove_short_tracks_max_frames"] = int(
                 args.remove_short_tracks_max_frames
             )
+        elif stage.implementation == "approximation.polygon.production_v22":
+            if args.keyframe_interval is not None:
+                options["interval_frames"] = int(args.keyframe_interval)
+            if args.max_gap is not None:
+                options["max_gap"] = int(args.max_gap)
+            options = _polygon_stage_options(args, options)
         elif (
             stage.implementation == "keyframes.polygon.interval"
             and args.keyframe_interval is not None
         ):
+            # Retain explicit compatibility for custom/experimental RDP
+            # pipeline configurations.
             options["interval_frames"] = int(args.keyframe_interval)
         elif stage.implementation == "approximation.ellipse.production":
             options = _ellipse_stage_options(args, options)
@@ -345,7 +393,7 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                         args,
                         resolve_auto_device=False,
                     ),
-                    "polygon_options": {},
+                    "polygon_options": _polygon_stage_options(args),
                 },
             )
         )

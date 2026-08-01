@@ -55,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="optional real video used for an additional cut-detector comparison",
     )
+    parser.add_argument(
+        "--baseline-comparison-json",
+        type=Path,
+        help="optional comparison.json captured before an implementation change",
+    )
     parser.add_argument("--force", action="store_true")
     return parser
 
@@ -587,6 +592,45 @@ def compare_mask_sqlites(reference: Path, prediction: Path) -> dict[str, object]
         row_ious.append(counts[2] / counts[3] if counts[3] else 1.0)
     left_vertices = [len(polygon) for values in left.values() for polygon in values]
     right_vertices = [len(polygon) for values in right.values() for polygon in values]
+
+    def distribution(values: list[int]) -> dict[str, float | int]:
+        if not values:
+            return {
+                "count": 0,
+                "mean": 0.0,
+                "stddev": 0.0,
+                "min": 0,
+                "p10": 0.0,
+                "p25": 0.0,
+                "median": 0.0,
+                "p75": 0.0,
+                "p90": 0.0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "max": 0,
+            }
+        array = np.asarray(values, dtype=np.float64)
+        return {
+            "count": len(values),
+            "mean": float(np.mean(array)),
+            "stddev": float(np.std(array)),
+            "min": int(np.min(array)),
+            "p10": float(np.percentile(array, 10)),
+            "p25": float(np.percentile(array, 25)),
+            "median": float(np.median(array)),
+            "p75": float(np.percentile(array, 75)),
+            "p90": float(np.percentile(array, 90)),
+            "p95": float(np.percentile(array, 95)),
+            "p99": float(np.percentile(array, 99)),
+            "max": int(np.max(array)),
+        }
+
+    left_row_vertices = {key: sum(map(len, values)) for key, values in left.items()}
+    right_row_vertices = {key: sum(map(len, values)) for key, values in right.items()}
+    common_keys = sorted(set(left) & set(right))
+    vertex_deltas = [
+        right_row_vertices[key] - left_row_vertices[key] for key in common_keys
+    ]
     return {
         "reference_rows": len(left),
         "prediction_rows": len(right),
@@ -604,6 +648,16 @@ def compare_mask_sqlites(reference: Path, prediction: Path) -> dict[str, object]
         "prediction_mean_vertices": (
             float(np.mean(right_vertices)) if right_vertices else 0.0
         ),
+        "reference_vertices_per_contour": distribution(left_vertices),
+        "prediction_vertices_per_contour": distribution(right_vertices),
+        "reference_vertices_per_row": distribution(list(left_row_vertices.values())),
+        "prediction_vertices_per_row": distribution(list(right_row_vertices.values())),
+        "prediction_minus_reference_vertices_per_common_row": {
+            **distribution(vertex_deltas),
+            "lower_rows": sum(delta < 0 for delta in vertex_deltas),
+            "equal_rows": sum(delta == 0 for delta in vertex_deltas),
+            "higher_rows": sum(delta > 0 for delta in vertex_deltas),
+        },
     }
 
 
@@ -695,6 +749,8 @@ def run_polygon_comparison(
             "3",
             "--max-gap",
             "30",
+            "--no-polygon-border-expand",
+            "--no-polygon-endpoint-extend",
         ],
         cwd=POSTPROCESS_ROOT,
         log_path=work_dir / "current.log",
@@ -1041,7 +1097,7 @@ def write_markdown(report: dict[str, object], path: Path) -> None:
         "",
         "- Raw preprocessing constants and decisions are preserved; current code streams rows and adds provenance.",
         "- Ellipse uses the migrated K1/K2, routing, dense-recall keyframe and gap-fill algorithms.",
-        "- Original orchestration optimizes each class separately; current orchestration combines classes that share settings. This changes the global keyframe penalty even when the core algorithm is identical.",
+        "- Restored classwise orchestration optimizes each semantic label independently. The non-classwise ellipse comparison intentionally combines labels, so its global keyframe penalty differs from the original class-grouped run.",
         "- Polygon is not the original production v22 optimizer. Current production uses OpenCV RDP, fixed interval selection and linear interpolation.",
         "- Original defaults also include polygon border expansion and endpoint extension; current modular defaults do not.",
         "- High-precision cut thresholds match, but original candidate narrowing/fallback and current full downscaled scan are structurally different.",
@@ -1050,6 +1106,36 @@ def write_markdown(report: dict[str, object], path: Path) -> None:
         "See `comparison.json` for per-table hashes, row counts and pixel metrics.",
         ]
     )
+    baseline = polygon.get("pre_restore_baseline")
+    if baseline is not None:
+        before = baseline["current_vs_original"]
+        after = polygon["current_vs_original"]
+        lines.extend(
+            [
+                "",
+                "## Polygon restoration delta",
+                "",
+                "| Metric | Simplified implementation | Restored v22 |",
+                "|---|---:|---:|",
+                f"| Current/original IoU | {before['global_iou']:.6f} | {after['global_iou']:.6f} |",
+                f"| Current/original recall | {before['global_recall']:.6f} | {after['global_recall']:.6f} |",
+                f"| Mean vertices/row | {before['prediction_vertices_per_row']['mean']:.3f} | {after['prediction_vertices_per_row']['mean']:.3f} |",
+                f"| Median vertices/row | {before['prediction_vertices_per_row']['median']:.3f} | {after['prediction_vertices_per_row']['median']:.3f} |",
+                f"| Keyframe Jaccard | {baseline['keyframes']['jaccard']:.6f} | {polygon['keyframes']['jaccard']:.6f} |",
+                f"| Wall seconds | {baseline['current_seconds']:.3f} | {polygon['current_seconds']:.3f} |",
+            ]
+        )
+    polygon_exact = polygon["current_vs_original"]["global_iou"] >= 0.999999999
+    interpretation_index = lines.index("## Static interpretation") + 2
+    if polygon_exact:
+        lines[interpretation_index + 3] = (
+            "- Polygon production now invokes the original production-patched "
+            "v22 optimizer; the tested masks and keyframes are exactly equivalent."
+        )
+        lines[interpretation_index + 4] = (
+            "- Border expansion and endpoint extension are separate outer-pipeline "
+            "safeguards and are not exercised by this optimizer-stage comparison."
+        )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -1119,6 +1205,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         work_dir=work_dir / "polygon",
         device=args.device,
     )
+    if args.baseline_comparison_json is not None:
+        baseline_path = args.baseline_comparison_json.expanduser().resolve()
+        if not baseline_path.is_file():
+            raise FileNotFoundError(baseline_path)
+        baseline_polygon = json.loads(
+            baseline_path.read_text(encoding="utf-8")
+        )["dynamic"]["polygon"]
+        baseline_original = Path(
+            baseline_polygon["artifacts"]["original_predictions"]
+        )
+        baseline_current = Path(
+            baseline_polygon["artifacts"]["current_predictions"]
+        )
+        report["dynamic"]["polygon"]["pre_restore_baseline"] = {
+            "comparison_json": str(baseline_path),
+            "current_seconds": float(baseline_polygon["current_seconds"]),
+            "current_vs_original": compare_mask_sqlites(
+                baseline_original, baseline_current
+            ),
+            "keyframes": baseline_polygon["keyframes"],
+            "artifacts": baseline_polygon["artifacts"],
+        }
     report["dynamic"]["ellipse"] = run_ellipse_comparison(
         python=python,
         original_root=original_root,

@@ -110,6 +110,7 @@ class LegacySqliteTests(unittest.TestCase):
                     "--no-cut-detect",
                     "--remove-short-tracks-max-frames",
                     "0",
+                    "--no-polygon-endpoint-extend",
                     "--export-legacy-sqlite",
                 ]
             )

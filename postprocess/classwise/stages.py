@@ -34,19 +34,13 @@ def _nested_pipeline(
     if settings.shape_mode == "polygon":
         stages = (
             StageSpec(
-                "polygon_approximation",
-                "approximation.polygon.rdp",
-                dict(polygon_options),
-            ),
-            StageSpec(
-                "keyframe_selection",
-                "keyframes.polygon.interval",
-                {"interval_frames": settings.keyframe_interval},
-            ),
-            StageSpec(
-                "mask_gap_fill",
-                "gap_fill.polygon.linear",
-                {"max_gap": settings.max_gap},
+                "polygon_optimization",
+                "approximation.polygon.production_v22",
+                {
+                    **polygon_options,
+                    "interval_frames": settings.keyframe_interval,
+                    "max_gap": settings.max_gap,
+                },
             ),
             StageSpec("exact_evaluation", "evaluation.mask_iou"),
             StageSpec("output_validation", "artifacts.validate"),
@@ -118,26 +112,29 @@ class ClasswisePostprocessStage:
         )
         tracked = context.artifacts["tracked_sqlite"]
         track_labels = read_track_labels(tracked)
-        tracks_by_settings: dict[ClassPostprocessSettings, list[str]] = {}
-        labels_by_settings: dict[ClassPostprocessSettings, set[str]] = {}
+        # The original production pipeline optimized each semantic class in an
+        # independent branch.  Do not coalesce labels merely because their
+        # settings happen to match: both ellipse and polygon optimizers have a
+        # branch-global keyframe budget.
+        tracks_by_group: dict[tuple[str, ClassPostprocessSettings], list[str]] = {}
         for track_id, label in sorted(track_labels.items()):
             settings = policy.resolve(label)
-            tracks_by_settings.setdefault(settings, []).append(track_id)
-            labels_by_settings.setdefault(settings, set()).add(label)
+            tracks_by_group.setdefault((label, settings), []).append(track_id)
 
         ellipse_options = dict(self.options.get("ellipse_options", {}))
         polygon_options = dict(self.options.get("polygon_options", {}))
         routed: list[RoutedGroup] = []
         group_manifests: list[dict[str, object]] = []
-        ordered_settings = sorted(
-            tracks_by_settings,
+        ordered_groups = sorted(
+            tracks_by_group,
             key=lambda value: (
-                value.shape_mode,
-                value.keyframe_interval,
-                value.max_gap,
+                value[1].shape_mode,
+                value[1].keyframe_interval,
+                value[1].max_gap,
+                value[0],
             ),
         )
-        for index, settings in enumerate(ordered_settings):
+        for index, (label, settings) in enumerate(ordered_groups):
             group_started = time.perf_counter()
             group_id = (
                 f"{index:02d}_{settings.shape_mode}_"
@@ -145,7 +142,7 @@ class ClasswisePostprocessStage:
             )
             group_root = context.stage_dir / "groups" / group_id
             projected = group_root / "tracked.sqlite"
-            track_ids = tuple(tracks_by_settings[settings])
+            track_ids = tuple(tracks_by_group[(label, settings)])
             if set(track_ids) == set(track_labels):
                 projected = Path(tracked)
                 input_masks = count_masks(projected)
@@ -170,7 +167,7 @@ class ClasswisePostprocessStage:
             routed.append(
                 RoutedGroup(
                     group_id=group_id,
-                    labels=tuple(sorted(labels_by_settings[settings])),
+                    labels=(label,),
                     track_ids=track_ids,
                     settings=settings,
                     predictions_sqlite=predictions,
@@ -184,7 +181,7 @@ class ClasswisePostprocessStage:
             group_manifests.append(
                 {
                     "id": group_id,
-                    "labels": sorted(labels_by_settings[settings]),
+                    "labels": [label],
                     "track_ids": list(track_ids),
                     "settings": settings.as_dict(),
                     "input_masks": input_masks,

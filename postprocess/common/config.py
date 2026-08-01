@@ -84,13 +84,16 @@ def default_polygon_pipeline(*, include_preprocess: bool) -> PipelineConfig:
         )
     stages.extend(
         [
-            StageSpec("polygon_approximation", "approximation.polygon.rdp"),
             StageSpec(
-                "keyframe_selection",
-                "keyframes.polygon.interval",
-                {"interval_frames": 3},
+                "polygon_optimization",
+                "approximation.polygon.production_v22",
+                {
+                    "interval_frames": 3,
+                    "max_gap": 30,
+                    "border_expand": True,
+                    "endpoint_extend": True,
+                },
             ),
-            StageSpec("mask_gap_fill", "gap_fill.polygon.linear"),
             StageSpec("exact_evaluation", "evaluation.mask_iou"),
             StageSpec("output_validation", "artifacts.validate"),
         ]

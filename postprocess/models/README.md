@@ -7,6 +7,10 @@ models/
   k2_v5/
     best_exact.pt
     run_config.json
+  polygon_point_predictor/
+    best.pt
+    feature_stats.npz
+    run_config.json
 ```
 
 別モデルを利用する場合は同じレイアウトで別 directory に配置し、

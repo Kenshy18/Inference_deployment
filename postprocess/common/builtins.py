@@ -52,6 +52,12 @@ def polygon_approximation(options: dict[str, Any]) -> PostprocessStage:
     return RdpApproximationStage(options)
 
 
+def polygon_production(options: dict[str, Any]) -> PostprocessStage:
+    from approximation.polygon.production import ProductionPolygonV22Stage
+
+    return ProductionPolygonV22Stage(options)
+
+
 def ellipse_approximation(options: dict[str, Any]) -> PostprocessStage:
     from approximation.ellipse.stages import EllipseApproximationStage
 
@@ -143,6 +149,7 @@ register_stage("nms.adaptive", adaptive_nms)
 register_stage("cut_detection.video", cut_detection)
 register_stage("tracking.greedy", tracking)
 register_stage("approximation.polygon.rdp", polygon_approximation)
+register_stage("approximation.polygon.production_v22", polygon_production)
 register_stage("approximation.ellipse.production", ellipse_approximation)
 register_stage("keyframes.polygon.interval", polygon_keyframes)
 register_stage("keyframes.ellipse.dense", ellipse_keyframes)

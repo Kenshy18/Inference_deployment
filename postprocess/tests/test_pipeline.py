@@ -285,9 +285,10 @@ class PipelineTests(unittest.TestCase):
             )
             self.assertEqual("polygon_modular", manifest["pipeline"])
             self.assertEqual(
-                "approximation.polygon.rdp",
+                "approximation.polygon.production_v22",
                 manifest["stages"][0]["implementation"],
             )
+            self.assertIn("keyframes_sqlite", manifest["artifacts"])
 
     def test_default_ellipse_pipeline_runs_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

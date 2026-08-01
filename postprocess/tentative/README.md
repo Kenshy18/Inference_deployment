@@ -30,3 +30,6 @@ Use a directory under `output/`; do not point it at a repository root.
 The command writes `comparison.json` for machine-readable evidence and
 `REPORT.md` for the concise result. Generated artifacts intentionally live
 outside this directory so the repository remains clean.
+
+For a larger polygon-only timing and vertex-distribution comparison, run
+`python -m tentative.benchmark_polygon_restore` with the same tracked SQLite.
