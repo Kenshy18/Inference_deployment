@@ -5,6 +5,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:Path =
+  [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+  [Environment]::GetEnvironmentVariable("Path", "User")
 
 function Require-Command([string]$Name, [string]$InstallHint) {
   $command = Get-Command $Name -ErrorAction SilentlyContinue

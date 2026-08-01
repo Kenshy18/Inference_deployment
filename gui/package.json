@@ -1,6 +1,6 @@
 {
   "name": "mask-pipeline-studio-windows",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Desktop control surface for the inference_backend2 video mask pipeline.",
   "author": {

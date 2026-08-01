@@ -37,5 +37,17 @@ powershell.exe -ExecutionPolicy Bypass -File `
 時だけこの処理を実行します。既存versionを上書きするには`-ReplaceRelease`が必要です。
 正式配布では上書きせずversionを上げてください。
 
+## 日常のWindows動作確認
+
+正式なexeを作らず、WSL正本をWindowsの一時開発領域へ差分同期してWindows Electronを
+起動できます。
+
+```bash
+./scripts/dev-windows.sh
+```
+
+既定の一時領域は`%LOCALAPPDATA%\MaskPipelineStudioDev`です。`package-lock.json`が
+変わった場合だけ`npm ci`をやり直し、通常のソース変更ではすぐに開発GUIを起動します。
+
 未コミットのリポジトリから正式releaseを作ることは既定で拒否します。開発確認だけに限って
 `-AllowDirty`を指定できます。その場合はmanifestにもdirty buildとして記録されます。
