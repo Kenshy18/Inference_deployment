@@ -158,15 +158,20 @@ Linux用の展開済みアプリを作る場合:
 npm run package
 ```
 
-Windowsのinstallerは、Windows上で次を実行して生成します。
+Windows版はこのWSLリポジトリを正本とし、専用スクリプトがソースだけをWindowsの
+一時build領域へ同期して生成します。Windows版Node.js 20以降が必要です。
 
-```powershell
-npm ci
-npm run dist
+```bash
+./scripts/build-windows.sh
 ```
 
-`release/`へNSIS形式の`setup.exe`が生成されます。本番配布時はWindowsコード署名を
-追加してください。
+`D:\GUI_frontend\release\<version>`へNSIS installer、portable exe、展開版、
+SHA-256、正本Git commitを含むbuild manifestが生成されます。通常起動時にコピーや
+buildは行いません。WSL側のGUIソースを変更して新しいexeが必要になった時だけ実行
+します。詳細は[windows/README.md](windows/README.md)を参照してください。
+
+正式配布では未コミット状態からのbuildを禁止し、テストしたexeと配布するexeの
+SHA-256を一致させます。Windowsコード署名は配布前に追加してください。
 
 ## Windows + WSL2
 
@@ -188,6 +193,11 @@ runtime python:
 
 Windowsで選択した`C:\...`は`/mnt/c/...`へ変換します。
 `\\wsl.localhost\Ubuntu-24.04\home\...`は`/home/...`へ変換します。
+
+Windowsドライブを出力先にした実ジョブは、中間I/Oによる低速化を避けるためWSLの
+ext4一時領域で処理し、正常完了後にWindows出力先へコピーします。キャンセル時は
+WSL内のpipeline process groupを停止し、一時ステージングを削除します。LIVE画像と
+成果物パスはWindows GUIが読めるパスへ変換します。
 
 GUIのinstallerにPython、モデル、TensorRT engineは含めません。対象PCのWSL2内に
 現在の推論環境がセットアップされていることを前提とします。

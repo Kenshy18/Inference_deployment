@@ -12,6 +12,8 @@
 
 ## GUI
 
+- 実行したinstaller/exeのSHA-256が`build-manifest.json`と一致し、manifestの正本Git
+  commitがテスト対象commitと一致する。
 - page error、unhandled rejection、console errorが0件。
 - bodyと`.app`が常に存在し、black screenが発生しない。
 - 操作対象のbutton、select、number、checkbox、tabが反応し、保存後も値が維持される。

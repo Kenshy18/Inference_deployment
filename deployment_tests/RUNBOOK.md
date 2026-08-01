@@ -4,7 +4,9 @@
 
 1. Git HEAD、worktree差分、時刻、OS、driver、GPU、CPU、RAM、空き容量を記録する。
 2. GPUを使う他processがないことを確認する。
-3. GUIをbuildし、Electron packageから起動できることを確認する。
+3. `gui/scripts/build-windows.sh`でclean commitからreleaseを作り、
+   `build-manifest.json`とSHA-256を固定する。NSISをテスト用Windows環境へ新規installし、
+   インストール済みexeを起動する。`win-unpacked`は障害切り分け専用とする。
 4. `cases.json`を`check_plan.py`で検査する。
 5. fixtureをprobeし、期待するcodec、container、resolution、FPS、audio、frame数を
    `work/fixtures-report.json`へ固定する。
@@ -16,7 +18,9 @@ forced-finalization deadlineを記録します。
 
 ## 1. GUI操作
 
-製品pipelineを開始する操作は全てPlaywrightから実際のElectron windowへ行います。
+製品pipelineを開始する操作は全てPlaywrightからインストール済みWindows exeの
+実Electron windowへ行います。自動操作portはテスト時だけ明示的に有効化し、通常起動
+では無効にします。
 
 1. Sourceの参照ボタンからautomation fixtureを選び、追加ボタンでqueueへ入れる。
 2. 簡単／詳細を切り替え、ケースに必要なcontrolをpointerで変更する。

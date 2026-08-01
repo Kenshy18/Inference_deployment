@@ -97,6 +97,28 @@ describe("orchestration bridge", () => {
     );
     expect(launch.executable).toBe("wsl.exe");
     expect(launch.args).toContain("/mnt/c/Users/Editor/job.json");
+    expect(launch.args).not.toContain("/bin/sh");
+    expect(launch.args).toContain(
+      "/mnt/c/Users/Editor/wsl-runner.py",
+    );
+  });
+
+  it("passes preview environment variables explicitly through WSL", () => {
+    const launch = buildLaunchSpec(
+      { ...settings, backendMode: "wsl" },
+      "D:\\jobs\\job.json",
+      false,
+      {
+        MASK_PIPELINE_PREVIEW_PATH: "/mnt/d/output/latest.jpg",
+        PYTHONUNBUFFERED: "1",
+      },
+      "D:\\jobs\\job.pid",
+    );
+    expect(launch.args).toContain(
+      "MASK_PIPELINE_PREVIEW_PATH=/mnt/d/output/latest.jpg",
+    );
+    expect(launch.args).toContain("PYTHONUNBUFFERED=1");
+    expect(launch.args).toContain("/mnt/d/jobs/job.pid");
   });
 
   it("maps path-bearing advanced settings into WSL", () => {

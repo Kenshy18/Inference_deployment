@@ -15,6 +15,17 @@ import {
 } from "./orchestration";
 import { availableOutputRoot } from "./output-root";
 import { emptyTelemetry, parseTelemetryLine } from "./telemetry";
+import {
+  isWslPathInside,
+  launchPidPath,
+  runtimePathToHost,
+  terminateWslJob,
+  terminateWslJobSync,
+  validateWslBackend,
+  WSL_RUNNER_SOURCE,
+  wslStagingOutputRoot,
+  windowsToWslPath,
+} from "./wsl-bridge";
 
 const MAX_LOG_LINES = 2_000;
 const LIVE_PREVIEW_MARKER = "[live-preview] ";
@@ -79,6 +90,9 @@ export class JobManager extends EventEmitter {
   private stderrBuffer = "";
   private previewEnabled = false;
   private previewControl: string | null = null;
+  private activeSettings: AppSettings | null = null;
+  private activeWslOutputRoot: string | null = null;
+  private activePidPath: string | null = null;
 
   constructor(jobsRoot: string) {
     super();
@@ -106,18 +120,42 @@ export class JobManager extends EventEmitter {
     if (!settings.backendRoot.trim() || !settings.runtimePython.trim()) {
       throw new Error("バックエンドとPythonのパスを設定してください。");
     }
+    await validateWslBackend(settings);
 
     const outputRoot = availableOutputRoot(
       draft.outputRoot,
       draft.execution.resume,
     );
     const id = new Date().toISOString().replaceAll(/[:.]/g, "-");
+    const finalWslOutputRoot =
+      settings.backendMode === "wsl" ? windowsToWslPath(outputRoot) : null;
+    const stageWindowsOutput =
+      settings.backendMode === "wsl" &&
+      process.platform === "win32" &&
+      !dryRun &&
+      finalWslOutputRoot?.startsWith("/mnt/");
+    const runtimeOutputRoot = stageWindowsOutput
+      ? wslStagingOutputRoot(id)
+      : outputRoot;
     const jobDir = path.join(this.jobsRoot, id);
     fs.mkdirSync(jobDir, { recursive: true });
     this.previewControl = path.join(jobDir, "preview.enabled");
+    this.activeSettings = { ...settings };
+    this.activeWslOutputRoot =
+      settings.backendMode === "wsl"
+        ? windowsToWslPath(runtimeOutputRoot)
+        : null;
+    this.activePidPath = launchPidPath(jobDir);
     const configPath = path.join(jobDir, "orchestration.json");
+    const runnerPath = path.join(jobDir, "wsl-runner.py");
+    if (settings.backendMode === "wsl") {
+      fs.writeFileSync(runnerPath, WSL_RUNNER_SOURCE, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+    }
     const generatedPolicy = buildClassPostprocessPolicy(draft);
-    let effectiveDraft = { ...draft, outputRoot };
+    let effectiveDraft = { ...draft, outputRoot: runtimeOutputRoot };
     if (generatedPolicy !== null) {
       const policyPath = path.join(jobDir, "class_postprocess_policy.json");
       fs.writeFileSync(
@@ -154,7 +192,48 @@ export class JobManager extends EventEmitter {
     this.stderrBuffer = "";
     this.emitUpdate();
 
-    const launch = buildLaunchSpec(settings, configPath, dryRun);
+    const runtimeEnvironment: Record<string, string> = {
+      MASK_PIPELINE_PROGRESS_INTERVAL_SEC: "0.1",
+      MASK_PIPELINE_PREVIEW_PATH:
+        settings.backendMode === "wsl"
+          ? path.posix.join(
+              windowsToWslPath(runtimeOutputRoot),
+              ".live-preview",
+              "latest.jpg",
+            )
+          : path.join(outputRoot, ".live-preview", "latest.jpg"),
+      MASK_PIPELINE_PREVIEW_CONTROL_PATH:
+        settings.backendMode === "wsl"
+          ? windowsToWslPath(this.previewControl)
+          : this.previewControl,
+      MASK_PIPELINE_PREVIEW_INTERVAL_FRAMES: "1",
+      MASK_PIPELINE_PREVIEW_WIDTH: "960",
+      MASK_PIPELINE_PREVIEW_HEIGHT: "540",
+      MASK_PIPELINE_PREVIEW_JPEG_QUALITY: "85",
+      MASK_PIPELINE_INFERENCE_PREVIEW_FPS: "10",
+      MASK_PIPELINE_POSTPROCESS_PREVIEW_FPS: "10",
+      PYTHONUNBUFFERED: "1",
+      PYTHONDONTWRITEBYTECODE: "1",
+    };
+    const launch = buildLaunchSpec(
+      settings,
+      configPath,
+      dryRun,
+      runtimeEnvironment,
+      this.activePidPath,
+      runnerPath,
+      stageWindowsOutput && finalWslOutputRoot
+        ? {
+            source: windowsToWslPath(runtimeOutputRoot),
+            target: finalWslOutputRoot,
+          }
+        : undefined,
+    );
+    if (stageWindowsOutput) {
+      this.appendLog(
+        `[gui] 高速化のためWSL内で処理し、完了後にコピーします: ${runtimeOutputRoot} -> ${outputRoot}`,
+      );
+    }
     if (outputRoot !== draft.outputRoot) {
       this.appendLog(
         `[gui] 既存の出力を保護するため新しい保存先を使用します: ${outputRoot}`,
@@ -165,21 +244,7 @@ export class JobManager extends EventEmitter {
       cwd: launch.cwd,
       env: {
         ...process.env,
-        MASK_PIPELINE_PROGRESS_INTERVAL_SEC: "0.1",
-        MASK_PIPELINE_PREVIEW_PATH: path.join(
-          outputRoot,
-          ".live-preview",
-          "latest.jpg",
-        ),
-        MASK_PIPELINE_PREVIEW_CONTROL_PATH: this.previewControl,
-        MASK_PIPELINE_PREVIEW_INTERVAL_FRAMES: "1",
-        MASK_PIPELINE_PREVIEW_WIDTH: "960",
-        MASK_PIPELINE_PREVIEW_HEIGHT: "540",
-        MASK_PIPELINE_PREVIEW_JPEG_QUALITY: "85",
-        MASK_PIPELINE_INFERENCE_PREVIEW_FPS: "10",
-        MASK_PIPELINE_POSTPROCESS_PREVIEW_FPS: "10",
-        PYTHONUNBUFFERED: "1",
-        PYTHONDONTWRITEBYTECODE: "1",
+        ...(settings.backendMode === "native" ? runtimeEnvironment : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -206,7 +271,7 @@ export class JobManager extends EventEmitter {
       } else {
         this.current.status = dryRun ? "validated" : "completed";
         if (!dryRun) {
-          this.current.artifacts = this.readArtifacts(outputRoot);
+          this.current.artifacts = this.readArtifacts(outputRoot, settings);
         }
       }
       this.emitUpdate();
@@ -232,10 +297,19 @@ export class JobManager extends EventEmitter {
     }
     this.current.status = "cancelling";
     this.appendLog("キャンセル要求を送信しました。");
-    const pid = this.child.pid;
-    if (process.platform !== "win32" && pid !== undefined) {
+    const settings = this.activeSettings;
+    const pidPath = this.activePidPath;
+    if (
+      settings?.backendMode === "wsl" &&
+      process.platform === "win32" &&
+      pidPath
+    ) {
+      void terminateWslJob(settings, pidPath).finally(() => {
+        this.child?.kill();
+      });
+    } else if (process.platform !== "win32" && this.child.pid !== undefined) {
       try {
-        process.kill(-pid, "SIGTERM");
+        process.kill(-this.child.pid, "SIGTERM");
       } catch {
         this.child.kill("SIGTERM");
       }
@@ -244,6 +318,24 @@ export class JobManager extends EventEmitter {
     }
     this.emitUpdate();
     return this.snapshot();
+  }
+
+  shutdown(): void {
+    if (this.child === null) {
+      return;
+    }
+    const settings = this.activeSettings;
+    const pidPath = this.activePidPath;
+    if (
+      settings?.backendMode === "wsl" &&
+      process.platform === "win32" &&
+      pidPath
+    ) {
+      terminateWslJobSync(settings, pidPath);
+      this.child.kill();
+      return;
+    }
+    this.cancel();
   }
 
   setPreviewEnabled(enabled: boolean): void {
@@ -323,17 +415,30 @@ export class JobManager extends EventEmitter {
   private consumePreviewLine(payloadText: string): void {
     try {
       const payload = JSON.parse(payloadText) as Record<string, unknown>;
-      const previewPath = path.resolve(String(payload.path ?? ""));
+      const emittedPath = String(payload.path ?? "");
       const outputRoot = this.current.outputRoot;
       if (!outputRoot) {
         return;
       }
-      const root = path.resolve(outputRoot);
-      if (
-        previewPath !== root &&
-        !previewPath.startsWith(`${root}${path.sep}`)
-      ) {
-        return;
+      const settings = this.activeSettings;
+      let previewPath: string;
+      if (settings?.backendMode === "wsl") {
+        if (
+          !this.activeWslOutputRoot ||
+          !isWslPathInside(emittedPath, this.activeWslOutputRoot)
+        ) {
+          return;
+        }
+        previewPath = runtimePathToHost(emittedPath, settings);
+      } else {
+        previewPath = path.resolve(emittedPath);
+        const root = path.resolve(outputRoot);
+        if (
+          previewPath !== root &&
+          !previewPath.startsWith(`${root}${path.sep}`)
+        ) {
+          return;
+        }
       }
       this.emit("preview", {
         jobId: this.current.id,
@@ -364,13 +469,18 @@ export class JobManager extends EventEmitter {
     this.emitUpdate();
   }
 
-  private readArtifacts(outputRoot: string): ArtifactMap {
+  private readArtifacts(outputRoot: string, settings: AppSettings): ArtifactMap {
     try {
       const manifestPath = path.join(outputRoot, "run_manifest.json");
       const manifest = JSON.parse(
         fs.readFileSync(manifestPath, "utf8"),
       ) as { artifacts?: ArtifactMap };
-      return manifest.artifacts ?? {};
+      return Object.fromEntries(
+        Object.entries(manifest.artifacts ?? {}).map(([name, value]) => [
+          name,
+          runtimePathToHost(String(value), settings),
+        ]),
+      );
     } catch {
       return {};
     }

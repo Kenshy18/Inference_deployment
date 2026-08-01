@@ -1,6 +1,7 @@
 # 8時間 GUIデプロイ判定テスト
 
-このディレクトリは、Mask Pipeline Studioを実際のElectron GUIから操作し、
+このディレクトリは、NSISからWindowsへインストールしたMask Pipeline Studio exeを
+実際に操作し、
 推論・後処理・SQLite統合・overlay・GUI自体を8時間以内でデプロイ判定するための
 テスト仕様です。製品pipelineをCLIから直接起動するケースは含めません。
 
@@ -11,6 +12,8 @@ Playwrightはボタン、タブ、入力キュー、Inspectorを人間と同じG
 ## 基本方針
 
 - 予算は480分。通常計画446分、不可避な再試験用reserve 34分です。
+- WSL上のElectron開発起動や`win-unpacked`だけで最終合否を代用しません。正本から
+  生成したNSIS installer、インストール済みexe、SHA-256、正本Git commitを固定します。
 - V3（巨大Co-DINO）の負荷試験は2時間動画1本だけに集約します。
 - それ以外のバッチ、中断、LIVE A/BはV3-lite（MH0）で検査します。
 - V3とV3-liteは同じ`SegmentationFrame`契約、schema-v3 writer、後処理、統合、

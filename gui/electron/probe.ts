@@ -3,14 +3,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AppSettings, VideoProbe } from "../shared/types";
+import { windowsToWslPath } from "./wsl-bridge";
 
 const EXEC_TIMEOUT_MS = 10_000;
 
-function run(bin: string, args: string[]): Promise<string> {
+interface CommandSpec {
+  bin: string;
+  prefix: string[];
+}
+
+function run(command: CommandSpec, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
-      bin,
-      args,
+      command.bin,
+      [...command.prefix, ...args],
       { timeout: EXEC_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 },
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
@@ -18,32 +24,67 @@ function run(bin: string, args: string[]): Promise<string> {
 }
 
 /** Bundled FFmpeg of the backend repo, then whatever is on PATH. */
-function binCandidates(name: string, settings: AppSettings): string[] {
-  const candidates: string[] = [];
-  if (settings.backendMode === "native" && settings.backendRoot.trim()) {
-    candidates.push(
-      path.join(
-        settings.backendRoot,
+function binCandidates(name: string, settings: AppSettings): CommandSpec[] {
+  const candidates: CommandSpec[] = [];
+  if (settings.backendMode === "wsl" && process.platform === "win32") {
+    const root = windowsToWslPath(settings.backendRoot);
+    const tools = [
+      path.posix.join(
+        root,
+        "overlay",
+        ".runtime",
+        "ffmpeg-nvenc-btbn-8.1",
+        "bin",
+        name,
+      ),
+      path.posix.join(
+        root,
         "overlay",
         ".runtime",
         "ffmpeg-nvenc",
         "bin",
         name,
       ),
+      name,
+    ];
+    return tools.map((tool) => ({
+      bin: "wsl.exe",
+      prefix: [
+        ...(settings.wslDistro.trim()
+          ? ["-d", settings.wslDistro.trim()]
+          : []),
+        "--",
+        tool,
+      ],
+    }));
+  }
+  if (settings.backendMode === "native" && settings.backendRoot.trim()) {
+    candidates.push(
+      {
+        bin: path.join(
+          settings.backendRoot,
+          "overlay",
+          ".runtime",
+          "ffmpeg-nvenc",
+          "bin",
+          name,
+        ),
+        prefix: [],
+      },
     );
   }
-  candidates.push(name);
+  candidates.push({ bin: name, prefix: [] });
   return candidates;
 }
 
 async function firstWorking(
-  candidates: string[],
+  candidates: CommandSpec[],
   args: string[],
-): Promise<string | null> {
-  for (const bin of candidates) {
+): Promise<CommandSpec | null> {
+  for (const command of candidates) {
     try {
-      await run(bin, args);
-      return bin;
+      await run(command, args);
+      return command;
     } catch {
       /* try next */
     }
@@ -83,7 +124,9 @@ export async function probeVideo(
         "stream=width,height,avg_frame_rate,nb_frames,duration:format=duration",
         "-of",
         "json",
-        videoPath,
+        settings.backendMode === "wsl" && process.platform === "win32"
+          ? windowsToWslPath(videoPath)
+          : videoPath,
       ]);
       const payload = JSON.parse(out) as {
         streams?: Array<{
@@ -148,14 +191,18 @@ export async function probeVideo(
         "-ss",
         seek.toFixed(2),
         "-i",
-        videoPath,
+        settings.backendMode === "wsl" && process.platform === "win32"
+          ? windowsToWslPath(videoPath)
+          : videoPath,
         "-frames:v",
         "1",
         "-vf",
         "scale=192:-2",
         "-q:v",
         "7",
-        tmp,
+        settings.backendMode === "wsl" && process.platform === "win32"
+          ? windowsToWslPath(tmp)
+          : tmp,
       ]);
       const jpeg = fs.readFileSync(tmp);
       result.thumbnail = `data:image/jpeg;base64,${jpeg.toString("base64")}`;

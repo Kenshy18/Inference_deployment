@@ -100,6 +100,8 @@ function loadSections(): Record<string, boolean> {
 export default function App() {
   const [draft, setDraft] = useState<PipelineDraft>(loadDraft);
   const [settings, setSettings] = useState<AppSettings>(browserSettings);
+  const [runtimePlatform, setRuntimePlatform] =
+    useState<NodeJS.Platform>("linux");
   const [job, setJob] = useState<JobSnapshot>(emptyJob);
   const [queue, setQueue] = useState<QueueItem[]>(loadQueue);
   const [sections, setSections] = useState<Record<string, boolean>>(loadSections);
@@ -338,6 +340,7 @@ export default function App() {
 
   useEffect(() => {
     void desktopApi.bootstrap().then((data) => {
+      setRuntimePlatform(data.platform);
       setSettings(data.settings);
       setJob(data.job);
       settingsLoaded.current = true;
@@ -950,6 +953,7 @@ export default function App() {
         <InspectorPanel
           draft={draft}
           settings={settings}
+          platform={runtimePlatform}
           busy={busy}
           open={sections}
           viewMode={settingsView}

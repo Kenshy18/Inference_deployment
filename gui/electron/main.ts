@@ -20,7 +20,9 @@ import { JobManager, type LivePreviewFileEvent } from "./job-manager";
 import { HardwareSampler } from "./hardware";
 import { probeVideo } from "./probe";
 import { parseRuntimeOptions } from "./runtime-options";
+import { runQaE2e } from "./qa-e2e";
 import { readSettings, writeSettings } from "./settings";
+import { runtimePathToHost } from "./wsl-bridge";
 
 let mainWindow: BrowserWindow | null = null;
 let jobManager: JobManager;
@@ -67,7 +69,9 @@ function queuePreview(frame: LivePreviewFileEvent): void {
 }
 
 async function openOutputFolder(targetPath: string): Promise<string> {
-  const resolved = path.resolve(targetPath);
+  const settings = readSettings(settingsPath());
+  const hostPath = runtimePathToHost(targetPath, settings);
+  const resolved = path.resolve(hostPath);
   if (process.env.MASK_STUDIO_AUTOMATION_NO_EXTERNAL === "1") {
     console.log(`[gui] automation open-output: ${resolved}`);
     return "";
@@ -107,7 +111,10 @@ if (runtimeOptions.softwareRendering) {
   app.disableHardwareAcceleration();
 }
 if (runtimeOptions.automationPort !== null) {
-  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+  app.commandLine.appendSwitch(
+    "remote-debugging-address",
+    runtimeOptions.automationAddress,
+  );
   app.commandLine.appendSwitch(
     "remote-debugging-port",
     String(runtimeOptions.automationPort),
@@ -276,6 +283,23 @@ app.whenReady().then(() => {
   jobManager.on("preview", queuePreview);
   registerIpc();
   createWindow();
+  if (
+    mainWindow &&
+    runtimeOptions.qaE2eInput &&
+    runtimeOptions.qaE2eOutput &&
+    runtimeOptions.qaE2eReport
+  ) {
+    void runQaE2e(mainWindow, {
+      input: runtimeOptions.qaE2eInput,
+      output: runtimeOptions.qaE2eOutput,
+      report: runtimeOptions.qaE2eReport,
+      maxFrames: runtimeOptions.qaE2eMaxFrames,
+      cancelAfterMs: runtimeOptions.qaE2eCancelAfterMs,
+    }).then(
+      (passed) => app.exit(passed ? 0 : 1),
+      () => app.exit(1),
+    );
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -291,5 +315,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  jobManager?.shutdown();
   hardwareSampler.close();
 });

@@ -78,6 +78,7 @@ export interface InspectorActions {
 export function InspectorPanel({
   draft,
   settings,
+  platform,
   busy,
   open,
   viewMode,
@@ -87,6 +88,7 @@ export function InspectorPanel({
 }: {
   draft: Draft;
   settings: AppSettings;
+  platform: NodeJS.Platform;
   busy: boolean;
   open: Record<string, boolean>;
   viewMode: SettingsView;
@@ -1935,10 +1937,13 @@ export function InspectorPanel({
               />
             </Row>
           )}
-          <Row label="バックエンド">
+          <Row
+            label="バックエンド"
+            hint={platform === "win32" ? "Windows版はWSL2固定" : undefined}
+          >
             <Segment
               value={settings.backendMode}
-              disabled={busy}
+              disabled={busy || platform === "win32"}
               onChange={(backendMode) =>
                 actions.settings({ backendMode })
               }

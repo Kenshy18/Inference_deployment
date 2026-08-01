@@ -1,8 +1,11 @@
 {
-  "name": "mask-pipeline-studio",
-  "version": "0.1.0",
+  "name": "mask-pipeline-studio-windows",
+  "version": "0.1.2",
   "private": true,
   "description": "Desktop control surface for the inference_backend2 video mask pipeline.",
+  "author": {
+    "name": "Mask Pipeline Studio"
+  },
   "main": "dist/electron/electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
@@ -16,7 +19,8 @@
     "test": "vitest run",
     "test:gui": "npm run build && node scripts/gui-smoke.mjs",
     "package": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win nsis portable --x64"
   },
   "dependencies": {
     "react": "^19.2.8",
@@ -50,9 +54,17 @@
       "package.json"
     ],
     "win": {
+      "executableName": "Mask Pipeline Studio",
+      "signAndEditExecutable": true,
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
           "arch": [
             "x64"
           ]
@@ -60,9 +72,13 @@
       ]
     },
     "nsis": {
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": [

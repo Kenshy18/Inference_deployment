@@ -49,7 +49,9 @@ function normalizeSettings(value: Partial<AppSettings>): AppSettings {
   const defaults = defaultSettings();
   return {
     backendMode:
-      value.backendMode === "wsl" || value.backendMode === "native"
+      process.platform === "win32"
+        ? "wsl"
+        : value.backendMode === "wsl" || value.backendMode === "native"
         ? value.backendMode
         : defaults.backendMode,
     backendRoot:

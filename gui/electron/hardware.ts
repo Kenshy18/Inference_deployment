@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 import type { HardwareMetrics } from "../shared/types";
 
@@ -102,6 +102,9 @@ export class HardwareSampler {
   private dmon: ChildProcess | null = null;
   private dmonBuffer = "";
   private retryDmonAfter = 0;
+  private dmonHasSamples = false;
+  private fallbackPending = false;
+  private nextFallbackAt = 0;
 
   private ensureDmon(): void {
     if (this.dmon !== null || Date.now() < this.retryDmonAfter) {
@@ -120,6 +123,7 @@ export class HardwareSampler {
         const parsed = parseNvidiaDmonLine(line);
         if (parsed !== null) {
           this.gpu = parsed;
+          this.dmonHasSamples = true;
         }
       }
     });
@@ -127,6 +131,7 @@ export class HardwareSampler {
       if (this.dmon === child) {
         this.dmon = null;
         this.dmonBuffer = "";
+        this.dmonHasSamples = false;
         this.retryDmonAfter = Date.now() + 10_000;
       }
     };
@@ -134,8 +139,36 @@ export class HardwareSampler {
     child.once("close", stopped);
   }
 
+  private ensureFallbackSample(): void {
+    if (
+      this.dmonHasSamples ||
+      this.fallbackPending ||
+      Date.now() < this.nextFallbackAt
+    ) {
+      return;
+    }
+    this.fallbackPending = true;
+    this.nextFallbackAt = Date.now() + 1_000;
+    execFile(
+      "nvidia-smi",
+      [
+        "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
+        "--format=csv,noheader,nounits",
+      ],
+      { timeout: 3_000, windowsHide: true },
+      (_error, stdout) => {
+        this.fallbackPending = false;
+        const parsed = parseNvidiaSmi(stdout);
+        if (parsed !== null) {
+          this.gpu = parsed;
+        }
+      },
+    );
+  }
+
   async sample(): Promise<HardwareMetrics> {
     this.ensureDmon();
+    this.ensureFallbackSample();
     const currentCpu = readCpuTicks();
     const cpuPercent = calculateCpuPercent(this.previousCpu, currentCpu);
     this.previousCpu = currentCpu;

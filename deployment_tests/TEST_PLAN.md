@@ -4,7 +4,7 @@
 
 | 区分 | 予定 | 内容 |
 | --- | ---: | --- |
-| fixture・preflight | 15分 | build、runtime、空き容量、既存fixture probe、GUI起動 |
+| fixture・preflight | 15分 | Windows release hash、install、runtime、空き容量、fixture probe、GUI起動 |
 | GUI・Inspector操作 | 20分 | 簡単／詳細、全基本control、Dry Run、black-screen回帰 |
 | V3 2時間動画 | 175分 | V3単独＋分類＋後処理＋性器overlay、全時間resource監視 |
 | 一気通貫モデル行列 | 77分 | V3-lite中心、旧モデル短時間、顔mask全形状 |

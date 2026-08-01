@@ -4,6 +4,7 @@ import type {
   ClassPostprocessRule,
   PipelineDraft,
 } from "../shared/types";
+import { windowsToWslPath, wslLaunchWrapper } from "./wsl-bridge";
 
 export interface OrchestrationConfig {
   schema_version: 1;
@@ -255,23 +256,16 @@ export function buildOrchestrationConfig(
   };
 }
 
-export function windowsToWslPath(value: string): string {
-  const uncMatch =
-    /^\\\\wsl(?:\.localhost)?\\[^\\]+\\(.*)$/i.exec(value);
-  if (uncMatch) {
-    return `/${uncMatch[1].replaceAll("\\", "/")}`;
-  }
-  const match = /^([a-zA-Z]):[\\/](.*)$/.exec(value);
-  if (!match) {
-    return value.replaceAll("\\", "/");
-  }
-  return `/mnt/${match[1].toLowerCase()}/${match[2].replaceAll("\\", "/")}`;
-}
+export { windowsToWslPath } from "./wsl-bridge";
 
 export function buildLaunchSpec(
   settings: AppSettings,
   configPath: string,
   dryRun: boolean,
+  runtimeEnvironment: Record<string, string> = {},
+  pidPath?: string,
+  runnerPath?: string,
+  syncOutput?: { source: string; target: string },
 ): LaunchSpec {
   const workflowArgs = [
     "-m",
@@ -288,19 +282,27 @@ export function buildLaunchSpec(
     };
   }
 
-  const backendRoot = windowsToWslPath(settings.backendRoot);
   const wslConfig = windowsToWslPath(configPath);
-  const args = [
-    ...(settings.wslDistro ? ["-d", settings.wslDistro] : []),
-    "--cd",
-    backendRoot,
-    "--",
-    settings.runtimePython,
+  const command = [
+    "/usr/bin/env",
+    ...Object.entries(runtimeEnvironment).map(([name, value]) => `${name}=${value}`),
+    windowsToWslPath(settings.runtimePython),
     "-m",
     "orchestration",
     "--config",
     wslConfig,
     ...(dryRun ? ["--dry-run"] : []),
   ];
+  const defaultRunnerPath =
+    /^[a-zA-Z]:[\\/]|^\\\\/.test(configPath)
+      ? path.win32.join(path.win32.dirname(configPath), "wsl-runner.py")
+      : path.join(path.dirname(configPath), "wsl-runner.py");
+  const args = wslLaunchWrapper(
+    settings,
+    pidPath ?? `${wslConfig}.pid`,
+    runnerPath ?? defaultRunnerPath,
+    command,
+    syncOutput,
+  );
   return { executable: "wsl.exe", args };
 }
