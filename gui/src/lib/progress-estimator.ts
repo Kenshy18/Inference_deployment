@@ -34,7 +34,7 @@ const SEGMENTATION_FPS: Record<
   PipelineDraft["inference"]["segmentationModel"],
   number
 > = {
-  dinov3_codino: 23.3,
+  dinov3_codino: 21.5,
   dinov3_codino_mh0: 160,
   dinov3_cascade: 18,
   eva02_cascade: 12,

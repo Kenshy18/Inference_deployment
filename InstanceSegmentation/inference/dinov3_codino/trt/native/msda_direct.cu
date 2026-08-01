@@ -4,7 +4,9 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
-constexpr int B = 2, Q = 78440, H = 8, C = 32, L = 5, P = 4, CP = C / 4;
+constexpr int B = 2, Q = 78440, H = 8, C = 32, L = 5, P = 4;
+constexpr int CHANNELS_PER_THREAD = 4, PAIRS_PER_THREAD = CHANNELS_PER_THREAD / 2;
+constexpr int CP = C / CHANNELS_PER_THREAD;
 constexpr int64_t N = int64_t(B) * Q * H * CP;
 
 __device__ __forceinline__ __half bilinear_trt(
@@ -40,6 +42,48 @@ __device__ __forceinline__ __half bilinear_trt(
   return __hadd(pair0, pair2);
 }
 
+__device__ __forceinline__ __half2 bilinear_trt2(
+    const __half*& bottom, int height, int width, __half h, __half w,
+    int head, int channel) {
+  const int h_low = __half2int_rd(h), w_low = __half2int_rd(w);
+  const int h_high = h_low + 1, w_high = w_low + 1;
+  const __half zero_h = __int2half_rz(0), one = __int2half_rz(1);
+  const __half2 zero = __halves2half2(zero_h, zero_h);
+  const __half lh = __hsub(h, __int2half_rd(h_low));
+  const __half lw = __hsub(w, __int2half_rd(w_low));
+  const __half hh = __hsub(one, lh), hw = __hsub(one, lw);
+  const __half2 lh2 = __halves2half2(lh, lh);
+  const __half2 lw2 = __halves2half2(lw, lw);
+  const __half2 hh2 = __halves2half2(hh, hh);
+  const __half2 hw2 = __halves2half2(hw, hw);
+  const int w_stride = H * C, h_stride = width * w_stride;
+  const int h_low_offset = h_low * h_stride;
+  const int h_high_offset = h_low_offset + h_stride;
+  const int w_low_offset = w_low * w_stride;
+  const int w_high_offset = w_low_offset + w_stride;
+  const int base = head * C + channel;
+  __half2 v1 = zero, v2 = zero, v3 = zero, v4 = zero;
+  if (h_low >= 0 && w_low >= 0)
+    v1 = *reinterpret_cast<const __half2*>(
+        bottom + h_low_offset + w_low_offset + base);
+  if (h_low >= 0 && w_high <= width - 1)
+    v2 = *reinterpret_cast<const __half2*>(
+        bottom + h_low_offset + w_high_offset + base);
+  if (h_high <= height - 1 && w_low >= 0)
+    v3 = *reinterpret_cast<const __half2*>(
+        bottom + h_high_offset + w_low_offset + base);
+  if (h_high <= height - 1 && w_high <= width - 1)
+    v4 = *reinterpret_cast<const __half2*>(
+        bottom + h_high_offset + w_high_offset + base);
+  __half2 pair0 = __hmul2(__hmul2(hh2, hw2), v1);
+  __half2 pair1 = __hmul2(__hmul2(hh2, lw2), v2);
+  __half2 pair2 = __hmul2(__hmul2(lh2, hw2), v3);
+  __half2 pair3 = __hmul2(__hmul2(lh2, lw2), v4);
+  pair0 = __hadd2(pair0, pair1);
+  pair2 = __hadd2(pair2, pair3);
+  return __hadd2(pair0, pair2);
+}
+
 __global__ void msda_trt_exact(
     const __half* value, const int64_t* shapes, const int64_t* starts,
     const __half* locations, const __half* weights, __half* output) {
@@ -51,13 +95,16 @@ __global__ void msda_trt_exact(
   const int head = t % H;
   t /= H;
   const int query = t % Q, batch = t / Q;
-  const int c0 = lane * 4, c1 = c0 + 1, c2 = c0 + 2, c3 = c0 + 3;
+  const int c0 = lane * CHANNELS_PER_THREAD;
   int weight_index = ((batch * Q + query) * H + head) * L * P;
   int location_index = weight_index * 2;
   const int stride = H * C, base_batch = batch * Q * stride;
   const __half zero = __int2half_rz(0), half = __float2half(0.5f);
   const __half minus_one = __float2half(-1.0f);
-  __half col0 = zero, col1 = zero, col2 = zero, col3 = zero;
+  __half2 columns[PAIRS_PER_THREAD];
+#pragma unroll
+  for (int pair = 0; pair < PAIRS_PER_THREAD; ++pair)
+    columns[pair] = __halves2half2(zero, zero);
   for (int level = 0; level < L; ++level) {
     const int height = int(shapes[level * 2]);
     const int width = int(shapes[level * 2 + 1]);
@@ -72,22 +119,17 @@ __global__ void msda_trt_exact(
       const __half w_im = __hsub(__hmul(loc_w, width_half), half);
       if (__hgt(h_im, minus_one) && __hgt(w_im, minus_one)
           && __hlt(h_im, height_half) && __hlt(w_im, width_half)) {
-        col0 = __hadd(
-            col0, __hmul(
-                bilinear_trt(bottom, height, width, h_im, w_im, head, c0),
-                weight));
-        col1 = __hadd(
-            col1, __hmul(
-                bilinear_trt(bottom, height, width, h_im, w_im, head, c1),
-                weight));
-        col2 = __hadd(
-            col2, __hmul(
-                bilinear_trt(bottom, height, width, h_im, w_im, head, c2),
-                weight));
-        col3 = __hadd(
-            col3, __hmul(
-                bilinear_trt(bottom, height, width, h_im, w_im, head, c3),
-                weight));
+        const __half2 weight2 = __halves2half2(weight, weight);
+#pragma unroll
+        for (int pair = 0; pair < PAIRS_PER_THREAD; ++pair) {
+          columns[pair] = __hadd2(
+              columns[pair],
+              __hmul2(
+                  bilinear_trt2(
+                      bottom, height, width, h_im, w_im, head,
+                      c0 + pair * 2),
+                  weight2));
+        }
       }
       ++weight_index;
       location_index += 2;
@@ -95,10 +137,10 @@ __global__ void msda_trt_exact(
   }
   const int64_t index =
       ((int64_t(batch) * Q + query) * H + head) * C + c0;
-  output[index] = col0;
-  output[index + 1] = col1;
-  output[index + 2] = col2;
-  output[index + 3] = col3;
+  auto* output2 = reinterpret_cast<__half2*>(output + index);
+#pragma unroll
+  for (int pair = 0; pair < PAIRS_PER_THREAD; ++pair)
+    output2[pair] = columns[pair];
 }
 
 void msda_cuda_out(

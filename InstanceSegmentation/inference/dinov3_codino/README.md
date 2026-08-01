@@ -4,7 +4,7 @@
 どちらも動画を入力し、共通契約に変換したインスタンスセグメンテーション結果を
 SQLiteだけに保存します。
 
-- `tensorrt-fast`（既定）: RTX 5090 / SM120向けの25 fps級最適化版
+- `tensorrt-fast`（既定）: RTX 5090 / SM120向けの20 fps級最適化版
 - `pytorch`: TensorRTを使わない、元の安定したPyTorch実装
 
 ## Layout
@@ -94,7 +94,20 @@ fallbackとして維持します。GPUメモリに余裕があればbatch size�
 814から822へ変化しています。検出後処理を除く固定core 150反復では旧24.15、
 新24.06 img/sで、モデル本体の差は0.4%です。
 
-「25 fps」は主にGPU計算区間の目標値です。動画デコード、起動時のモデル構築、
+同日、更新後モデルに対してMSDA CUDA kernelの4-channel演算を`half2`化しました。
+同一1,500フレーム・分類器有効の比較結果は次の通りです。TensorRT engineとモデル
+重みは共通で、native pluginだけを変更しています。
+
+| bundle | inference loop | measured compute | detections |
+|---|---:|---:|---:|
+| `fast-sm120-fixed-b2-epoch6-v1` | 20.08 fps | 21.18 img/s | 1,359 |
+| `fast-sm120-fixed-b2-epoch6-half2-v1`（既定） | 21.47 fps | 22.77 img/s | 1,359 |
+
+改善率はプロセス全体で6.9%、計算区間で7.5%です。SQLite schemaのSHA-256、
+frame・detection・segmentation件数、分類クラスは一致しました。再実行時にも生じる
+GPU数値揺らぎの範囲で、polygon mask IoUは平均0.99916、最小0.96403でした。
+
+上表のfpsは特定動画・GPU状態での実測値です。動画デコード、起動時のモデル構築、
 契約変換、SQLite保存を含むプロセス全体で常に25 fpsを保証する意味ではありません。
 入力動画、検出数、ストレージ、warmup、GPU状態によって変動します。
 再生成版は、同じマシン状態で既存fast bundleと比較した元実装の検証でも計算速度差
@@ -113,7 +126,7 @@ engine生成だけで25 img/sを保証せず、動画ごとの品質・速度gat
 
 ### RTX 5090 fast bundle
 
-`trt/build_fast_engines.py`が、checkpointから25 fps級の構成をクリーン再生成する
+`trt/build_fast_engines.py`が、checkpointからfast構成をクリーン再生成する
 正式な入口です。次を1コマンドで行います。
 
 1. backbone、query encoder、decoder、mask headの固定shape ONNXをexport

@@ -28,7 +28,7 @@ DEFAULT_CLASSIFIER_MANIFEST = (
 DEFAULT_TRT_BUNDLE = (
     DEFAULT_ARTIFACT_ROOT
     / "trt"
-    / "fast-sm120-fixed-b2-epoch6-v1"
+    / "fast-sm120-fixed-b2-epoch6-half2-v1"
     / "manifest.json"
 )
 DEFAULT_SHARED_ROOT = FAMILY_ROOT / ".runtime" / "shared"

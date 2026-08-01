@@ -43,7 +43,7 @@ describe("PC pipeline progress estimator", () => {
     slowDraft.overlay.presets = ["combined-simple"];
     const slow = estimatePipelineProgress(slowDraft, job(), VIDEO, 0);
     expect(slow.estimatedTotalSeconds).toBeGreaterThan(300);
-    expect(slow.estimatedTotalSeconds).toBeLessThan(320);
+    expect(slow.estimatedTotalSeconds).toBeLessThan(350);
     expect(slow.estimatedTotalSeconds!).toBeGreaterThan(
       fast.estimatedTotalSeconds! * 2.5,
     );

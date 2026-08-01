@@ -29,7 +29,7 @@ ARTIFACT_ROOT = FAMILY_ROOT / "artifacts"
 FAST_TRT_BUNDLE = (
     ARTIFACT_ROOT
     / "trt"
-    / "fast-sm120-fixed-b2-epoch6-v1"
+    / "fast-sm120-fixed-b2-epoch6-half2-v1"
     / "manifest.json"
 )
 ARTIFACTS = {

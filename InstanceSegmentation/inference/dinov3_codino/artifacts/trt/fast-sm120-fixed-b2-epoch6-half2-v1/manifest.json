@@ -1,0 +1,165 @@
+{
+  "schema": "video-mask-codino-trt-bundle-v1",
+  "created_at_utc": "2026-08-01T13:36:45.941171+00:00",
+  "profile": "fast-sm120-fixed-b2-v1",
+  "status": "complete",
+  "production_registered": true,
+  "performance_claim": {
+    "status": "pass-recorded-video-gate",
+    "build_report": "metadata/build-report.json",
+    "build_report_sha256": "96737929b0168738d70032b2a62271954314a7b446ed4a9f3ec3f063d806190e",
+    "e2e_25fps_claimed": false,
+    "frames_per_trial": 1500,
+    "baseline_e2e_fps": 20.075,
+    "optimized_e2e_fps": 21.469,
+    "baseline_compute_fps": 21.176,
+    "optimized_compute_fps": 22.766
+  },
+  "quality_claim": {
+    "status": "pass-recorded-self-envelope",
+    "detections": "1359/1359",
+    "classifier_class_mismatches": 0,
+    "max_detector_score_abs_diff": 0.00146484375,
+    "max_bbox_coordinate_abs_diff": 2.0,
+    "max_classifier_score_abs_diff": 0.0010407567024230957,
+    "min_polygon_mask_iou": 0.9640314040533139,
+    "mean_polygon_mask_iou": 0.999158265879517,
+    "baseline_repeat_min_polygon_mask_iou": 0.9634346754313886
+  },
+  "fixed_batch": true,
+  "batch_size": 2,
+  "input_tensor_size": [
+    736,
+    1280
+  ],
+  "runtime_image_size": [
+    720,
+    1280
+  ],
+  "query_encoder_shapes": "184x320,92x160,46x80,23x40,12x20",
+  "precision_policy": {
+    "backbone": "t090-forced-bf16-public-fp32",
+    "query_encoder": "t140-sm120-msda-fp16-18-fp32-protected",
+    "decoder": "t090-fp32-msda-v2",
+    "mask_head": "d140-fp32-n1"
+  },
+  "execution_policy": {
+    "runtime_profile": "fast-b2",
+    "core": "stable-pointer-cuda-graph",
+    "decode_preprocess": "bounded-opencv-lookahead",
+    "tail": "double-buffered-worker-stream",
+    "output_order": "source-order"
+  },
+  "source": {
+    "config": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/artifacts/detector/resolved_config.py",
+      "size": 29945,
+      "sha256": "3f8c05ad3a874d3b89bb38e59a3468f539534bad892f56f02c45115f590b3a05"
+    },
+    "checkpoint": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/artifacts/detector/teacher_vitl_codino_epoch6_deploy.pth",
+      "size": 1528754883,
+      "sha256": "0e5516b76af12b48feeb3e5a5079fe6bf7d1993520ae217fbdd9e7f079f06b27"
+    },
+    "classifier_checkpoint": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/artifacts/classifier/backbone/manifest.json",
+      "size": 1572,
+      "sha256": "1e9d0e404a107d6836e5e4cef563f61619edb4972cad750f32966e06633739f0"
+    },
+    "builder_script": {
+      "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/build_fast_engines.py",
+      "size": 15408,
+      "sha256": "4d9a136df7e1a1a77f44099f922648ae7097bacff9643303dd141059262b5964"
+    },
+    "builder_sources": {
+      "trt/build_fast_engines.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/build_fast_engines.py",
+        "size": 15408,
+        "sha256": "4d9a136df7e1a1a77f44099f922648ae7097bacff9643303dd141059262b5964"
+      },
+      "trt/fast_engine_build.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/fast_engine_build.py",
+        "size": 16166,
+        "sha256": "f1e813f35e6df01059f8b98d5f6bdf28b1452eb9461ad13b2a980e6c29ed60db"
+      },
+      "trt/build_runtime_checkpoint.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/build_runtime_checkpoint.py",
+        "size": 3202,
+        "sha256": "37f3c6b0d4862ff77fac49a029fba48cf2f092dc345ca36832e3717f83218629"
+      },
+      "optimized/deployment.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/optimized/deployment.py",
+        "size": 4800,
+        "sha256": "37c457f0e8f702d5a58071f063b06d523cf74c92a599b85e345d0428004da44d"
+      },
+      "trt/native/msda_direct.cpp": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/native/msda_direct.cpp",
+        "size": 383,
+        "sha256": "9cbc9b235160331a5abe13df04b8a59bde8affbefc904614a5820f76205de72f"
+      },
+      "trt/native/msda_direct.cu": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/native/msda_direct.cu",
+        "size": 8155,
+        "sha256": "99a3a7c5d138e8fdffbb6ab4710b15b972e11f336b2e6bb864760bf054785c5d"
+      },
+      "trt/export_backbone.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/export_backbone.py",
+        "size": 6425,
+        "sha256": "9aef2834dc66df438e5107e152672fea04c4b21823ed3b4f28829c0649a0d31a"
+      },
+      "trt/export_query_encoder.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/export_query_encoder.py",
+        "size": 12871,
+        "sha256": "f1a1b027d2686b522e284fd66bbfad9e7eef4c2be170d63ed4602ec9364e4d26"
+      },
+      "trt/export_decoder.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/export_decoder.py",
+        "size": 10953,
+        "sha256": "495e431008df8e1e8722fec7697a8fbdc8085cf0baf4d078073024d119655f3a"
+      },
+      "trt/export_mask_head.py": {
+        "path": "/home/kenshin/inference_backend2/InstanceSegmentation/inference/dinov3_codino/trt/export_mask_head.py",
+        "size": 10400,
+        "sha256": "dc8a12a80ea6e2527e7fdbd1fcb577683ecc0b06d83595292c6ad56238e89eb6"
+      }
+    }
+  },
+  "runtime_python": {
+    "path": "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+    "size": 17292632,
+    "sha256": "df1c70c2eacd51d8371f9213d4ad854129497c22d0c37186734f667dc944447a"
+  },
+  "engines": {
+    "backbone": {
+      "path": "engines/codino_dinov3_vitl_backbone_736x1280_b2_t090.engine",
+      "size": 634168932,
+      "sha256": "bbba4aef37ed98632b6c1302f546425224b400d91d9d15397e17149239abfb1b"
+    },
+    "query_encoder": {
+      "path": "engines/codino_query_encoder_736x1280_b2_sm120_t140.engine",
+      "size": 105981332,
+      "sha256": "07f0e70b2ad0f657a7897e27c21bd099fe336f66c2d17c72da3508d006865656"
+    },
+    "decoder": {
+      "path": "engines/codino_decoder_736x1280_b2_t090.engine",
+      "size": 56510020,
+      "sha256": "25b41c40f81f1832c3acb32048f6f83af4db48f51fd6f867542d847d18857597"
+    },
+    "mask_head": {
+      "path": "engines/codino_mask_head_core_n1_736x1280_d140_fp32.engine",
+      "size": 16154900,
+      "sha256": "a95a3d2ed90b740cd98673813cd89e49c8d81eb634d70b007267fe8bfdda5f70"
+    }
+  },
+  "query_plugin_extension": {
+    "path": "plugins/codino_msda_direct_sm120.so",
+    "size": 275296,
+    "sha256": "e71f30933651793148bb2a2be1a95db20e940499014f37e4001bdb407ab1496b"
+  },
+  "runtime_checkpoint": {
+    "path": "runtime/codino_trt_runtime.pth",
+    "size": 121605782,
+    "sha256": "f70378a7154b31acf96383fdc0c17b2a2858807d3206d0a8f5105f78b2a7e86d"
+  },
+  "environment_lock": null
+}
