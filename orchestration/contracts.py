@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import sqlite3
@@ -11,6 +12,18 @@ from pathlib import Path
 
 class ArtifactError(ValueError):
     """Raised when a workflow artifact does not satisfy its public contract."""
+
+
+# Application-facing V3 contract over every public table/view name, ordered
+# column name, and declared SQLite type.  Row availability belongs in
+# result_components/result_capabilities and must never change this signature.
+# Constraint text is deliberately excluded so schema-v2 inputs can be promoted
+# without rebuilding large, empty rich-face compatibility tables.  Changing
+# this signature requires a result contract revision, not a silent model/config
+# dependent SQLite variant.
+PUBLIC_RESULT_SCHEMA_SIGNATURE = (
+    "a7fbe8262ec2115af32cf49129534a58ff5190f4dd537c5811f4a1fefdecfa11"
+)
 
 
 def _tables(connection: sqlite3.Connection) -> set[str]:
@@ -33,6 +46,33 @@ def _views(connection: sqlite3.Connection) -> set[str]:
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
     return {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
+
+
+def public_result_schema_signature(connection: sqlite3.Connection) -> str:
+    """Hash the complete software-facing table/view and column-type surface."""
+
+    objects: list[tuple[str, str, list[tuple[str, str]]]] = []
+    for object_type, name in connection.execute(
+        """
+        SELECT type, name
+        FROM sqlite_master
+        WHERE type IN ('table', 'view')
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY type, name
+        """
+    ):
+        quoted = str(name).replace('"', '""')
+        columns = [
+            (str(row[1]), str(row[2] or "").upper())
+            for row in connection.execute(f'PRAGMA table_info("{quoted}")')
+        ]
+        objects.append((str(object_type), str(name), columns))
+    encoded = json.dumps(
+        objects,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def validate_inference_sqlite(
@@ -636,6 +676,13 @@ def validate_result_sqlite(
             raise ArtifactError(
                 f"{source}: stable result view(s) missing: " f"{sorted(missing_views)}"
             )
+        schema_signature = public_result_schema_signature(connection)
+        if schema_signature != PUBLIC_RESULT_SCHEMA_SIGNATURE:
+            raise ArtifactError(
+                f"{source}: public result schema signature mismatch: "
+                f"expected {PUBLIC_RESULT_SCHEMA_SIGNATURE}, got {schema_signature}; "
+                "a schema change requires an explicit result contract revision"
+            )
         info = dict(connection.execute("SELECT key, value FROM result_schema_info"))
         if (
             info.get("schema_name") != "video-mask-integrated-result"
@@ -805,6 +852,7 @@ def validate_result_sqlite(
         "schema_version": 3,
         "contract_revision": 5,
         "compatibility_profile": "keyframe-primary-v3",
+        "schema_signature": PUBLIC_RESULT_SCHEMA_SIGNATURE,
         "inference": inference,
         "postprocess": postprocess,
         "capabilities": capabilities,

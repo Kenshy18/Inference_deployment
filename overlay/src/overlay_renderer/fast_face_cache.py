@@ -224,12 +224,10 @@ def materialize_fast_face_cache(
                     include_probability_masks and display_style == "detailed"
                 ),
                 display_style=display_style,
+                start_frame=start_frame,
+                end_frame=end_frame,
             )
             for frame in frames:
-                if frame.frame_index < start_frame:
-                    continue
-                if end_frame is not None and frame.frame_index > end_frame:
-                    break
                 frame_count += 1
                 first_frame = frame.frame_index if first_frame is None else first_frame
                 last_frame = frame.frame_index

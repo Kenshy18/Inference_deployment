@@ -176,7 +176,12 @@ def _validate_columns(
             )
 
 
-def _validate_inference(connection: sqlite3.Connection, path: Path) -> None:
+def _validate_inference(
+    connection: sqlite3.Connection,
+    path: Path,
+    *,
+    check_integrity: bool = False,
+) -> None:
     _validate_columns(connection, INFERENCE_COLUMNS, path=path)
     info = {
         str(row["key"]): str(row["value"])
@@ -195,11 +200,17 @@ def _validate_inference(connection: sqlite3.Connection, path: Path) -> None:
         )
     if schema_version == "3":
         _validate_columns(connection, RICH_FACE_COLUMNS, path=path)
-    integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
-    if integrity != "ok":
-        raise OverlayContractError(
-            f"{path}: SQLite integrity check failed: {integrity}"
-        )
+    # A full PRAGMA integrity_check reads the entire database and can dominate
+    # a short range render. The orchestrator validates the finalized artifact
+    # once; overlay readers perform the schema/role checks above and then only
+    # read the requested rows. Keep the exhaustive check available to explicit
+    # validation callers without repeating it in every renderer process.
+    if check_integrity:
+        integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+        if integrity != "ok":
+            raise OverlayContractError(
+                f"{path}: SQLite integrity check failed: {integrity}"
+            )
 
 
 def _require_role(
@@ -224,6 +235,57 @@ def _require_role(
             f"{path}: required inference role {role!r} is absent; "
             f"available roles={roles}"
         )
+
+
+def _rich_face_geometry_available(connection: sqlite3.Connection) -> bool:
+    """Return whether the face role owns Face V2-style rich geometry.
+
+    The public result schema deliberately keeps rich-face tables present for
+    every model combination. Table existence therefore describes the contract,
+    not the available data. Prefer the explicit result capability; retain
+    row/model fallbacks for raw inference SQLite files that predate the
+    integrated result contract.
+    """
+
+    tables = _tables(connection)
+    if "face_observations" not in tables:
+        return False
+    if (
+        "result_capabilities" in tables
+        and {"name", "available"}
+        <= _columns(connection, "result_capabilities")
+    ):
+        capability = connection.execute(
+            """
+            SELECT available FROM result_capabilities
+            WHERE name='rich_face_geometry'
+            """
+        ).fetchone()
+        if capability is not None:
+            return bool(capability[0])
+    if connection.execute("SELECT 1 FROM face_observations LIMIT 1").fetchone():
+        return True
+    execution_columns = _columns(connection, "model_executions")
+    model_columns = [
+        column
+        for column in ("model_id", "runtime_model_id")
+        if column in execution_columns
+    ]
+    if not model_columns:
+        return False
+    expression = " || ' ' || ".join(
+        f"COALESCE({column}, '')" for column in model_columns
+    )
+    return bool(
+        connection.execute(
+            f"""
+            SELECT 1 FROM model_executions
+            WHERE role='face_detection'
+              AND lower({expression}) LIKE '%face_dino_v2%'
+            LIMIT 1
+            """
+        ).fetchone()
+    )
 
 
 def _video_metadata(
@@ -683,39 +745,9 @@ class _RichFaceDetailReader:
         include_probability_masks: bool,
     ) -> None:
         self._path = path
-        self._points = iter(
-            connection.execute(
-                """
-                SELECT kp.observation_id, kp.class_name, kp.x, kp.y,
-                       kp.state, kp.state_name, kp.confidence, kp.valid,
-                       (
-                           SELECT sp.probability
-                           FROM face_keypoint_state_probabilities sp
-                           WHERE sp.observation_id=kp.observation_id
-                             AND sp.point_index=kp.point_index
-                             AND sp.state_index=kp.state
-                       ) AS state_confidence
-                FROM face_keypoints kp
-                ORDER BY observation_id, point_index
-                """
-            )
-            if include_keypoints
-            else ()
-        )
-        self._masks = iter(
-            connection.execute(
-                """
-                SELECT observation_id, encoding, width, height,
-                       box_x1, box_y1, box_x2, box_y2, data
-                FROM face_masks
-                ORDER BY observation_id
-                """
-            )
-            if include_probability_masks
-            else ()
-        )
-        self._point = next(self._points, None)
-        self._mask = next(self._masks, None)
+        self._connection = connection
+        self._include_keypoints = include_keypoints
+        self._include_probability_masks = include_probability_masks
         self._cached_observation_id: int | None = None
         self._cached_details: (
             tuple[tuple[FaceKeypointOverlay, ...], FaceMaskOverlay | None] | None
@@ -728,25 +760,29 @@ class _RichFaceDetailReader:
         if observation_id == self._cached_observation_id:
             assert self._cached_details is not None
             return self._cached_details
-        if (
-            self._cached_observation_id is not None
-            and observation_id < self._cached_observation_id
-        ):
-            raise OverlayContractError(
-                f"{self._path}: face observations are not in render order"
-            )
-
         points: list[FaceKeypointOverlay] = []
-        while (
-            self._point is not None
-            and int(self._point["observation_id"]) < observation_id
-        ):
-            self._point = next(self._points, None)
-        while (
-            self._point is not None
-            and int(self._point["observation_id"]) == observation_id
-        ):
-            point = self._point
+        point_rows = (
+            self._connection.execute(
+                """
+                SELECT kp.class_name, kp.x, kp.y,
+                       kp.state, kp.state_name, kp.confidence, kp.valid,
+                       (
+                           SELECT sp.probability
+                           FROM face_keypoint_state_probabilities sp
+                           WHERE sp.observation_id=kp.observation_id
+                             AND sp.point_index=kp.point_index
+                             AND sp.state_index=kp.state
+                       ) AS state_confidence
+                FROM face_keypoints kp
+                WHERE kp.observation_id=?
+                ORDER BY kp.point_index
+                """,
+                (observation_id,),
+            )
+            if self._include_keypoints
+            else ()
+        )
+        for point in point_rows:
             points.append(
                 FaceKeypointOverlay(
                     x=float(point["x"]),
@@ -763,20 +799,19 @@ class _RichFaceDetailReader:
                     ),
                 )
             )
-            self._point = next(self._points, None)
-
-        while (
-            self._mask is not None
-            and int(self._mask["observation_id"]) < observation_id
-        ):
-            self._mask = next(self._masks, None)
         face_mask = None
-        if (
-            self._mask is not None
-            and int(self._mask["observation_id"]) == observation_id
-        ):
-            face_mask = self._decode_mask(self._mask)
-            self._mask = next(self._masks, None)
+        if self._include_probability_masks:
+            mask = self._connection.execute(
+                """
+                SELECT observation_id, encoding, width, height,
+                       box_x1, box_y1, box_x2, box_y2, data
+                FROM face_masks
+                WHERE observation_id=?
+                """,
+                (observation_id,),
+            ).fetchone()
+            if mask is not None:
+                face_mask = self._decode_mask(mask)
 
         details = (tuple(points), face_mask)
         self._cached_observation_id = observation_id
@@ -815,15 +850,22 @@ def iter_face_frames(
     include_probability_masks: bool = True,
     display_style: str = "legacy",
     require_privacy_geometry: bool = False,
+    start_frame: int = 0,
+    end_frame: int | None = None,
 ) -> Iterator[FrameOverlay]:
     """Stream boxes plus optional rich face ellipses/keypoints by frame."""
 
     resolved = Path(path).expanduser().resolve()
+    if start_frame < 0:
+        raise ValueError("start_frame must be non-negative")
+    if end_frame is not None and end_frame < start_frame:
+        raise ValueError("end_frame must be >= start_frame")
+    frame_limit = (2**31 - 1) if end_frame is None else end_frame
     connection = _connect_read_only(resolved)
     try:
         _validate_inference(connection, resolved)
         _require_role(connection, resolved, "face_detection")
-        has_rich_faces = "face_observations" in _tables(connection)
+        has_rich_faces = _rich_face_geometry_available(connection)
         if require_privacy_geometry and not has_rich_faces:
             raise OverlayContractError(
                 f"{resolved}: face privacy masks require schema-v3 rich face "
@@ -886,8 +928,10 @@ def iter_face_frames(
                 JOIN frames f ON f.id=a.frame_id
                 LEFT JOIN detections h ON h.id=fo.head_detection_id
                 {tracking_join}
+                WHERE f.frame_index BETWEEN ? AND ?
                 ORDER BY f.frame_index, fo.id
-                """
+                """,
+                (start_frame, frame_limit),
             )
 
             def iter_observations() -> Iterator[tuple[int, OverlayItem]]:
@@ -978,8 +1022,10 @@ def iter_face_frames(
                     SELECT frame, final_track_id,
                            head_x1, head_y1, head_x2, head_y2
                     FROM face_track_interpolations
+                    WHERE frame BETWEEN ? AND ?
                     ORDER BY frame, final_track_id
-                    """
+                    """,
+                    (start_frame, frame_limit),
                 ):
                     track_id = str(row["final_track_id"])
                     yield int(row["frame"]), OverlayItem(
@@ -1058,8 +1104,10 @@ def iter_face_frames(
             JOIN model_executions me ON me.id=d.model_execution_id
             {rich_join}
             WHERE me.role='face_detection'
+              AND f.frame_index BETWEEN ? AND ?
             ORDER BY f.frame_index, d.id
-            """
+            """,
+            (start_frame, frame_limit),
         )
 
         def iter_items() -> Iterator[tuple[int, OverlayItem]]:

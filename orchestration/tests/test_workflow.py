@@ -10,6 +10,7 @@ from pathlib import Path
 import cv2
 
 from orchestration.config import OrchestrationConfig
+from orchestration.contracts import PUBLIC_RESULT_SCHEMA_SIGNATURE
 from orchestration.runner import OrchestrationRunner
 
 from helpers import (
@@ -75,6 +76,49 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("--genital-source", command)
             self.assertIn("--face-mask-target", command)
             self.assertIn("rectangle", command)
+
+    def test_overlay_range_follows_bounded_inference_unless_explicit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi", frames=1)
+            base = {
+                "input_video": str(video),
+                "output_root": str(root / "run"),
+                "execution": {"runtime_python": sys.executable},
+                "inference": {
+                    "enabled": True,
+                    "mode": "segmentation",
+                    "segmentation_model": "dinov3_codino_mh0",
+                    "segmentation_backend": "tensorrt-fast",
+                    "max_frames": 12,
+                },
+                "postprocess": {"enabled": False},
+                "overlay": {"enabled": False},
+            }
+            for name, explicit_end, expected_end in (
+                ("derived", None, "11"),
+                ("explicit", 7, "7"),
+            ):
+                with self.subTest(case=name):
+                    payload = json.loads(json.dumps(base))
+                    if explicit_end is not None:
+                        payload["overlay"]["end_frame"] = explicit_end
+                    config_path = root / f"{name}.json"
+                    config_path.write_text(
+                        json.dumps(payload),
+                        encoding="utf-8",
+                    )
+                    runner = OrchestrationRunner(
+                        OrchestrationConfig.load(config_path)
+                    )
+                    command = runner.overlay_command(
+                        mode=None,
+                        source_sqlite=root / "result.sqlite",
+                        output=root / f"{name}.mp4",
+                        preset="genital-simple",
+                    )
+                    end_index = command.index("--end-frame")
+                    self.assertEqual(expected_end, command[end_index + 1])
 
     def test_overlay_plan_keeps_presets_and_requested_compatibility_outputs(
         self,
@@ -505,6 +549,10 @@ class WorkflowTests(unittest.TestCase):
                 manifest = OrchestrationRunner(
                     OrchestrationConfig.load(config_path)
                 ).run()
+                self.assertEqual(
+                    PUBLIC_RESULT_SCHEMA_SIGNATURE,
+                    manifest["validation"]["result_sqlite"]["schema_signature"],
+                )
                 result = Path(manifest["artifacts"]["result_sqlite"])
                 with sqlite3.connect(result) as connection:
                     stable_tables = (
@@ -615,6 +663,84 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(1, capabilities["face-new"]["rich_face_geometry"])
             self.assertEqual(1, capabilities["combined"]["instance_segmentation"])
             self.assertEqual(1, capabilities["combined"]["face_detection"])
+
+    def test_public_result_contract_is_stable_across_face_mask_modes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi", frames=1)
+            inference = keep_only_inference_role(
+                create_rich_face_unified_sqlite(root / "face.sqlite"),
+                "face_detection",
+            )
+            cases = {
+                "none": ("none", "ellipse", "not_requested", 0, 0),
+                "eyes-rectangle": ("eyes", "rectangle", "complete", 1, 0),
+                "eyes-ellipse": ("eyes", "ellipse", "complete", 0, 1),
+                "full-face": ("face", "ellipse", "complete", 0, 1),
+            }
+            for name, (
+                target,
+                eye_shape,
+                expected_status,
+                expected_rectangles,
+                expected_ellipses,
+            ) in cases.items():
+                with self.subTest(case=name):
+                    config_path = root / f"{name}.json"
+                    config_path.write_text(
+                        json.dumps(
+                            {
+                                "input_video": str(video),
+                                "output_root": str(root / f"run-{name}"),
+                                "execution": {"runtime_python": sys.executable},
+                                "inference": {
+                                    "enabled": False,
+                                    "input_sqlite": str(inference),
+                                    "mode": "face",
+                                    "face_model": "face_dino_v2",
+                                },
+                                "postprocess": {
+                                    "enabled": False,
+                                    "face_mask_target": target,
+                                    "eye_mask_shape": eye_shape,
+                                },
+                                "overlay": {"enabled": False},
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    manifest = OrchestrationRunner(
+                        OrchestrationConfig.load(config_path)
+                    ).run()
+                    validation = manifest["validation"]["result_sqlite"]
+                    self.assertEqual(
+                        PUBLIC_RESULT_SCHEMA_SIGNATURE,
+                        validation["schema_signature"],
+                    )
+                    self.assertEqual(
+                        expected_status,
+                        validation["components"]["face_privacy_masks"]["status"],
+                    )
+                    result = Path(manifest["artifacts"]["result_sqlite"])
+                    with sqlite3.connect(result) as connection:
+                        self.assertEqual(
+                            expected_rectangles,
+                            connection.execute(
+                                "SELECT COUNT(*) FROM keyframe_rectangles"
+                            ).fetchone()[0],
+                        )
+                        privacy_ellipses = connection.execute(
+                            """
+                            SELECT COUNT(*)
+                            FROM keyframe_ellipses AS e
+                            JOIN keyframe_components AS c ON c.id=e.component_id
+                            JOIN mask_keyframes AS k ON k.id=c.keyframe_id
+                            JOIN mask_track_segments AS s ON s.id=k.segment_id
+                            JOIN tracks AS t ON t.track_id=s.track_id
+                            WHERE t.domain='face_privacy'
+                            """
+                        ).fetchone()[0]
+                        self.assertEqual(expected_ellipses, privacy_ellipses)
 
     def test_reused_inference_runs_real_postprocess_and_all_overlays(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

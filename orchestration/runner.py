@@ -337,8 +337,25 @@ class OrchestrationRunner:
             command.append("--no-face-keypoints")
         if not settings.face_ellipses:
             command.append("--no-face-ellipses")
-        if settings.end_frame is not None:
-            command.extend(["--end-frame", str(settings.end_frame)])
+        effective_end_frame = settings.end_frame
+        if (
+            effective_end_frame is None
+            and self.config.inference.enabled
+            and self.config.inference.max_frames is not None
+            and self.config.inference.max_frames > 0
+        ):
+            # A bounded inference SQLite cannot provide overlays beyond its
+            # last processed frame. Keep explicit overlay ranges authoritative,
+            # but make the common GUI/debug max_frames setting a coherent
+            # end-to-end range instead of silently rendering a blank tail.
+            effective_end_frame = self.config.inference.max_frames - 1
+        if effective_end_frame is not None:
+            if effective_end_frame < settings.start_frame:
+                raise OrchestrationError(
+                    "overlay.start_frame is outside the inferred frame range: "
+                    f"start={settings.start_frame}, end={effective_end_frame}"
+                )
+            command.extend(["--end-frame", str(effective_end_frame)])
         if not settings.show_labels:
             command.append("--no-labels")
         if settings.execution_mode == "cpu" and settings.codec != "h264":

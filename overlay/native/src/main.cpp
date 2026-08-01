@@ -2176,6 +2176,41 @@ void append_cuda_line_spans(
     }
 }
 
+std::string overlay_class_label(
+    std::string_view value,
+    bool translate_canonical
+) {
+    if (translate_canonical) {
+        if (value == "女性器") {
+            return "FEMALE";
+        }
+        if (value == "男性器") {
+            return "MALE";
+        }
+        if (value == "結合部分") {
+            return "JUNCTION";
+        }
+    }
+    const bool ascii = std::all_of(
+        value.begin(),
+        value.end(),
+        [](unsigned char character) { return character < 128; }
+    );
+    if (!ascii) {
+        return {};
+    }
+    std::string output(value);
+    std::transform(
+        output.begin(),
+        output.end(),
+        output.begin(),
+        [](unsigned char character) {
+            return static_cast<char>(std::toupper(character));
+        }
+    );
+    return output;
+}
+
 std::string overlay_label(const Mask& item) {
     if (item.provenance == "CUT") {
         return "CUT";
@@ -2233,36 +2268,25 @@ std::string overlay_label(const Mask& item) {
         return label.str();
     }
     std::vector<std::string> components;
+    const bool detailed = item.provenance == "DETAILED";
+    const std::string class_label = overlay_class_label(item.label, detailed);
+    if (detailed && !class_label.empty()) {
+        components.push_back(class_label);
+    }
     if (!item.track_id.empty()) {
         components.push_back(
-            item.provenance == "DETAILED"
+            detailed
                 ? "TRACK " + item.track_id
                 : "T" + item.track_id
         );
     }
-    const bool ascii_label = std::all_of(
-        item.label.begin(),
-        item.label.end(),
-        [](unsigned char character) { return character < 128; }
-    );
-    if (!item.label.empty() && ascii_label) {
-        std::string upper = item.label;
-        std::transform(
-            upper.begin(),
-            upper.end(),
-            upper.begin(),
-            [](unsigned char character) {
-                return static_cast<char>(std::toupper(character));
-            }
-        );
-        components.push_back(std::move(upper));
+    if (!detailed && !class_label.empty()) {
+        components.push_back(class_label);
     }
     if (item.score) {
         std::ostringstream score;
         score << std::fixed << std::setprecision(2) << *item.score;
         components.push_back(score.str());
-    } else if (item.provenance == "DETAILED") {
-        components.push_back("SCORE --");
     }
     std::ostringstream output;
     for (std::size_t index = 0; index < components.size(); ++index) {

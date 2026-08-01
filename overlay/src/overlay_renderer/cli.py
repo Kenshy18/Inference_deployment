@@ -606,6 +606,8 @@ def main(argv: list[str] | None = None) -> None:
             display_style=(
                 "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
             ),
+            start_frame=args.start_frame,
+            end_frame=args.end_frame,
         )
 
     if args.include_faces:
@@ -624,6 +626,8 @@ def main(argv: list[str] | None = None) -> None:
             display_style=(
                 "legacy" if args.preset is None else args.preset.rsplit("-", 1)[1]
             ),
+            start_frame=args.start_frame,
+            end_frame=args.end_frame,
         )
 
     if args.execution_mode == "fast":

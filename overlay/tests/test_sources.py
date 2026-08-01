@@ -7,6 +7,7 @@ import zlib
 from pathlib import Path
 
 from overlay_renderer.sources import (
+    OverlayContractError,
     inspect_inference_source,
     inspect_mask_source,
     iter_face_frames,
@@ -128,6 +129,45 @@ class SourceTests(unittest.TestCase):
             assert face.face_mask is not None
             self.assertEqual(16, len(face.face_mask.probabilities))
             self.assertEqual((12.0, 5.0, 48.0, 42.0), head.box)
+
+    def test_fixed_v3_schema_uses_legacy_boxes_when_rich_face_is_unsupported(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = create_rich_face_sqlite(Path(temporary) / "legacy-v3.sqlite")
+            with sqlite3.connect(path) as connection:
+                connection.executescript(
+                    """
+                    DELETE FROM face_keypoint_state_probabilities;
+                    DELETE FROM face_keypoint_class_probabilities;
+                    DELETE FROM face_keypoints;
+                    DELETE FROM face_masks;
+                    DELETE FROM face_observations;
+                    CREATE TABLE result_capabilities(
+                        name TEXT PRIMARY KEY,
+                        available INTEGER NOT NULL
+                    );
+                    INSERT INTO result_capabilities
+                    VALUES ('rich_face_geometry', 0);
+                    """
+                )
+
+            frames = list(iter_face_frames(path, display_style="detailed"))
+
+            self.assertEqual([1], [frame.frame_index for frame in frames])
+            self.assertEqual(2, len(frames[0].items))
+            self.assertEqual(
+                {"Face", "Head"},
+                {item.label for item in frames[0].items},
+            )
+            self.assertTrue(all(item.box is not None for item in frames[0].items))
+            self.assertTrue(all(item.ellipse is None for item in frames[0].items))
+            self.assertTrue(all(item.keypoints == () for item in frames[0].items))
+            with self.assertRaisesRegex(
+                OverlayContractError,
+                "face privacy masks require schema-v3 rich face",
+            ):
+                list(iter_face_frames(path, require_privacy_geometry=True))
 
     def test_rich_face_components_can_be_disabled_without_decoding(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -296,6 +336,9 @@ class SourceTests(unittest.TestCase):
                         """,
                         (observation_id, payload),
                     )
+
+            bounded = list(iter_face_frames(path, start_frame=1, end_frame=1))
+            self.assertEqual([1], [frame.frame_index for frame in bounded])
 
             frames = iter_face_frames(path)
             first = next(frames)

@@ -25,6 +25,15 @@ class VideoFrame:
     keyframe: bool
 
 
+@dataclass(frozen=True)
+class VideoFrameIndex:
+    """Visible presentation frames plus any hidden codec pre-roll packets."""
+
+    frames: tuple[VideoFrame, ...]
+    total_packets: int
+    hidden_preroll_packets: int
+
+
 def progress_interval_seconds() -> float:
     try:
         value = float(
@@ -199,9 +208,29 @@ def weighted_ranges(
     return ranges
 
 
-def probe_video_frames(ffmpeg: Path, video: Path) -> list[VideoFrame]:
+def probe_video_frame_index(ffmpeg: Path, video: Path) -> VideoFrameIndex:
     """Build a presentation-order packet index without decoding the video."""
     ffprobe = ffmpeg.with_name("ffprobe")
+    start_pts_value = subprocess.check_output(
+        [
+            str(ffprobe),
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=start_pts",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video),
+        ],
+        text=True,
+    ).strip()
+    visible_start_pts = (
+        None
+        if start_pts_value in {"", "N/A"}
+        else int(start_pts_value)
+    )
     command = [
         str(ffprobe),
         "-v",
@@ -222,6 +251,8 @@ def probe_video_frames(ffmpeg: Path, video: Path) -> list[VideoFrame]:
         text=True,
     )
     packets: list[tuple[int, int, bool]] = []
+    total_packets = 0
+    hidden_preroll_packets = 0
     for packet_order, line in enumerate(completed.stdout.splitlines()):
         fields = line.split("|")
         if not fields or fields[0] in {"", "N/A"}:
@@ -236,6 +267,14 @@ def probe_video_frames(ffmpeg: Path, video: Path) -> list[VideoFrame]:
                 f"invalid source video packet PTS: {fields[0]!r}"
             ) from exc
         flags = fields[1] if len(fields) > 1 else ""
+        total_packets += 1
+        # MP4 edit lists can retain negative-PTS codec pre-roll packets while
+        # exposing a stream start_pts of zero. Decoders and inference correctly
+        # discard those hidden frames, so the overlay frame ordinal must do the
+        # same or every annotation is shifted by the pre-roll length.
+        if visible_start_pts is not None and timestamp < visible_start_pts:
+            hidden_preroll_packets += 1
+            continue
         packets.append((timestamp, packet_order, "K" in flags))
     if not packets:
         raise RuntimeError("source has no indexed video packets")
@@ -255,7 +294,40 @@ def probe_video_frames(ffmpeg: Path, video: Path) -> list[VideoFrame]:
             "source video PTS is not strictly increasing in presentation "
             "order; fast frame-accurate seek is unavailable"
         )
-    return frames
+    return VideoFrameIndex(
+        frames=tuple(frames),
+        total_packets=total_packets,
+        hidden_preroll_packets=hidden_preroll_packets,
+    )
+
+
+def probe_video_frames(ffmpeg: Path, video: Path) -> list[VideoFrame]:
+    """Compatibility wrapper returning only visible presentation frames."""
+
+    return list(probe_video_frame_index(ffmpeg, video).frames)
+
+
+def validate_reported_frame_count(
+    frame_index: VideoFrameIndex,
+    reported_frames: int | None,
+) -> None:
+    """Reject count mismatches unrelated to explicitly hidden pre-roll."""
+
+    if reported_frames is None:
+        return
+    visible_frames = len(frame_index.frames)
+    # Depending on the muxer, nb_frames either excludes edit-list pre-roll or
+    # counts every retained packet. Both are valid; any other count means that
+    # ordinal-based annotation placement cannot be proven frame accurate.
+    accepted_counts = {visible_frames, frame_index.total_packets}
+    if reported_frames not in accepted_counts:
+        raise RuntimeError(
+            "video packet/frame count mismatch: "
+            f"visible_packets={visible_frames}, "
+            f"hidden_preroll_packets={frame_index.hidden_preroll_packets}, "
+            f"total_packets={frame_index.total_packets}, "
+            f"reported_frames={reported_frames}"
+        )
 
 
 def probe_reported_frames(ffmpeg: Path, video: Path) -> int | None:
@@ -418,14 +490,11 @@ def main() -> None:
     )
     output_dir = args.output_dir.expanduser().resolve()
     index_started = time.perf_counter()
-    video_frames = probe_video_frames(ffmpeg, video)
+    frame_index = probe_video_frame_index(ffmpeg, video)
+    video_frames = list(frame_index.frames)
     reported_frames = probe_reported_frames(ffmpeg, video)
     index_seconds = time.perf_counter() - index_started
-    if reported_frames is not None and reported_frames != len(video_frames):
-        raise RuntimeError(
-            "video packet/frame count mismatch: "
-            f"packets={len(video_frames)}, reported_frames={reported_frames}"
-        )
+    validate_reported_frame_count(frame_index, reported_frames)
     if args.end_frame is None:
         args.end_frame = len(video_frames) - 1
     if args.start_frame >= len(video_frames):
@@ -755,6 +824,8 @@ def main() -> None:
         "source_frame_index": {
             "method": "ffprobe-packet-pts",
             "indexed_frames": len(video_frames),
+            "total_packets": frame_index.total_packets,
+            "hidden_preroll_packets": frame_index.hidden_preroll_packets,
             "container_reported_frames": reported_frames,
             "scan_seconds": index_seconds,
             "nominal_timestamp_delta": nominal_timestamp_delta,

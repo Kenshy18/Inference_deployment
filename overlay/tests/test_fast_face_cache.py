@@ -74,6 +74,50 @@ class FastFaceCacheTests(unittest.TestCase):
                     ).fetchone()[0],
                 )
 
+    def test_fixed_v3_schema_caches_legacy_face_boxes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = create_rich_face_sqlite(root / "legacy-v3.sqlite")
+            with sqlite3.connect(source) as connection:
+                connection.executescript(
+                    """
+                    DELETE FROM face_keypoint_state_probabilities;
+                    DELETE FROM face_keypoint_class_probabilities;
+                    DELETE FROM face_keypoints;
+                    DELETE FROM face_masks;
+                    DELETE FROM face_observations;
+                    CREATE TABLE result_capabilities(
+                        name TEXT PRIMARY KEY,
+                        available INTEGER NOT NULL
+                    );
+                    INSERT INTO result_capabilities
+                    VALUES ('rich_face_geometry', 0);
+                    """
+                )
+            output = root / "cache.sqlite"
+
+            summary = materialize_fast_face_cache(
+                source,
+                output,
+                display_style="detailed",
+                start_frame=0,
+                end_frame=10,
+            )
+
+            self.assertEqual(2, summary["items"])
+            self.assertEqual(0, summary["keypoints"])
+            with sqlite3.connect(output) as connection:
+                self.assertEqual(
+                    2,
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM fast_face_items
+                        WHERE box_x1 IS NOT NULL AND box_y1 IS NOT NULL
+                          AND box_x2 IS NOT NULL AND box_y2 IS NOT NULL
+                        """
+                    ).fetchone()[0],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +17,17 @@ RENDERER = ROOT / "build" / "overlay_native"
 FFMPEG = ROOT.parent / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
 FFPROBE = FFMPEG.with_name("ffprobe")
 SEGMENTED = ROOT / "segmented.py"
+
+
+def load_segmented_module():
+    module_name = "_overlay_segmented_test"
+    specification = importlib.util.spec_from_file_location(module_name, SEGMENTED)
+    if specification is None or specification.loader is None:
+        raise RuntimeError(f"cannot load segmented runner: {SEGMENTED}")
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[module_name] = module
+    specification.loader.exec_module(module)
+    return module
 
 
 def create_video(path: Path) -> None:
@@ -317,11 +331,108 @@ def probe(path: Path) -> dict[str, object]:
     return json.loads(result.stdout)
 
 
+class PacketIndexTests(unittest.TestCase):
+    def test_hidden_negative_pts_preroll_does_not_shift_frame_ordinals(self) -> None:
+        segmented = load_segmented_module()
+        packet_output = "-2|K_\n0|__\n2|__\n1|K_\n"
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=packet_output, stderr=""
+        )
+        with mock.patch.object(
+            segmented.subprocess, "check_output", return_value="0\n"
+        ), mock.patch.object(
+            segmented.subprocess, "run", return_value=completed
+        ):
+            index = segmented.probe_video_frame_index(
+                Path("/runtime/ffmpeg"), Path("input.mp4")
+            )
+
+        self.assertEqual([0, 1, 2], [frame.timestamp for frame in index.frames])
+        self.assertEqual(4, index.total_packets)
+        self.assertEqual(1, index.hidden_preroll_packets)
+
+    def test_reported_count_accepts_only_visible_or_total_packet_count(self) -> None:
+        segmented = load_segmented_module()
+        index = segmented.VideoFrameIndex(
+            frames=(
+                segmented.VideoFrame(timestamp=0, keyframe=True),
+                segmented.VideoFrame(timestamp=1, keyframe=False),
+                segmented.VideoFrame(timestamp=2, keyframe=False),
+            ),
+            total_packets=4,
+            hidden_preroll_packets=1,
+        )
+        segmented.validate_reported_frame_count(index, None)
+        segmented.validate_reported_frame_count(index, 3)
+        segmented.validate_reported_frame_count(index, 4)
+        with self.assertRaisesRegex(RuntimeError, "frame count mismatch"):
+            segmented.validate_reported_frame_count(index, 5)
+
+
 @unittest.skipUnless(
     RENDERER.is_file() and FFMPEG.is_file(),
     "build the native renderer and FFmpeg runtime first",
 )
 class LowLevelModeTests(unittest.TestCase):
+    def test_detailed_mode_draws_cut_indicator_only_on_cut_frame(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = root / "input.mp4"
+            masks = root / "masks.sqlite"
+            output = root / "cuts.mp4"
+            create_video(video)
+            create_mask_sqlite(masks)
+            with sqlite3.connect(masks) as connection:
+                connection.execute("CREATE TABLE cuts(frame INTEGER PRIMARY KEY)")
+                connection.execute("INSERT INTO cuts VALUES (3)")
+
+            subprocess.run(
+                [
+                    str(RENDERER),
+                    "--mode",
+                    "final",
+                    "--display-style",
+                    "detailed",
+                    "--video",
+                    str(video),
+                    "--sqlite",
+                    str(masks),
+                    "--output",
+                    str(output),
+                    "--encoder",
+                    "libx264",
+                    "--preset",
+                    "ultrafast",
+                    "--crf",
+                    "0",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            gray = subprocess.run(
+                [
+                    str(FFMPEG),
+                    "-v",
+                    "error",
+                    "-i",
+                    str(output),
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "gray",
+                    "-",
+                ],
+                check=True,
+                capture_output=True,
+            ).stdout
+            frame_size = 64 * 48
+            before_cut = gray[2 * frame_size : 3 * frame_size]
+            cut_frame = gray[3 * frame_size : 4 * frame_size]
+            after_cut = gray[4 * frame_size : 5 * frame_size]
+            self.assertEqual(before_cut, after_cut)
+            self.assertNotEqual(before_cut, cut_frame)
+
     def test_detailed_keyframe_changes_outline_not_mask_fill(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
