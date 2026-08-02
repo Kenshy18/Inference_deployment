@@ -58,7 +58,13 @@ $manifest = [ordered]@{
   }
   artifacts = $artifacts
 }
-$manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $payload "deployment-manifest.json") -Encoding utf8
+$manifestJson = $manifest | ConvertTo-Json -Depth 8
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText(
+  (Join-Path $payload "deployment-manifest.json"),
+  $manifestJson + [Environment]::NewLine,
+  $utf8NoBom
+)
 Copy-Item -LiteralPath (Join-Path $scriptRoot "Deploy-MaskPipeline.ps1") -Destination $target
 
 $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"

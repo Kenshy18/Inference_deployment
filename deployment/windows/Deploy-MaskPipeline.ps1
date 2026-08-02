@@ -56,6 +56,12 @@ function Assert-Hash([string]$Path, [string]$Expected) {
   }
 }
 
+function Write-Utf8Json([string]$Path, [object]$Value, [int]$Depth = 5) {
+  $json = $Value | ConvertTo-Json -Depth $Depth
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  [IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, $encoding)
+}
+
 function Write-Settings([string]$Distro) {
   $settingsDirectory = Join-Path $env:APPDATA "mask-pipeline-studio-windows"
   $settingsPath = Join-Path $settingsDirectory "settings.json"
@@ -65,12 +71,13 @@ function Write-Settings([string]$Distro) {
     New-Item -ItemType Directory -Path (Split-Path $script:settingsBackup) -Force | Out-Null
     Copy-Item -LiteralPath $settingsPath -Destination $script:settingsBackup -Force
   }
-  [ordered]@{
+  $settings = [ordered]@{
     backendMode = "wsl"
     backendRoot = $BackendRoot
     runtimePython = $RuntimePython
     wslDistro = $Distro
-  } | ConvertTo-Json | Set-Content -LiteralPath $settingsPath -Encoding utf8
+  }
+  Write-Utf8Json $settingsPath $settings
   return $settingsPath
 }
 
@@ -228,7 +235,7 @@ try {
     gpu = $gpuName
     driver = $driverVersion
   }
-  $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $InstallRoot "deployment-report.json") -Encoding utf8
+  Write-Utf8Json (Join-Path $InstallRoot "deployment-report.json") $report 5
   Write-Host "Deployment passed: $InstallRoot" -ForegroundColor Green
   if (-not $NoLaunch) { Start-Process -FilePath $guiTarget | Out-Null }
 } catch {
