@@ -10,7 +10,7 @@ Windows portable GUI＋移送用WSL VHDX＋ワンクリックデプロイヤー�
 - release: `D:\MaskPipelineDeployment\release\mask-pipeline-20260802-104355`
 - release id: `mask-pipeline-20260802-104355`
 - backend/GUI commit: `6fde9e834b2f6e85a13ee8b6ea0ab4fbd8ae7972`
-- deployer commit: `f7c2954870865a2f91a2e89079dd5aaf6680adbd`
+- deployer commit: `28ea62164825c7c29113559a966e4d0cef02007f`
 - asset commit: `6f6823927eefc178a55a53c2615c011fc1ce0076`
 - backend VHDX: 36,519,804,928 bytes
 - payload＋deployer SHA256: 6/6 files passed
@@ -89,6 +89,10 @@ dry-runで「入力なし」として拒否された。本番想定どおりWind
 全ケースでGUI設定は不変、新規distributionなし、`ext4.vhdx`/`.partial`残留なし。
 初回試験で壊れたVHDX後のrollbackがエラー表示に阻害される問題を検出し、修正後に
 同じ4ケースを再実行して合格した。
+
+その後、Windows PowerShell 5.1で引数なし起動時の`PSScriptRoot`がparameter default
+評価中に空になる問題を実地起動で検出した。payload解決をscript bodyへ移し、配布物を更新。
+隣接payloadを引数なしで解決するregression testも追加した。
 
 GUI処理中キャンセルも合格。job statusは`cancelled`、stageは`inference`、
 終了後のWSL pipeline processとstaging directoryはいずれも0件だった。

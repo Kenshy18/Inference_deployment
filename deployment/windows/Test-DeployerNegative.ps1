@@ -86,6 +86,28 @@ function Invoke-ExpectedFailure([string]$Name, [string]$FailureKind, [string]$Di
   }
 }
 
+function Test-DefaultPayloadBinding([string]$Suffix) {
+  # Do not pass PayloadRoot: this is the normal EXE launch path. An unsafe
+  # name stops immediately after the adjacent release payload is resolved.
+  $install = Join-Path $WorkRoot "default-payload-binding-$Suffix\install"
+  $arguments = @(
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $deployer,
+    "-DistributionName", "!", "-InstallRoot", $install,
+    "-AllowNonAdministrator", "-NoLaunch"
+  )
+  $previousErrorPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $output = @(& powershell.exe @arguments 2>&1)
+  $exitCode = $LASTEXITCODE
+  $ErrorActionPreference = $previousErrorPreference
+  $text = $output | Out-String
+  return [pscustomobject]@{
+    exit_code = $exitCode
+    passed = ($exitCode -ne 0 -and $text -match "Unsafe distribution name" -and $text -notmatch "Join-Path")
+    adjacent_payload_resolved = ($text -notmatch "Deployment manifest is missing")
+  }
+}
+
 New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
 $settingsPath = Join-Path $env:APPDATA "mask-pipeline-studio-windows\settings.json"
 $settingsBefore = if (Test-Path -LiteralPath $settingsPath) {
@@ -93,6 +115,7 @@ $settingsBefore = if (Test-Path -LiteralPath $settingsPath) {
 } else { $null }
 
 $suffix = Get-Date -Format "yyyyMMddHHmmss"
+$defaultPayloadBinding = Test-DefaultPayloadBinding $suffix
 $results = @(
   Invoke-ExpectedFailure "hash-$suffix" "hash" "MaskPipelineNegativeHash$suffix"
   Invoke-ExpectedFailure "gpu-$suffix" "gpu" "MaskPipelineNegativeGpu$suffix"
@@ -109,12 +132,14 @@ $violations = @($results | Where-Object {
   -not $_.installed_vhd_absent -or -not $_.partial_vhd_absent
 })
 if (-not $settingsUnchanged) { $violations += "GUI settings changed" }
+if (-not $defaultPayloadBinding.passed) { $violations += "Default payload binding failed" }
 $summary = [ordered]@{
   schema_version = 1
   status = if ($violations.Count -eq 0) { "passed" } else { "failed" }
   tested_at_utc = [DateTime]::UtcNow.ToString("o")
   release_id = $sourceManifest.release_id
   settings_unchanged = $settingsUnchanged
+  default_payload_binding = $defaultPayloadBinding
   results = $results
 }
 $summaryPath = Join-Path $WorkRoot "negative-tests-$suffix.json"
