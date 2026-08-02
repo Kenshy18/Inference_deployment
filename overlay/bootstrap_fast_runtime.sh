@@ -6,7 +6,7 @@ runtime_root="$overlay_root/.runtime"
 archive="$runtime_root/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz"
 target="$runtime_root/ffmpeg-nvenc-btbn-8.1"
 archive_url=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-24-13-32/ffmpeg-n8.1.2-31-g8c9502e9b0-linux64-gpl-8.1.tar.xz
-archive_sha256=62e3c66d647801c115756a824af490296a4c4b866658fc339be137921d20958b
+archive_sha256=67b4011d82c67586c3703c81d3c967a837319f75e5e61551f22a91588e440660
 
 if [[ -x "$target/bin/ffmpeg" && -x "$target/bin/ffprobe" ]]; then
   echo "fast overlay FFmpeg ready: $target"
