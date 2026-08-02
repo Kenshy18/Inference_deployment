@@ -69,6 +69,7 @@ find /home/kenshin -maxdepth 2 -type f \
   \( -name '.bash_history' -o -name '.python_history' \) -delete
 find "$repository_root/output" -mindepth 1 -depth -delete 2>/dev/null || true
 mkdir -p "$repository_root/output"
+touch "$repository_root/output/.gitkeep"
 chown -R kenshin:kenshin "$repository_root/output"
 apt-get clean
 find /var/lib/apt/lists -mindepth 1 -depth -delete
