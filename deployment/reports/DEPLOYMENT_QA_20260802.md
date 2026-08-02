@@ -10,7 +10,7 @@ Windows portable GUI＋移送用WSL VHDX＋ワンクリックデプロイヤー�
 - release: `D:\MaskPipelineDeployment\release\mask-pipeline-20260802-104355`
 - release id: `mask-pipeline-20260802-104355`
 - backend/GUI commit: `6fde9e834b2f6e85a13ee8b6ea0ab4fbd8ae7972`
-- deployer commit: `28ea62164825c7c29113559a966e4d0cef02007f`
+- deployer commit: `2ea885212450ff757a4155ef179a7c97c99fccee`
 - asset commit: `6f6823927eefc178a55a53c2615c011fc1ce0076`
 - backend VHDX: 36,519,804,928 bytes
 - payload＋deployer SHA256: 6/6 files passed
@@ -93,6 +93,12 @@ dry-runで「入力なし」として拒否された。本番想定どおりWind
 その後、Windows PowerShell 5.1で引数なし起動時の`PSScriptRoot`がparameter default
 評価中に空になる問題を実地起動で検出した。payload解決をscript bodyへ移し、配布物を更新。
 隣接payloadを引数なしで解決するregression testも追加した。
+
+UAC昇格したprocessが`C:\ProgramData`へ作成したVHDXを、ユーザー単位のWSL serviceが
+attachできず`E_ACCESSDENIED`になる問題も実地起動で検出した。WSL distribution、GUI設定、
+shortcutを同一Windowsユーザーへ揃え、既定導入先を`%LOCALAPPDATA%\MaskPipeline`へ変更した。
+更新版EXEそのものから`MaskPipelinePerUserQA`をC:へ導入し、8/8 stages、full-hash preflight、
+Windows GUI 120-frame E2E、renderer error 0で合格した。
 
 GUI処理中キャンセルも合格。job statusは`cancelled`、stageは`inference`、
 終了後のWSL pipeline processとstaging directoryはいずれも0件だった。
