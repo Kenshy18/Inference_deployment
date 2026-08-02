@@ -66,9 +66,34 @@ build先は一時ディレクトリにし、既存production bundleを上書き�
 明示指定した推論、SQLite schema比較、マスク品質比較、長尺速度試験を通した後にだけ
 production manifestとasset packを更新します。
 
-## Phase 3の境界
+## Phase 3: 配布用WSLとWindowsデプロイヤー
 
-WSL export/importでは、Gitだけでなくproduction Python、モデルruntime、engine、
-native overlay runtimeを含むdistribution全体を移します。Windows側で別途合わせるのは
-WSL2、NVIDIA driver、distribution登録名、Windows Node.js/exeです。phase 3では現在の
-環境情報を固定し、import後preflightと短尺GUI E2Eを実行するスクリプトを追加します。
+配布イメージは、空のUbuntu 24.04へ次だけを配置して作ります。
+
+- 固定Git commitのclean clone
+- commit検証済みproduction asset pack
+- production Python環境
+- 構築・検証済みnative overlay runtime
+- 非センシティブな8秒のsynthetic E2E fixture
+
+`.codex`、SSH鍵、shell履歴、入力動画、過去出力、開発用cacheは含めません。
+`phase3/prepare_image.sh`は配布用distribution内でrootとして実行し、assetのfull hash、
+全モデルruntime、GPU、native overlay、単体テストを検証します。現在作業中のdistributionを
+停止せず、配布用distributionだけを停止してVHDX exportします。
+
+Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は次です。
+
+- `MaskPipelineDeployer.exe`: UAC昇格して導入を開始する入口
+- `Deploy-MaskPipeline.ps1`: hash検証、WSL import、GUI配置、rollback
+- `payload/backend.vhdx`: 検証済みLinux backend
+- `payload/Mask Pipeline Studio.exe`: Node.js不要のportable GUI
+- `payload/deployment-smoke.mp4`: 非センシティブな短尺fixture
+- `payload/deployment-manifest.json`: commit、asset世代、GPU/driver、全SHA256
+
+デプロイヤーは同名の既存distributionを上書きしません。VHDXを一時名でコピーしてから
+`wsl --import-in-place`し、full-hash backend preflightとWindows GUI経由の120-frame E2Eを
+通過した後にだけショートカットと完了reportを作ります。失敗時は新規distribution、GUI
+設定、VHDXをrollbackします。Windows Node.jsは配布先には不要です。
+
+初回のWSL導入、再起動を伴うGPU driver交換、Secure Boot/組織ポリシーは自動化の境界外です。
+デプロイヤーは検証済みRTX 5090/driverとの不一致を、環境を変更せず明示的に停止します。

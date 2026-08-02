@@ -94,9 +94,12 @@ export async function runQaE2e(
         const settings = {
           ...bootstrap.settings,
           backendMode: "wsl",
-          wslDistro: "Ubuntu-24.04",
-          backendRoot: "/home/kenshin/inference_backend2",
-          runtimePython: "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10",
+          // Deployment QA runs against a versioned distribution name. Keep
+          // the backend coordinates seeded by the deployer instead of
+          // silently falling back to the development distribution.
+          wslDistro: bootstrap.settings.wslDistro,
+          backendRoot: bootstrap.settings.backendRoot,
+          runtimePython: bootstrap.settings.runtimePython,
         };
         await window.maskStudio.saveSettings(settings);
         await window.maskStudio.setPreviewEnabled(true);
