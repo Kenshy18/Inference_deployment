@@ -81,6 +81,8 @@ production manifestとasset packを更新します。
 `phase3/prepare_image.sh`は配布用distribution内でrootとして実行し、assetのfull hash、
 全モデルruntime、GPU、native overlay、単体テストを検証します。現在作業中のdistributionを
 停止せず、配布用distributionだけを停止してVHDX exportします。
+`phase3/wsl.conf`はinteropを有効にしますがsystemdは有効にしません。複数distributionが
+同時起動するPCでsystemd-binfmtが共有`WSLInterop`登録を外す事象を避けるためです。
 
 Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は次です。
 
