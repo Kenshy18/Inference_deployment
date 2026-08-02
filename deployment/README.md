@@ -87,7 +87,7 @@ production manifestとasset packを更新します。
 
 Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は次です。
 
-- `MaskPipelineDeployer.exe`: UAC昇格して導入を開始する入口
+- `MaskPipelineDeployer.exe`: ユーザー単位の導入を開始する入口
 - `Deploy-MaskPipeline.ps1`: hash検証、WSL import、GUI配置、rollback
 - `payload/backend.vhdx`: 検証済みLinux backend
 - `payload/Mask Pipeline Studio.exe`: Node.js不要のportable GUI
@@ -98,8 +98,9 @@ Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は
 `wsl --import-in-place`し、full-hash backend preflightとWindows GUI経由の120-frame E2Eを
 通過した後にだけショートカットと完了reportを作ります。失敗時は新規distribution、GUI
 設定、VHDXをrollbackします。Windows Node.jsは配布先には不要です。
-通常入口のexeは必ずUAC昇格します。`-AllowNonAdministrator`は、管理者権限を使わず
-書込み可能な隔離ディレクトリへ導入するQA専用スイッチで、exeの通常導線では使いません。
+WSL distribution、GUI設定、ショートカットはWindowsユーザー単位です。通常入口のexeは
+UAC昇格せず、`%LOCALAPPDATA%\MaskPipeline`へ同一ユーザーとして導入します。
+`-AllowNonAdministrator`は旧QAコマンドとの互換性のため受理しますが、現在は不要です。
 
 初回のWSL導入、再起動を伴うGPU driver交換、Secure Boot/組織ポリシーは自動化の境界外です。
 デプロイヤーは検証済みRTX 5090/driverとの不一致を、環境を変更せず明示的に停止します。
@@ -118,7 +119,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deployment\windows\Bui
   -AssetCommit <asset-commit>
 ```
 
-通常の現地導入は生成された`MaskPipelineDeployer.exe`をダブルクリックし、UACを承認します。
+通常の現地導入は生成された`MaskPipelineDeployer.exe`をダブルクリックします。
 既に同名distributionがある場合は上書きせず停止します。配布前の異常系試験は、隔離された
 書込み可能ディレクトリに対して次で実行できます。
 

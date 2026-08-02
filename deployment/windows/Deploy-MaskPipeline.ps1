@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$DistributionName = "MaskPipelineProduction",
-  [string]$InstallRoot = "$env:ProgramData\MaskPipeline",
+  [string]$InstallRoot = "$env:LOCALAPPDATA\MaskPipeline",
   [string]$PayloadRoot,
   [switch]$SkipE2E,
   [switch]$NoLaunch,
@@ -25,12 +25,6 @@ $settingsBackup = $null
 $guiBackup = $null
 $installedVhd = $null
 $logPath = $null
-
-function Test-Administrator {
-  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-  return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
 
 function Assert-SafeDirectory([string]$Value, [string]$Name) {
   $resolved = [IO.Path]::GetFullPath($Value)
@@ -103,10 +97,6 @@ function New-Shortcut([string]$Target, [string]$Path) {
   $shortcut.Save()
 }
 
-$isAdministrator = Test-Administrator
-if (-not $isAdministrator -and -not $AllowNonAdministrator) {
-  throw "Administrator privileges are required. Start MaskPipelineDeployer.exe normally and approve UAC."
-}
 $InstallRoot = Assert-SafeDirectory $InstallRoot "InstallRoot"
 $PayloadRoot = Assert-SafeDirectory $PayloadRoot "PayloadRoot"
 $manifestPath = Join-Path $PayloadRoot "deployment-manifest.json"
@@ -223,13 +213,10 @@ try {
   }
 
   Write-Host "[8/8] Creating shortcuts and deployment report..." -ForegroundColor Cyan
-  $desktopKind = if ($isAdministrator) { "CommonDesktopDirectory" } else { "DesktopDirectory" }
-  $desktop = [Environment]::GetFolderPath($desktopKind)
-  $programs = if ($isAdministrator) {
-    Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"
-  } else {
-    Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-  }
+  # WSL distributions and GUI settings are per Windows user, so shortcuts
+  # must remain per-user even when the launcher is started by an administrator.
+  $desktop = [Environment]::GetFolderPath("DesktopDirectory")
+  $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
   New-Shortcut $guiTarget (Join-Path $desktop "Mask Pipeline Studio.lnk")
   New-Shortcut $guiTarget (Join-Path $programs "Mask Pipeline Studio.lnk")
   $report = [ordered]@{
