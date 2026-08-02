@@ -52,11 +52,18 @@ runuser -u kenshin -- "$runtime_root/bin/python3.10" \
   --runtime-python "$runtime_root/bin/python3.10" --full-hash \
   > "$report_root/preflight.json"
 
-for forbidden in /home/kenshin/.codex /home/kenshin/.ssh /root/.ssh; do
+for forbidden in /home/kenshin/.codex; do
   [[ ! -e "$forbidden" ]] || {
     echo "forbidden developer state found in image: $forbidden" >&2
     exit 1
   }
+done
+for ssh_root in /home/kenshin/.ssh /root/.ssh; do
+  if [[ -d "$ssh_root" ]] && [[ -n $(find "$ssh_root" -mindepth 1 -print -quit) ]]; then
+    echo "forbidden SSH state found in image: $ssh_root" >&2
+    exit 1
+  fi
+  rmdir "$ssh_root" 2>/dev/null || true
 done
 find /home/kenshin -maxdepth 2 -type f \
   \( -name '.bash_history' -o -name '.python_history' \) -delete
