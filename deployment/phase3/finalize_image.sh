@@ -5,10 +5,12 @@ repository_root=/home/kenshin/inference_backend2
 runtime_root=/home/kenshin/.local/share/video-mask-runtime/envs/production
 release_commit=
 asset_commit=
+profile=all
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --release-commit) release_commit=$2; shift 2 ;;
     --asset-commit) asset_commit=$2; shift 2 ;;
+    --profile) profile=$2; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -18,6 +20,10 @@ if [[ $(id -u) -ne 0 ]]; then
 fi
 if [[ -z "$release_commit" || -z "$asset_commit" ]]; then
   echo "--release-commit and --asset-commit are required" >&2
+  exit 2
+fi
+if [[ "$profile" != core && "$profile" != all ]]; then
+  echo "--profile must be core or all" >&2
   exit 2
 fi
 
@@ -39,6 +45,7 @@ cat > "$report_root/release.json" <<EOF
   "schema_version": 1,
   "release_commit": "$release_commit",
   "asset_commit": "$asset_commit",
+  "profile": "$profile",
   "distribution": "MaskPipelineProduction",
   "backend_root": "$repository_root",
   "runtime_python": "$runtime_root/bin/python3.10",
@@ -48,7 +55,7 @@ EOF
 chown -R kenshin:kenshin /opt/mask-pipeline
 runuser -u kenshin -- "$runtime_root/bin/python3.10" \
   "$repository_root/deployment/preflight.py" \
-  --root "$repository_root" --profile all \
+  --root "$repository_root" --profile "$profile" \
   --runtime-python "$runtime_root/bin/python3.10" --full-hash \
   > "$report_root/preflight.json"
 

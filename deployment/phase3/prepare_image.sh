@@ -10,12 +10,14 @@ repository_root=/home/kenshin/inference_backend2
 runtime_root=/home/kenshin/.local/share/video-mask-runtime/envs/production
 release_commit=
 asset_commit=
+profile=all
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --stage-root) stage_root=$2; shift 2 ;;
     --release-commit) release_commit=$2; shift 2 ;;
     --asset-commit) asset_commit=$2; shift 2 ;;
+    --profile) profile=$2; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -30,6 +32,10 @@ if [[ $(id -u) -ne 0 ]]; then
 fi
 if [[ -z "$release_commit" || -z "$asset_commit" ]]; then
   echo "--release-commit and --asset-commit are required" >&2
+  exit 2
+fi
+if [[ "$profile" != core && "$profile" != all ]]; then
+  echo "--profile must be core or all" >&2
   exit 2
 fi
 for path in "$repository_bundle" "$runtime_archive" "$runtime_sources_archive" "$asset_root/ASSET_PACK.json"; do
@@ -54,6 +60,7 @@ runuser -u kenshin -- git -C "$repository_root" checkout --detach "$asset_commit
 runuser -u kenshin -- \
   python3 "$repository_root/deployment/install_assets.py" "$asset_root" --root "$repository_root"
 runuser -u kenshin -- git -C "$repository_root" checkout --detach "$release_commit"
+install -m 0644 "$repository_root/deployment/phase3/wsl.conf" /etc/wsl.conf
 
 # bootstrap_runtime.sh downloads fixed FFmpeg and the Ubuntu sqlite development
 # package into the repository-local native runtime. A freshly minimized rootfs
@@ -63,7 +70,8 @@ apt-get update
 runuser -u kenshin -- env \
   INFERENCE_RUNTIME_PYTHON="$runtime_root/bin/python3.10" \
   "$repository_root/deployment/setup_phase2.sh" \
-  --profile all --full-hash --skip-windows-check
+  --profile "$profile" --full-hash --skip-windows-check
 
 "$repository_root/deployment/phase3/finalize_image.sh" \
-  --release-commit "$release_commit" --asset-commit "$asset_commit"
+  --release-commit "$release_commit" --asset-commit "$asset_commit" \
+  --profile "$profile"

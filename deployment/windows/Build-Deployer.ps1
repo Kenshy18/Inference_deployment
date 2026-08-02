@@ -4,17 +4,22 @@ param(
   [Parameter(Mandatory=$true)][string]$GuiPortable,
   [Parameter(Mandatory=$true)][string]$Fixture,
   [string]$OutputRoot = "D:\MaskPipelineDeployment\release",
+  [string]$ReleaseId,
   [string]$ReleaseCommit,
   [string]$GuiCommit,
   [string]$DeployerCommit,
   [string]$AssetCommit = "6f6823927eefc178a55a53c2615c011fc1ce0076",
+  [string]$GuiVersion = "0.1.3",
   [string]$GpuName = "NVIDIA GeForce RTX 5090",
   [string]$DriverVersion = "596.21"
 )
 
 $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$releaseId = "mask-pipeline-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
+$releaseId = if ($ReleaseId) { $ReleaseId } else { "mask-pipeline-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss") }
+if ($releaseId -notmatch '^mask-pipeline-[A-Za-z0-9_.-]+$') {
+  throw "Unsafe release id: $releaseId"
+}
 $target = Join-Path $OutputRoot $releaseId
 $payload = Join-Path $target "payload"
 if (Test-Path -LiteralPath $target) { throw "Release already exists: $target" }
@@ -55,7 +60,7 @@ $manifest = [ordered]@{
   release_id = $releaseId
   created_at_utc = [DateTime]::UtcNow.ToString("o")
   backend = [ordered]@{ file=$backend.file; release_commit=$ReleaseCommit; asset_commit=$AssetCommit }
-  gui = [ordered]@{ file=$gui.file; version="0.1.3"; commit=$GuiCommit }
+  gui = [ordered]@{ file=$gui.file; version=$GuiVersion; commit=$GuiCommit }
   deployer = [ordered]@{ commit=$DeployerCommit }
   fixture = [ordered]@{ file=$fixtureRecord.file }
   compatibility = [ordered]@{

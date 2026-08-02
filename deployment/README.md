@@ -68,6 +68,23 @@ production manifestとasset packを更新します。
 
 ## Phase 3: 配布用WSLとWindowsデプロイヤー
 
+正式な候補リリースはGit正本のクリーンなコミットから、次の1コマンドで作成します。
+
+```bash
+./deployment/build_release.sh
+```
+
+この入口は、アセットとproduction runtimeのステージング、隔離されたUbuntu 24.04
+build distributionの作成、portable Windows GUIのビルド、WSL VHDXの構築・検証、
+`MaskPipelineDeployer.exe`の作成、成果物hash検証までを順番に実行します。build
+distributionは一意な一時名を使い、成功・失敗にかかわらず既存distributionを変更しません。
+成功した成果物は`D:\MaskPipelineDeployment\release\mask-pipeline-*`へ候補として保存され、
+実デプロイ試験に合格するまでは`LATEST`へ昇格させません。
+
+配布用distributionと配布フォルダは開発対象ではありません。修正は必ずGit正本で行い、
+配布物はこの入口から再生成します。調査目的で配布済みdistributionへ一時変更を入れても、
+それを次のリリースへ手動コピーしません。
+
 配布イメージは、空のUbuntu 24.04へ次だけを配置して作ります。
 
 - 固定Git commitのclean clone
