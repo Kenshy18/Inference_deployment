@@ -4,10 +4,23 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
+
+
+# Variable-size mask and classifier RoIs otherwise fragment the native CUDA
+# caching allocator on long videos.  On the 23,891-frame deployment fixture,
+# reserved VRAM grew from ~12 GiB to the 32 GiB device limit and reduced MH0
+# from ~154 to ~98 FPS.  Expandable segments keep the exact same tensors and
+# outputs while allowing the allocator to reuse that address space (~15 GiB).
+# Respect an explicit operator override for diagnostics or compatibility.
+os.environ.setdefault(
+    "PYTORCH_CUDA_ALLOC_CONF",
+    "expandable_segments:True",
+)
 
 
 FAMILY_ROOT = Path(__file__).resolve().parent

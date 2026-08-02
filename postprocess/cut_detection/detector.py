@@ -90,6 +90,20 @@ def _resolve_ffmpeg() -> Path | None:
         bundled = runtime_root.parents[3] / "tools" / "ffmpeg" / "bin" / "ffmpeg"
         if bundled.is_file():
             return bundled
+    # The deployment image intentionally keeps native media tools with the
+    # overlay repository instead of duplicating them in the Python runtime.
+    # Prefer its static FFmpeg before falling back to OpenCV full-frame decode.
+    repository_root = Path(__file__).resolve().parents[2]
+    repository_ffmpeg = (
+        repository_root
+        / "overlay"
+        / ".runtime"
+        / "ffmpeg-nvenc-btbn-8.1"
+        / "bin"
+        / "ffmpeg"
+    )
+    if repository_ffmpeg.is_file():
+        return repository_ffmpeg
     return None
 
 
