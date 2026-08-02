@@ -40,6 +40,9 @@ INFERENCE_RUNTIME_PYTHON=/home/kenshin/.local/share/video-mask-runtime/envs/prod
 ./gui/scripts/dev-windows.sh
 ```
 
+`install_assets.py`はasset packを作成したGit commitとCloneの`HEAD`が異なる場合に
+停止します。重み・engine・ソースの世代を、似たファイル名だけで混在させません。
+
 正式exeは、clean commitから次で作成します。
 
 ```bash

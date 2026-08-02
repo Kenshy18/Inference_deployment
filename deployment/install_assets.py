@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from asset_tools import sha256_file
@@ -23,6 +24,17 @@ def main() -> int:
     payload = json.loads((source / "ASSET_PACK.json").read_text(encoding="utf-8"))
     if payload.get("schema_version") != 1:
         raise ValueError("unsupported ASSET_PACK.json")
+    commit = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if payload.get("canonical_commit") != commit:
+        raise ValueError(
+            "asset pack/repository commit mismatch: "
+            f"pack={payload.get('canonical_commit')} repository={commit}"
+        )
     for record in payload["files"]:
         relative = Path(record["path"])
         if relative.is_absolute() or ".." in relative.parts:
