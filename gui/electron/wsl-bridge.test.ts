@@ -148,6 +148,125 @@ describe("Windows/WSL bridge", () => {
   );
 
   it.skipIf(process.platform === "win32")(
+    "copies only manifest-published artifacts from orchestration staging",
+    () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "mask-studio-wsl-runner-compact-test-"),
+      );
+      const source = path.join(
+        "/tmp/mask-pipeline-studio",
+        `vitest-compact-${process.pid}-${Date.now()}`,
+        "output",
+      );
+      const target = path.join(root, "windows-output");
+      const pidFile = path.join(root, "runner.pid");
+      const resultSqlite = path.join(
+        source,
+        "02_postprocess",
+        "09_integrated_result_sqlite",
+        "result.sqlite",
+      );
+      const overlay = path.join(source, "03_overlay", "combined_simple.mp4");
+      const log = path.join(source, "logs", "postprocess.log");
+      const intermediate = path.join(
+        source,
+        "02_postprocess",
+        "04_classwise_postprocess",
+        "reproducible.sqlite",
+      );
+      fs.mkdirSync(path.dirname(resultSqlite), { recursive: true });
+      fs.mkdirSync(path.dirname(overlay), { recursive: true });
+      fs.mkdirSync(path.dirname(log), { recursive: true });
+      fs.mkdirSync(path.dirname(intermediate), { recursive: true });
+      fs.writeFileSync(resultSqlite, "sqlite\n", "utf8");
+      fs.writeFileSync(overlay, "video\n", "utf8");
+      fs.writeFileSync(log, "log\n", "utf8");
+      fs.writeFileSync(intermediate, "large temporary data\n", "utf8");
+      fs.writeFileSync(
+        path.join(source, "resolved_config.json"),
+        `${JSON.stringify({ output_root: source })}\n`,
+        "utf8",
+      );
+      fs.writeFileSync(
+        path.join(source, "run_manifest.json"),
+        `${JSON.stringify({
+          status: "complete",
+          output_root: source,
+          artifacts: {
+            result_sqlite: resultSqlite,
+            overlay_combined_simple: overlay,
+          },
+        })}\n`,
+        "utf8",
+      );
+      try {
+        const bootstrap =
+          "import sys; source=sys.stdin.read(); " +
+          "exec(compile(source, '<wsl-runner>', 'exec'), {'__name__':'__main__'})";
+        const result = spawnSync(
+          "python3",
+          [
+            "-c",
+            bootstrap,
+            pidFile,
+            "--sync-output",
+            source,
+            target,
+            "/bin/true",
+          ],
+          { input: WSL_RUNNER_SOURCE, encoding: "utf8" },
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(fs.readFileSync(path.join(target, "logs", "postprocess.log"), "utf8")).toBe(
+          "log\n",
+        );
+        expect(
+          fs.readFileSync(
+            path.join(
+              target,
+              "02_postprocess",
+              "09_integrated_result_sqlite",
+              "result.sqlite",
+            ),
+            "utf8",
+          ),
+        ).toBe("sqlite\n");
+        expect(
+          fs.readFileSync(
+            path.join(target, "03_overlay", "combined_simple.mp4"),
+            "utf8",
+          ),
+        ).toBe("video\n");
+        expect(
+          fs.existsSync(
+            path.join(
+              target,
+              "02_postprocess",
+              "04_classwise_postprocess",
+              "reproducible.sqlite",
+            ),
+          ),
+        ).toBe(false);
+        const manifest = JSON.parse(
+          fs.readFileSync(path.join(target, "run_manifest.json"), "utf8"),
+        ) as { artifacts: { result_sqlite: string } };
+        expect(manifest.artifacts.result_sqlite).toBe(
+          path.join(
+            target,
+            "02_postprocess",
+            "09_integrated_result_sqlite",
+            "result.sqlite",
+          ),
+        );
+        expect(fs.existsSync(source)).toBe(false);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+        fs.rmSync(path.dirname(source), { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
     "removes a dead marked staging job before starting a new job",
     () => {
       const root = fs.mkdtempSync(

@@ -109,6 +109,59 @@ def _cleanup_stale_staging(current: Path | None) -> None:
             shutil.rmtree(candidate, ignore_errors=True)
 
 
+def _copy_path(source: Path, destination: Path) -> None:
+    if source.is_dir():
+        shutil.copytree(source, destination, dirs_exist_ok=True)
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+
+def _copy_published_output(source: Path, destination: Path) -> bool:
+    """Copy the public workflow surface and omit reproducible intermediates.
+
+    The orchestration manifest is the authority for final artifacts.  Older or
+    non-orchestration callers without that contract retain the historical full
+    directory copy behavior.
+    """
+    manifest_path = source / "run_manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        artifacts = manifest["artifacts"]
+        if not isinstance(artifacts, dict):
+            return False
+    except (KeyError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+
+    resolved_source = source.resolve()
+    selected: set[Path] = set()
+    for name in ("run_manifest.json", "resolved_config.json"):
+        candidate = resolved_source / name
+        if candidate.exists():
+            selected.add(candidate)
+    logs = resolved_source / "logs"
+    if logs.exists():
+        selected.add(logs)
+    for value in artifacts.values():
+        if not isinstance(value, str) or not value:
+            continue
+        try:
+            candidate = Path(value).expanduser().resolve()
+        except OSError:
+            continue
+        if candidate != resolved_source and resolved_source not in candidate.parents:
+            continue
+        if candidate.exists():
+            selected.add(candidate)
+
+    if manifest_path.resolve() not in selected:
+        return False
+    for candidate in sorted(selected, key=lambda value: (len(value.parts), str(value))):
+        relative = candidate.relative_to(resolved_source)
+        _copy_path(candidate, destination / relative)
+    return True
+
+
 def main() -> int:
     if len(sys.argv) < 3:
         print("usage: wsl-runner.py PID_FILE COMMAND [ARG ...]", file=sys.stderr)
@@ -168,7 +221,11 @@ def main() -> int:
                 sync_pending = sync_to.with_name(sync_to.name + ".partial")
                 shutil.rmtree(sync_pending, ignore_errors=True)
                 copy_target = sync_pending
-            shutil.copytree(sync_from, copy_target, dirs_exist_ok=True)
+            compact = _copy_published_output(sync_from, copy_target)
+            if not compact:
+                shutil.copytree(sync_from, copy_target, dirs_exist_ok=True)
+            else:
+                print("[gui-sync] omitted reproducible intermediate files", flush=True)
             source_text = str(sync_from)
             target_text = str(sync_to)
             for json_path in copy_target.rglob("*.json"):
