@@ -29,7 +29,7 @@ function New-NegativePayload([string]$Name, [string]$FailureKind) {
   $payload = Join-Path $caseRoot "payload"
   $install = Join-Path $caseRoot "install"
   New-Item -ItemType Directory -Path $payload -Force | Out-Null
-  Copy-Item -LiteralPath $fixture -Destination (Join-Path $payload "invalid.vhdx")
+  Copy-Item -LiteralPath $fixture -Destination (Join-Path $payload "invalid.tar")
   Copy-Item -LiteralPath $fixture -Destination (Join-Path $payload "gui.exe")
   Copy-Item -LiteralPath $fixture -Destination (Join-Path $payload "fixture.mp4")
   $hash = (Get-FileHash -LiteralPath $fixture -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -38,7 +38,9 @@ function New-NegativePayload([string]$Name, [string]$FailureKind) {
   $manifest = [ordered]@{
     schema_version = 1
     release_id = "negative-$Name"
-    backend = [ordered]@{ file="invalid.vhdx"; release_commit="negative"; asset_commit="negative" }
+    backend = [ordered]@{
+      file="invalid.tar"; format="wsl-tar"; release_commit="negative"; asset_commit="negative"
+    }
     gui = [ordered]@{ file="gui.exe"; version="negative"; commit="negative" }
     fixture = [ordered]@{ file="fixture.mp4" }
     compatibility = [ordered]@{
@@ -46,7 +48,7 @@ function New-NegativePayload([string]$Name, [string]$FailureKind) {
       driver_version = $sourceManifest.compatibility.driver_version
     }
     artifacts = @(
-      [ordered]@{ role="backend"; file="invalid.vhdx"; sha256=$expectedHash },
+      [ordered]@{ role="backend"; file="invalid.tar"; sha256=$expectedHash },
       [ordered]@{ role="gui"; file="gui.exe"; sha256=$hash },
       [ordered]@{ role="fixture"; file="fixture.mp4"; sha256=$hash }
     )
@@ -74,14 +76,13 @@ function Invoke-ExpectedFailure([string]$Name, [string]$FailureKind, [string]$Di
   $distExists = (Get-Distros) -contains $Distribution
   $distributionSafe = if ($FailureKind -eq "existing") { $distExists } else { -not $distExists }
   $installedVhd = Join-Path $case.Install "backend\ext4.vhdx"
-  $partialVhd = "$installedVhd.partial"
   return [pscustomobject]@{
     name = $Name
     exit_code = $exitCode
     rejected = ($exitCode -ne 0)
     distribution_safe = $distributionSafe
     installed_vhd_absent = (-not (Test-Path -LiteralPath $installedVhd))
-    partial_vhd_absent = (-not (Test-Path -LiteralPath $partialVhd))
+    backend_directory_absent = (-not (Test-Path -LiteralPath (Join-Path $case.Install "backend")))
     console_log = $logPath
   }
 }
@@ -129,7 +130,7 @@ $settingsUnchanged = $settingsBefore -eq $settingsAfter
 
 $violations = @($results | Where-Object {
   -not $_.rejected -or -not $_.distribution_safe -or
-  -not $_.installed_vhd_absent -or -not $_.partial_vhd_absent
+  -not $_.installed_vhd_absent -or -not $_.backend_directory_absent
 })
 if (-not $settingsUnchanged) { $violations += "GUI settings changed" }
 if (-not $defaultPayloadBinding.passed) { $violations += "Default payload binding failed" }

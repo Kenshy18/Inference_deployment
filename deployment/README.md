@@ -75,7 +75,7 @@ production manifestとasset packを更新します。
 ```
 
 この入口は、アセットとproduction runtimeのステージング、隔離されたUbuntu 24.04
-build distributionの作成、portable Windows GUIのビルド、WSL VHDXの構築・検証、
+build distributionの作成、portable Windows GUIのビルド、WSL archiveの構築・検証、
 `MaskPipelineDeployer.exe`の作成、成果物hash検証までを順番に実行します。build
 distributionは一意な一時名を使い、成功・失敗にかかわらず既存distributionを変更しません。
 成功した成果物は`D:\MaskPipelineDeployment\release\mask-pipeline-*`へ候補として保存され、
@@ -98,7 +98,7 @@ distributionは一意な一時名を使い、成功・失敗にかかわらず�
 `.codex`、SSH鍵、shell履歴、入力動画、過去出力、開発用cacheは含めません。
 `phase3/prepare_image.sh`は配布用distribution内でrootとして実行し、assetのfull hash、
 全モデルruntime、GPU、native overlay、単体テストを検証します。現在作業中のdistributionを
-停止せず、配布用distributionだけを停止してVHDX exportします。
+停止せず、配布用distributionだけを停止して標準WSL tar archiveへexportします。
 `phase3/wsl.conf`はinteropを有効にしますがsystemdは有効にしません。複数distributionが
 同時起動するPCでsystemd-binfmtが共有`WSLInterop`登録を外す事象を避けるためです。
 
@@ -106,15 +106,15 @@ Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は
 
 - `MaskPipelineDeployer.exe`: ユーザー単位の導入を開始する入口
 - `Deploy-MaskPipeline.ps1`: hash検証、WSL import、GUI配置、rollback
-- `payload/backend.vhdx`: 検証済みLinux backend
+- `payload/backend.tar`: 検証済みLinux backendの標準WSL archive
 - `payload/Mask Pipeline Studio.exe`: Node.js不要のportable GUI
 - `payload/deployment-smoke.mp4`: 非センシティブな短尺fixture
 - `payload/deployment-manifest.json`: commit、asset世代、GPU/driver、全SHA256
 
-デプロイヤーは同名の既存distributionを上書きしません。VHDXを一時名でコピーしてから
-`wsl --import-in-place`し、full-hash backend preflightとWindows GUI経由の120-frame E2Eを
+デプロイヤーは同名の既存distributionを上書きしません。標準`wsl --import`で専用の
+ext4.vhdxを作成し、full-hash backend preflightとWindows GUI経由の120-frame E2Eを
 通過した後にだけショートカットと完了reportを作ります。失敗時は新規distribution、GUI
-設定、VHDXをrollbackします。Windows Node.jsは配布先には不要です。
+設定、作成途中のbackendをrollbackします。Windows Node.jsは配布先には不要です。
 WSL distribution、GUI設定、ショートカットはWindowsユーザー単位です。通常入口のexeは
 UAC昇格せず、`%LOCALAPPDATA%\MaskPipeline`へ同一ユーザーとして導入します。
 `-AllowNonAdministrator`は旧QAコマンドとの互換性のため受理しますが、現在は不要です。
@@ -122,11 +122,11 @@ UAC昇格せず、`%LOCALAPPDATA%\MaskPipeline`へ同一ユーザーとして導
 初回のWSL導入、再起動を伴うGPU driver交換、Secure Boot/組織ポリシーは自動化の境界外です。
 デプロイヤーは検証済みRTX 5090/driverとの不一致を、環境を変更せず明示的に停止します。
 
-配布用VHDX、portable GUI、非センシティブfixtureを用意した後の作成例です。
+配布用WSL archive、portable GUI、非センシティブfixtureを用意した後の作成例です。
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deployment\windows\Build-Deployer.ps1 `
-  -BackendVhd D:\release-input\backend.vhdx `
+  -BackendArchive D:\release-input\backend.tar `
   -GuiPortable D:\release-input\MaskPipelineStudio.exe `
   -Fixture D:\release-input\deployment-smoke.mp4 `
   -OutputRoot D:\MaskPipelineDeployment\release `
@@ -147,5 +147,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -ExistingDistribution MaskPipelineQA
 ```
 
-この試験は、hash改ざん、GPU不一致、既存distribution、壊れたVHDXをすべて拒否し、
-新規distribution・部分VHDX・既存GUI設定を残さないことを検証します。
+この試験は、hash改ざん、GPU不一致、既存distribution、壊れたarchiveをすべて拒否し、
+新規distribution・部分backend・既存GUI設定を残さないことを検証します。

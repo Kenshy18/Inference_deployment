@@ -40,16 +40,11 @@ function Wait-DistroStopped([string]$Distribution) {
   throw "WSL distribution did not stop: $Distribution"
 }
 
-function Export-WslVhd([string]$Distribution, [string]$Destination) {
-  for ($attempt = 1; $attempt -le 6; $attempt++) {
-    if (Test-Path -LiteralPath $Destination) {
-      Remove-Item -LiteralPath $Destination -Force
-    }
-    & wsl.exe --export $Distribution $Destination --format vhd
-    if ($LASTEXITCODE -eq 0) { return }
-    if ($attempt -lt 6) { Start-Sleep -Seconds 2 }
+function Export-WslArchive([string]$Distribution, [string]$Destination) {
+  if (Test-Path -LiteralPath $Destination) {
+    Remove-Item -LiteralPath $Destination -Force
   }
-  throw "Could not export WSL distribution after 6 attempts: $Distribution"
+  Invoke-Checked "wsl.exe" @("--export", $Distribution, $Destination)
 }
 
 function Convert-ToWslPath([string]$Distribution, [string]$WindowsPath) {
@@ -165,14 +160,14 @@ try {
   Invoke-Checked "wsl.exe" @("--terminate", $BuildDistribution)
   Wait-DistroStopped $BuildDistribution
   Start-Sleep -Seconds 2
-  $backendVhd = Join-Path $imageDirectory "backend.vhdx"
-  Export-WslVhd $BuildDistribution $backendVhd
+  $backendArchive = Join-Path $imageDirectory "backend.tar"
+  Export-WslArchive $BuildDistribution $backendArchive
 
   Write-Host "[6/8] Building the transactional Windows deployer..." -ForegroundColor Cyan
   $deployerBuilder = "\\wsl.localhost\$SourceDistribution" +
     ($RepositoryRoot.Replace("/", "\")) + "\deployment\windows\Build-Deployer.ps1"
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $deployerBuilder `
-    -BackendVhd $backendVhd `
+    -BackendArchive $backendArchive `
     -GuiPortable $portableGui[0].FullName `
     -Fixture $fixture `
     -OutputRoot $OutputRoot `
@@ -210,7 +205,8 @@ try {
     build_distribution = $BuildDistribution
     release_directory = $releaseDirectory
     deployer = (Join-Path $releaseDirectory "MaskPipelineDeployer.exe")
-    backend_vhd_sha256 = (Get-FileHash -LiteralPath $backendVhd -Algorithm SHA256).Hash.ToLowerInvariant()
+    backend_format = "wsl-tar"
+    backend_archive_sha256 = (Get-FileHash -LiteralPath $backendArchive -Algorithm SHA256).Hash.ToLowerInvariant()
   }
   $report | ConvertTo-Json -Depth 5 | Set-Content `
     -LiteralPath (Join-Path $releaseDirectory "build-report.json") -Encoding utf8

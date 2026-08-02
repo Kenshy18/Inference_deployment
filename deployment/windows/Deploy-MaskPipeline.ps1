@@ -20,10 +20,11 @@ if ([string]::IsNullOrWhiteSpace($PayloadRoot)) {
 }
 $BackendRoot = "/home/kenshin/inference_backend2"
 $RuntimePython = "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10"
-$createdDistribution = $false
+$importStarted = $false
 $settingsBackup = $null
 $guiBackup = $null
 $installedVhd = $null
+$backendDirectory = $null
 $logPath = $null
 
 function Assert-SafeDirectory([string]$Value, [string]$Name) {
@@ -105,6 +106,9 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if ($manifest.schema_version -ne 1) { throw "Unsupported deployment manifest" }
+if ($manifest.backend.format -ne "wsl-tar") {
+  throw "Unsupported backend format: $($manifest.backend.format)"
+}
 if ($DistributionName -notmatch '^[A-Za-z0-9_.-]+$') { throw "Unsafe distribution name" }
 
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
@@ -144,21 +148,20 @@ try {
   if ((Get-Distros) -contains $DistributionName) {
     throw "WSL distribution '$DistributionName' already exists. Existing distributions are never overwritten."
   }
-  $backendDirectory = Join-Path $InstallRoot "backend"
+  $script:backendDirectory = Join-Path $InstallRoot "backend"
   if (Test-Path -LiteralPath $backendDirectory) {
     $entries = @(Get-ChildItem -LiteralPath $backendDirectory -Force)
     if ($entries.Count -gt 0) { throw "Backend install directory is not empty: $backendDirectory" }
   }
   New-Item -ItemType Directory -Path $backendDirectory -Force | Out-Null
-  $sourceVhd = Join-Path $PayloadRoot $manifest.backend.file
+  $sourceArchive = Join-Path $PayloadRoot $manifest.backend.file
   $script:installedVhd = Join-Path $backendDirectory "ext4.vhdx"
-  $temporaryVhd = "$installedVhd.partial"
-  Copy-Item -LiteralPath $sourceVhd -Destination $temporaryVhd
-  Move-Item -LiteralPath $temporaryVhd -Destination $installedVhd
 
-  Write-Host "[4/8] Importing the release VHDX..." -ForegroundColor Cyan
-  Invoke-Checked "wsl.exe" @("--import-in-place", $DistributionName, $installedVhd)
-  $script:createdDistribution = $true
+  Write-Host "[4/8] Importing the release backend..." -ForegroundColor Cyan
+  $script:importStarted = $true
+  Invoke-Checked "wsl.exe" @(
+    "--import", $DistributionName, $backendDirectory, $sourceArchive, "--version", "2"
+  )
   Invoke-Checked "wsl.exe" @("--manage", $DistributionName, "--set-default-user", "kenshin")
 
   Write-Host "[5/8] Running backend integrity and GPU preflight..." -ForegroundColor Cyan
@@ -228,6 +231,7 @@ try {
     asset_commit = $manifest.backend.asset_commit
     distribution = $DistributionName
     install_root = $InstallRoot
+    backend_format = $manifest.backend.format
     backend_vhd = $installedVhd
     gui = $guiTarget
     gui_e2e = if ($SkipE2E) { "skipped" } else { $qaReport }
@@ -244,7 +248,7 @@ try {
   Write-Host ("Deployment failed: {0}" -f $_.Exception.Message) -ForegroundColor Red
   if (-not $KeepFailedInstall) {
     Write-Host "Rolling back the incomplete deployment..." -ForegroundColor Yellow
-    if ($createdDistribution -and ((Get-Distros) -contains $DistributionName)) {
+    if ($importStarted -and ((Get-Distros) -contains $DistributionName)) {
       & wsl.exe --terminate $DistributionName 2>$null | Out-Null
       & wsl.exe --unregister $DistributionName 2>$null | Out-Null
     }
@@ -252,8 +256,8 @@ try {
     if ($guiBackup -and (Test-Path -LiteralPath $guiBackup)) {
       Copy-Item -LiteralPath $guiBackup -Destination (Join-Path $InstallRoot "gui\Mask Pipeline Studio.exe") -Force
     }
-    if ($installedVhd -and (Test-Path -LiteralPath $installedVhd)) {
-      Remove-Item -LiteralPath $installedVhd -Force
+    if ($backendDirectory -and (Test-Path -LiteralPath $backendDirectory)) {
+      Remove-Item -LiteralPath $backendDirectory -Recurse -Force
     }
   }
   throw

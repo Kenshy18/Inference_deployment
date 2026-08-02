@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)][string]$BackendVhd,
+  [Parameter(Mandatory=$true)][Alias("BackendVhd")][string]$BackendArchive,
   [Parameter(Mandatory=$true)][string]$GuiPortable,
   [Parameter(Mandatory=$true)][string]$Fixture,
   [string]$OutputRoot = "D:\MaskPipelineDeployment\release",
@@ -33,7 +33,7 @@ if (-not $DeployerCommit) {
   $DeployerCommit = (& wsl.exe -d Ubuntu-24.04 -- git -C /home/kenshin/inference_backend2 rev-parse HEAD).Trim()
 }
 $files = @(
-  @{ source=$BackendVhd; target="backend.vhdx"; role="backend" },
+  @{ source=$BackendArchive; target="backend.tar"; role="backend" },
   @{ source=$GuiPortable; target="Mask Pipeline Studio.exe"; role="gui" },
   @{ source=$Fixture; target="deployment-smoke.mp4"; role="fixture" }
 )
@@ -59,7 +59,12 @@ $manifest = [ordered]@{
   schema_version = 1
   release_id = $releaseId
   created_at_utc = [DateTime]::UtcNow.ToString("o")
-  backend = [ordered]@{ file=$backend.file; release_commit=$ReleaseCommit; asset_commit=$AssetCommit }
+  backend = [ordered]@{
+    file=$backend.file
+    format="wsl-tar"
+    release_commit=$ReleaseCommit
+    asset_commit=$AssetCommit
+  }
   gui = [ordered]@{ file=$gui.file; version=$GuiVersion; commit=$GuiCommit }
   deployer = [ordered]@{ commit=$DeployerCommit }
   fixture = [ordered]@{ file=$fixtureRecord.file }
