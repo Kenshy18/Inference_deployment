@@ -164,6 +164,8 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             video = create_video(root / "input.avi", frames=1)
+            complete = create_unified_sqlite(root / "complete.sqlite", frames=12)
+            short = create_unified_sqlite(root / "short.sqlite", frames=11)
             base = {
                 "input_video": str(video),
                 "output_root": str(root / "run"),
@@ -178,9 +180,11 @@ class WorkflowTests(unittest.TestCase):
                 "postprocess": {"enabled": False},
                 "overlay": {"enabled": False},
             }
-            for name, explicit_end, expected_end in (
-                ("derived", None, "11"),
-                ("explicit", 7, "7"),
+            for name, source, explicit_end, expected_end in (
+                ("complete", complete, None, "11"),
+                ("short-at-eof", short, None, "10"),
+                ("explicit", short, 7, "7"),
+                ("pre-artifact-fallback", root / "missing.sqlite", None, "11"),
             ):
                 with self.subTest(case=name):
                     payload = json.loads(json.dumps(base))
@@ -196,7 +200,7 @@ class WorkflowTests(unittest.TestCase):
                     )
                     command = runner.overlay_command(
                         mode=None,
-                        source_sqlite=root / "result.sqlite",
+                        source_sqlite=source,
                         output=root / f"{name}.mp4",
                         preset="genital-simple",
                     )

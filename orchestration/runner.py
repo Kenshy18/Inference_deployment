@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import threading
 import time
@@ -127,6 +128,53 @@ class OrchestrationRunner:
             "stages": [],
             "artifacts": {},
         }
+        self._sqlite_frame_bounds_cache: dict[Path, tuple[int, int]] = {}
+
+    def _sqlite_frame_bounds(self, source: Path) -> tuple[int, int] | None:
+        """Return the materialized frame domain without revalidating the SQLite."""
+
+        resolved = Path(source).expanduser().resolve()
+        cached = self._sqlite_frame_bounds_cache.get(resolved)
+        if cached is not None:
+            return cached
+        # Command construction is also used by dry-run/unit-test callers before
+        # artifacts exist. Runtime overlay stages always receive a published,
+        # validated SQLite, so retain the requested-range fallback only for that
+        # pre-artifact case.
+        if not resolved.is_file():
+            return None
+        try:
+            with sqlite3.connect(f"file:{resolved}?mode=ro", uri=True) as connection:
+                table = connection.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table' AND name='frames'
+                    """
+                ).fetchone()
+                columns = (
+                    {
+                        str(row[1])
+                        for row in connection.execute('PRAGMA table_info("frames")')
+                    }
+                    if table is not None
+                    else set()
+                )
+                if "frame_index" not in columns:
+                    return None
+                row = connection.execute(
+                    "SELECT MIN(frame_index), MAX(frame_index) FROM frames"
+                ).fetchone()
+        except sqlite3.Error as exc:
+            raise OrchestrationError(
+                f"could not read overlay frame bounds from {resolved}: {exc}"
+            ) from exc
+        if row is None or row[0] is None or row[1] is None:
+            raise OrchestrationError(
+                f"overlay source SQLite has no materialized frames: {resolved}"
+            )
+        bounds = (int(row[0]), int(row[1]))
+        self._sqlite_frame_bounds_cache[resolved] = bounds
+        return bounds
 
     def inference_command(self, output: Path) -> list[str]:
         settings = self.config.inference
@@ -353,10 +401,17 @@ class OrchestrationRunner:
             and self.config.inference.max_frames > 0
         ):
             # A bounded inference SQLite cannot provide overlays beyond its
-            # last processed frame. Keep explicit overlay ranges authoritative,
-            # but make the common GUI/debug max_frames setting a coherent
-            # end-to-end range instead of silently rendering a blank tail.
-            effective_end_frame = self.config.inference.max_frames - 1
+            # last processed frame. The requested max is only an upper bound:
+            # a decoder can legitimately materialize fewer frames near EOF.
+            # Keep explicit overlay ranges authoritative, but derive implicit
+            # ranges from the actual published SQLite whenever it exists.
+            requested_end_frame = self.config.inference.max_frames - 1
+            frame_bounds = self._sqlite_frame_bounds(source_sqlite)
+            effective_end_frame = (
+                requested_end_frame
+                if frame_bounds is None
+                else min(requested_end_frame, frame_bounds[1])
+            )
         if effective_end_frame is not None:
             if effective_end_frame < settings.start_frame:
                 raise OrchestrationError(
