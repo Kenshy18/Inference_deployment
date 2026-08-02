@@ -55,6 +55,11 @@ runuser -u kenshin -- \
   python3 "$repository_root/deployment/install_assets.py" "$asset_root" --root "$repository_root"
 runuser -u kenshin -- git -C "$repository_root" checkout --detach "$release_commit"
 
+# bootstrap_runtime.sh downloads fixed FFmpeg and the Ubuntu sqlite development
+# package into the repository-local native runtime. A freshly minimized rootfs
+# has no APT index, so refresh it for image construction and remove it again at
+# the end. The deployed runtime itself remains offline-capable.
+apt-get update
 runuser -u kenshin -- env \
   INFERENCE_RUNTIME_PYTHON="$runtime_root/bin/python3.10" \
   "$repository_root/deployment/setup_phase2.sh" \
@@ -102,5 +107,7 @@ find /home/kenshin -maxdepth 2 -type f \
 find "$repository_root/output" -mindepth 1 -depth -delete 2>/dev/null || true
 mkdir -p "$repository_root/output"
 chown -R kenshin:kenshin "$repository_root/output"
+apt-get clean
+find /var/lib/apt/lists -mindepth 1 -depth -delete
 
 echo "[PASS] distribution image prepared: release=$release_commit assets=$asset_commit"
