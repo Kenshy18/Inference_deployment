@@ -100,6 +100,14 @@
       "sha256": "4b5e7e97cb99ac9a81d204f0ccd5f6c0c59427f26857f4c8d333f57808482562"
     },
     {
+      "id": "postprocess-polygon-feature-stats",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "postprocess/models/polygon_point_predictor/feature_stats.npz",
+      "size": 1434,
+      "sha256": "9e135ba759b3ea3ccf0faa2258eb91a8697071eec5d8b9a22ac5fe78afecf28f"
+    },
+    {
       "id": "face-v1-detector",
       "profiles": ["all"],
       "stage": "source",
