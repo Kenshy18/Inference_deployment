@@ -2,7 +2,7 @@
 param(
   [string]$DistributionName = "MaskPipelineProduction",
   [string]$InstallRoot = "$env:ProgramData\MaskPipeline",
-  [string]$PayloadRoot = (Join-Path $PSScriptRoot "payload"),
+  [string]$PayloadRoot,
   [switch]$SkipE2E,
   [switch]$NoLaunch,
   [switch]$KeepFailedInstall,
@@ -12,6 +12,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ([string]::IsNullOrWhiteSpace($PayloadRoot)) {
+  # Windows PowerShell 5.1 can evaluate parameter default expressions before
+  # PSScriptRoot is populated. Resolve the adjacent payload in the body.
+  $PayloadRoot = Join-Path $scriptDirectory "payload"
+}
 $BackendRoot = "/home/kenshin/inference_backend2"
 $RuntimePython = "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10"
 $createdDistribution = $false
