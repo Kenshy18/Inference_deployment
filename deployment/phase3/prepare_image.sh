@@ -4,6 +4,7 @@ set -euo pipefail
 stage_root=/mnt/d/MaskPipelineDeployment/staging
 repository_bundle="$stage_root/inference-backend2.bundle"
 runtime_archive="$stage_root/production-runtime.tar"
+runtime_sources_archive="$stage_root/runtime-sources.tar"
 asset_root="$stage_root/production-assets"
 repository_root=/home/kenshin/inference_backend2
 runtime_root=/home/kenshin/.local/share/video-mask-runtime/envs/production
@@ -20,6 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 repository_bundle="$stage_root/inference-backend2.bundle"
 runtime_archive="$stage_root/production-runtime.tar"
+runtime_sources_archive="$stage_root/runtime-sources.tar"
 asset_root="$stage_root/production-assets"
 
 if [[ $(id -u) -ne 0 ]]; then
@@ -30,7 +32,7 @@ if [[ -z "$release_commit" || -z "$asset_commit" ]]; then
   echo "--release-commit and --asset-commit are required" >&2
   exit 2
 fi
-for path in "$repository_bundle" "$runtime_archive" "$asset_root/ASSET_PACK.json"; do
+for path in "$repository_bundle" "$runtime_archive" "$runtime_sources_archive" "$asset_root/ASSET_PACK.json"; do
   [[ -e "$path" ]] || { echo "missing staged payload: $path" >&2; exit 1; }
 done
 [[ ! -e "$repository_root" ]] || {
@@ -44,6 +46,7 @@ done
 
 install -d -o kenshin -g kenshin /home/kenshin/.local/share/video-mask-runtime/envs
 tar -xf "$runtime_archive" -C /home/kenshin/.local/share/video-mask-runtime/envs
+tar -xf "$runtime_sources_archive" -C /home/kenshin/.local/share/video-mask-runtime/envs
 chown -R kenshin:kenshin /home/kenshin/.local/share/video-mask-runtime
 
 runuser -u kenshin -- git clone "$repository_bundle" "$repository_root"

@@ -73,6 +73,7 @@ production manifestとasset packを更新します。
 - 固定Git commitのclean clone
 - commit検証済みproduction asset pack
 - production Python環境
+- production環境の`.pth`が固定参照する21MBのruntime source tree
 - 構築・検証済みnative overlay runtime
 - 非センシティブな8秒のsynthetic E2E fixture
 
