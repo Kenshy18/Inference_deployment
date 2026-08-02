@@ -245,7 +245,10 @@ try {
   Write-Host "Deployment passed: $InstallRoot" -ForegroundColor Green
   if (-not $NoLaunch) { Start-Process -FilePath $guiTarget | Out-Null }
 } catch {
-  Write-Error $_
+  # With ErrorActionPreference=Stop, Write-Error would itself terminate the
+  # catch block and skip rollback. Report without raising, clean up first,
+  # and rethrow the original failure after rollback has completed.
+  Write-Host ("Deployment failed: {0}" -f $_.Exception.Message) -ForegroundColor Red
   if (-not $KeepFailedInstall) {
     Write-Host "Rolling back the incomplete deployment..." -ForegroundColor Yellow
     if ($createdDistribution -and ((Get-Distros) -contains $DistributionName)) {
