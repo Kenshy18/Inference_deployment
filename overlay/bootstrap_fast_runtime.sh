@@ -5,7 +5,7 @@ overlay_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 runtime_root="$overlay_root/.runtime"
 archive="$runtime_root/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz"
 target="$runtime_root/ffmpeg-nvenc-btbn-8.1"
-archive_url=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-24-13-32/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
+archive_url=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-24-13-32/ffmpeg-n8.1.2-31-g8c9502e9b0-linux64-gpl-8.1.tar.xz
 archive_sha256=62e3c66d647801c115756a824af490296a4c4b866658fc339be137921d20958b
 
 if [[ -x "$target/bin/ffmpeg" && -x "$target/bin/ffprobe" ]]; then
@@ -32,8 +32,9 @@ cleanup() {
   rmdir "$temporary" 2>/dev/null || true
 }
 trap cleanup EXIT
-tar -xJf "$archive" -C "$temporary"
-source_root="$temporary/ffmpeg-n8.1-latest-linux64-gpl-8.1"
+source_root="$temporary/extracted"
+mkdir "$source_root"
+tar -xJf "$archive" -C "$source_root" --strip-components=1
 [[ -x "$source_root/bin/ffmpeg" && -x "$source_root/bin/ffprobe" ]] || {
   echo "fast overlay FFmpeg archive is incomplete" >&2
   exit 1
