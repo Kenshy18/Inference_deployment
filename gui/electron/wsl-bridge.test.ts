@@ -146,4 +146,127 @@ describe("Windows/WSL bridge", () => {
     }
     },
   );
+
+  it.skipIf(process.platform === "win32")(
+    "removes a dead marked staging job before starting a new job",
+    () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "mask-studio-wsl-runner-stale-test-"),
+      );
+      const stagingRoot = "/tmp/mask-pipeline-studio";
+      const stale = path.join(
+        stagingRoot,
+        ["vitest-stale", process.pid, Date.now()].join("-"),
+      );
+      const source = path.join(
+        stagingRoot,
+        ["vitest-current", process.pid, Date.now()].join("-"),
+        "output",
+      );
+      const target = path.join(root, "windows-output");
+      const pidFile = path.join(root, "runner.pid");
+      fs.mkdirSync(stale, { recursive: true });
+      fs.writeFileSync(
+        path.join(stale, ".wsl-runner.json"),
+        JSON.stringify({
+          schema_version: 1,
+          runner: { pid: 999_999_999, start_ticks: "0" },
+          child: { pid: 999_999_998, start_ticks: "0" },
+        }) + "\n",
+        "utf8",
+      );
+      fs.writeFileSync(path.join(stale, "large.partial"), "stale\n", "utf8");
+      fs.mkdirSync(source, { recursive: true });
+      fs.writeFileSync(path.join(source, "result.txt"), "ok\n", "utf8");
+      try {
+        const bootstrap =
+          "import sys; source=sys.stdin.read(); " +
+          "exec(compile(source, '<wsl-runner>', 'exec'), {'__name__':'__main__'})";
+        const result = spawnSync(
+          "python3",
+          [
+            "-c",
+            bootstrap,
+            pidFile,
+            "--sync-output",
+            source,
+            target,
+            "/bin/true",
+          ],
+          { input: WSL_RUNNER_SOURCE, encoding: "utf8" },
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(fs.existsSync(stale)).toBe(false);
+        expect(fs.readFileSync(path.join(target, "result.txt"), "utf8")).toBe(
+          "ok\n",
+        );
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+        fs.rmSync(stale, { recursive: true, force: true });
+        fs.rmSync(path.dirname(source), { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "preserves staging owned by a live process",
+    () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "mask-studio-wsl-runner-live-test-"),
+      );
+      const stagingRoot = "/tmp/mask-pipeline-studio";
+      const active = path.join(
+        stagingRoot,
+        ["vitest-active", process.pid, Date.now()].join("-"),
+      );
+      const source = path.join(
+        stagingRoot,
+        ["vitest-current", process.pid, Date.now()].join("-"),
+        "output",
+      );
+      const target = path.join(root, "windows-output");
+      const pidFile = path.join(root, "runner.pid");
+      const statSuffix = fs
+        .readFileSync(path.join("/proc", String(process.pid), "stat"), "ascii")
+        .split(/\)\s/, 2)[1]
+        .trim()
+        .split(/\s+/);
+      const startTicks = statSuffix[19];
+      fs.mkdirSync(active, { recursive: true });
+      fs.writeFileSync(
+        path.join(active, ".wsl-runner.json"),
+        JSON.stringify({
+          schema_version: 1,
+          runner: { pid: process.pid, start_ticks: startTicks },
+        }) + "\n",
+        "utf8",
+      );
+      fs.mkdirSync(source, { recursive: true });
+      fs.writeFileSync(path.join(source, "result.txt"), "ok\n", "utf8");
+      try {
+        const bootstrap =
+          "import sys; source=sys.stdin.read(); " +
+          "exec(compile(source, '<wsl-runner>', 'exec'), {'__name__':'__main__'})";
+        const result = spawnSync(
+          "python3",
+          [
+            "-c",
+            bootstrap,
+            pidFile,
+            "--sync-output",
+            source,
+            target,
+            "/bin/true",
+          ],
+          { input: WSL_RUNNER_SOURCE, encoding: "utf8" },
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(fs.existsSync(active)).toBe(true);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+        fs.rmSync(active, { recursive: true, force: true });
+        fs.rmSync(path.dirname(source), { recursive: true, force: true });
+      }
+    },
+  );
 });

@@ -22,7 +22,7 @@ vi.mock("./wsl-bridge", async (importOriginal) => ({
   validateWslBackend: mocks.validate,
 }));
 
-import { JobManager } from "./job-manager";
+import { JobManager, pruneJobDirectories } from "./job-manager";
 
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
@@ -106,5 +106,42 @@ describe("JobManager run ownership", () => {
     children[1].emit("close", 0);
     expect(manager.snapshot().id).toBe(realId);
     expect(manager.snapshot().status).toBe("completed");
+  });
+});
+
+describe("JobManager metadata retention", () => {
+  it("removes expired and excess job directories but preserves unrelated data", () => {
+    const temporary = fs.mkdtempSync(
+      path.join(os.tmpdir(), "job-manager-retention-test-"),
+    );
+    const now = Date.UTC(2026, 7, 3, 0, 0, 0);
+    const names = [
+      "2026-08-02T00-00-00-000Z",
+      "2026-08-01T00-00-00-000Z",
+      "2026-07-31T00-00-00-000Z",
+      "2026-06-01T00-00-00-000Z",
+    ];
+    try {
+      for (const [index, name] of names.entries()) {
+        const directory = path.join(temporary, name);
+        fs.mkdirSync(directory);
+        fs.writeFileSync(path.join(directory, "job.json"), "{}\n", "utf8");
+        const timestamp = new Date(
+          now - (index + 1) * 24 * 60 * 60 * 1_000,
+        );
+        fs.utimesSync(directory, timestamp, timestamp);
+      }
+      fs.mkdirSync(path.join(temporary, "user-data"));
+
+      pruneJobDirectories(temporary, now, 30, 2);
+
+      expect(fs.existsSync(path.join(temporary, names[0]))).toBe(true);
+      expect(fs.existsSync(path.join(temporary, names[1]))).toBe(true);
+      expect(fs.existsSync(path.join(temporary, names[2]))).toBe(false);
+      expect(fs.existsSync(path.join(temporary, names[3]))).toBe(false);
+      expect(fs.existsSync(path.join(temporary, "user-data"))).toBe(true);
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
   });
 });

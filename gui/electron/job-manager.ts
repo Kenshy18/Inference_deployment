@@ -29,6 +29,44 @@ import {
 
 const MAX_LOG_LINES = 2_000;
 const LIVE_PREVIEW_MARKER = "[live-preview] ";
+const JOB_RETENTION_DAYS = 30;
+const MAX_RETAINED_JOB_DIRECTORIES = 200;
+const JOB_DIRECTORY_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?:-\d+)?$/;
+
+export function pruneJobDirectories(
+  jobsRoot: string,
+  nowMs = Date.now(),
+  retentionDays = JOB_RETENTION_DAYS,
+  maxDirectories = MAX_RETAINED_JOB_DIRECTORIES,
+): void {
+  fs.mkdirSync(jobsRoot, { recursive: true });
+  const cutoffMs = nowMs - retentionDays * 24 * 60 * 60 * 1_000;
+  const candidates = fs
+    .readdirSync(jobsRoot, { withFileTypes: true })
+    .filter(
+      (entry) => entry.isDirectory() && JOB_DIRECTORY_PATTERN.test(entry.name),
+    )
+    .flatMap((entry) => {
+      const directory = path.join(jobsRoot, entry.name);
+      try {
+        return [{ directory, mtimeMs: fs.statSync(directory).mtimeMs }];
+      } catch {
+        return [];
+      }
+    })
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+  for (const [index, candidate] of candidates.entries()) {
+    if (index < maxDirectories && candidate.mtimeMs >= cutoffMs) {
+      continue;
+    }
+    try {
+      fs.rmSync(candidate.directory, { recursive: true, force: true });
+    } catch {
+      // Retention is best-effort and must never prevent the GUI from opening.
+    }
+  }
+}
 
 export interface LivePreviewFileEvent {
   jobId: string | null;
@@ -98,6 +136,7 @@ export class JobManager extends EventEmitter {
   constructor(jobsRoot: string) {
     super();
     this.jobsRoot = jobsRoot;
+    pruneJobDirectories(this.jobsRoot);
   }
 
   snapshot(): JobSnapshot {

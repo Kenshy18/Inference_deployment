@@ -10,12 +10,103 @@ const WSL_TIMEOUT_MS = 20_000;
 export const WSL_RUNNER_SOURCE = `#!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import signal
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+
+STAGING_ROOT = Path("/tmp/mask-pipeline-studio")
+RUNNER_MARKER = ".wsl-runner.json"
+LEGACY_STALE_SECONDS = 24 * 60 * 60
+
+
+def _process_start_ticks(pid: int) -> str | None:
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        suffix = text.rsplit(")", 1)[1].split()
+        return suffix[19]
+    except (IndexError, OSError, ValueError):
+        return None
+
+
+def _process_matches(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    try:
+        pid = int(value["pid"])
+        expected = str(value["start_ticks"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return pid > 1 and _process_start_ticks(pid) == expected
+
+
+def _write_marker(path: Path, child_pid: int | None = None) -> None:
+    runner_pid = os.getpid()
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "created_at": time.time(),
+        "runner": {
+            "pid": runner_pid,
+            "start_ticks": _process_start_ticks(runner_pid),
+        },
+    }
+    if child_pid is not None:
+        payload["child"] = {
+            "pid": child_pid,
+            "start_ticks": _process_start_ticks(child_pid),
+        }
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _legacy_directory_in_use(path: Path) -> bool:
+    token = os.fsencode(str(path))
+    try:
+        process_roots = Path("/proc").iterdir()
+    except OSError:
+        return True
+    for process_root in process_roots:
+        if not process_root.name.isdigit():
+            continue
+        try:
+            command = (process_root / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if token in command:
+            return True
+    return False
+
+
+def _cleanup_stale_staging(current: Path | None) -> None:
+    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    for candidate in STAGING_ROOT.iterdir():
+        if not candidate.is_dir() or candidate == current:
+            continue
+        marker = candidate / RUNNER_MARKER
+        if marker.is_file():
+            try:
+                payload = json.loads(marker.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                payload = {}
+            if _process_matches(payload.get("runner")) or _process_matches(
+                payload.get("child")
+            ):
+                continue
+            shutil.rmtree(candidate, ignore_errors=True)
+            continue
+        try:
+            age = now - candidate.stat().st_mtime
+        except OSError:
+            continue
+        if age >= LEGACY_STALE_SECONDS and not _legacy_directory_in_use(candidate):
+            shutil.rmtree(candidate, ignore_errors=True)
 
 
 def main() -> int:
@@ -27,6 +118,8 @@ def main() -> int:
     sync_from = None
     sync_to = None
     sync_pending = None
+    staging_job = None
+    marker = None
     if arguments and arguments[0] == "--sync-output":
         if len(arguments) < 4:
             print("--sync-output requires SOURCE TARGET and COMMAND", file=sys.stderr)
@@ -36,12 +129,22 @@ def main() -> int:
         arguments = arguments[3:]
     command = arguments
     pid_file.parent.mkdir(parents=True, exist_ok=True)
-    process = subprocess.Popen(command, start_new_session=True)
-    temporary = pid_file.with_suffix(pid_file.suffix + ".tmp")
-    temporary.write_text(f"{process.pid}\\n", encoding="ascii")
-    os.replace(temporary, pid_file)
+    staging_root = STAGING_ROOT.resolve()
+    if sync_from is not None:
+        resolved_sync_from = sync_from.resolve()
+        if staging_root in resolved_sync_from.parents:
+            staging_job = resolved_sync_from.parent
+    _cleanup_stale_staging(staging_job)
+    if staging_job is not None:
+        staging_job.mkdir(parents=True, exist_ok=True)
+        marker = staging_job / RUNNER_MARKER
+        _write_marker(marker)
+
+    process = None
 
     def forward(signum: int, _frame: object) -> None:
+        if process is None:
+            return
         try:
             os.killpg(process.pid, signum)
         except ProcessLookupError:
@@ -50,6 +153,12 @@ def main() -> int:
     signal.signal(signal.SIGTERM, forward)
     signal.signal(signal.SIGINT, forward)
     try:
+        process = subprocess.Popen(command, start_new_session=True)
+        if marker is not None:
+            _write_marker(marker, process.pid)
+        temporary = pid_file.with_suffix(pid_file.suffix + ".tmp")
+        temporary.write_text(f"{process.pid}\\n", encoding="ascii")
+        os.replace(temporary, pid_file)
         code = process.wait()
         if code == 0 and sync_from is not None and sync_to is not None:
             print(f"[gui-sync] copying {sync_from} -> {sync_to}", flush=True)
@@ -78,12 +187,13 @@ def main() -> int:
             print("[gui-sync] Windows output copy complete", flush=True)
         return code
     finally:
-        staging_root = Path("/tmp/mask-pipeline-studio").resolve()
         if sync_from is not None:
             try:
                 resolved_sync_from = sync_from.resolve()
                 if staging_root in resolved_sync_from.parents:
                     shutil.rmtree(resolved_sync_from, ignore_errors=True)
+                    if marker is not None:
+                        marker.unlink(missing_ok=True)
                     try:
                         resolved_sync_from.parent.rmdir()
                     except OSError:
