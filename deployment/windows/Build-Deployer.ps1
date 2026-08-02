@@ -5,6 +5,7 @@ param(
   [Parameter(Mandatory=$true)][string]$Fixture,
   [string]$OutputRoot = "D:\MaskPipelineDeployment\release",
   [string]$ReleaseCommit,
+  [string]$GuiCommit,
   [string]$AssetCommit = "6f6823927eefc178a55a53c2615c011fc1ce0076",
   [string]$GpuName = "NVIDIA GeForce RTX 5090",
   [string]$DriverVersion = "596.21"
@@ -21,6 +22,7 @@ New-Item -ItemType Directory -Path $payload -Force | Out-Null
 if (-not $ReleaseCommit) {
   $ReleaseCommit = (& wsl.exe -d Ubuntu-24.04 -- git -C /home/kenshin/inference_backend2 rev-parse HEAD).Trim()
 }
+if (-not $GuiCommit) { $GuiCommit = $ReleaseCommit }
 $files = @(
   @{ source=$BackendVhd; target="backend.vhdx"; role="backend" },
   @{ source=$GuiPortable; target="Mask Pipeline Studio.exe"; role="gui" },
@@ -49,7 +51,7 @@ $manifest = [ordered]@{
   release_id = $releaseId
   created_at_utc = [DateTime]::UtcNow.ToString("o")
   backend = [ordered]@{ file=$backend.file; release_commit=$ReleaseCommit; asset_commit=$AssetCommit }
-  gui = [ordered]@{ file=$gui.file; version="0.1.3" }
+  gui = [ordered]@{ file=$gui.file; version="0.1.3"; commit=$GuiCommit }
   fixture = [ordered]@{ file=$fixtureRecord.file }
   compatibility = [ordered]@{
     windows_build = [Environment]::OSVersion.Version.ToString()

@@ -81,6 +81,11 @@ export async function runQaE2e(
         Object.assign(draft.overlay, {
           enabled: true,
           executionMode: "fast",
+          raw: false,
+          tracked: false,
+          final: false,
+          faces: false,
+          finalIncludeFaces: false,
           presets: ["combined-simple"],
           workers: 6,
           cpuWorkers: 0,
