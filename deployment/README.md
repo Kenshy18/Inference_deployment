@@ -1,8 +1,8 @@
 # Deployment
 
-このディレクトリは、Gitに含めないモデル資産と、Git Clone後の実行環境との境界を
-固定します。現在完成させる対象はphase 2です。phase 3のWSL distribution移送は、
-この手順を基準に別途固定します。
+このディレクトリは、Gitに含めないモデル資産と実行環境との境界を固定します。
+Phase 2のclean clone構築と、Phase 3のWSL distribution＋Windows GUI配布の両方を
+再現可能な入口として管理します。
 
 ## 配置単位
 
@@ -103,3 +103,31 @@ Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は
 
 初回のWSL導入、再起動を伴うGPU driver交換、Secure Boot/組織ポリシーは自動化の境界外です。
 デプロイヤーは検証済みRTX 5090/driverとの不一致を、環境を変更せず明示的に停止します。
+
+配布用VHDX、portable GUI、非センシティブfixtureを用意した後の作成例です。
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deployment\windows\Build-Deployer.ps1 `
+  -BackendVhd D:\release-input\backend.vhdx `
+  -GuiPortable D:\release-input\MaskPipelineStudio.exe `
+  -Fixture D:\release-input\deployment-smoke.mp4 `
+  -OutputRoot D:\MaskPipelineDeployment\release `
+  -ReleaseCommit <backend-commit> `
+  -GuiCommit <gui-commit> `
+  -DeployerCommit <deployer-commit> `
+  -AssetCommit <asset-commit>
+```
+
+通常の現地導入は生成された`MaskPipelineDeployer.exe`をダブルクリックし、UACを承認します。
+既に同名distributionがある場合は上書きせず停止します。配布前の異常系試験は、隔離された
+書込み可能ディレクトリに対して次で実行できます。
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\deployment\windows\Test-DeployerNegative.ps1 `
+  -ReleaseRoot D:\MaskPipelineDeployment\release\mask-pipeline-YYYYMMDD-HHMMSS `
+  -ExistingDistribution MaskPipelineQA
+```
+
+この試験は、hash改ざん、GPU不一致、既存distribution、壊れたVHDXをすべて拒否し、
+新規distribution・部分VHDX・既存GUI設定を残さないことを検証します。
