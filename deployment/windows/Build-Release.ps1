@@ -29,6 +29,29 @@ function Get-Distros {
     Where-Object { $_ }
 }
 
+function Wait-DistroStopped([string]$Distribution) {
+  for ($attempt = 0; $attempt -lt 60; $attempt++) {
+    $running = @(& wsl.exe --list --running --quiet) |
+      ForEach-Object { $_.Trim("`0 ") } |
+      Where-Object { $_ }
+    if ($running -notcontains $Distribution) { return }
+    Start-Sleep -Milliseconds 500
+  }
+  throw "WSL distribution did not stop: $Distribution"
+}
+
+function Export-WslVhd([string]$Distribution, [string]$Destination) {
+  for ($attempt = 1; $attempt -le 6; $attempt++) {
+    if (Test-Path -LiteralPath $Destination) {
+      Remove-Item -LiteralPath $Destination -Force
+    }
+    & wsl.exe --export $Distribution $Destination --format vhd
+    if ($LASTEXITCODE -eq 0) { return }
+    if ($attempt -lt 6) { Start-Sleep -Seconds 2 }
+  }
+  throw "Could not export WSL distribution after 6 attempts: $Distribution"
+}
+
 function Convert-ToWslPath([string]$Distribution, [string]$WindowsPath) {
   # Windows PowerShell 5 does not quote native arguments that contain no
   # spaces. wsl.exe then consumes single backslashes as Linux shell escapes
@@ -140,8 +163,10 @@ try {
 
   Write-Host "[5/8] Exporting the validated WSL image..." -ForegroundColor Cyan
   Invoke-Checked "wsl.exe" @("--terminate", $BuildDistribution)
+  Wait-DistroStopped $BuildDistribution
+  Start-Sleep -Seconds 2
   $backendVhd = Join-Path $imageDirectory "backend.vhdx"
-  Invoke-Checked "wsl.exe" @("--export", $BuildDistribution, $backendVhd, "--format", "vhd")
+  Export-WslVhd $BuildDistribution $backendVhd
 
   Write-Host "[6/8] Building the transactional Windows deployer..." -ForegroundColor Cyan
   $deployerBuilder = "\\wsl.localhost\$SourceDistribution" +
