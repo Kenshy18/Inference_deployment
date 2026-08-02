@@ -13,6 +13,7 @@ const matrixRoot =
 const runRoot = path.join(matrixRoot, "runs");
 const artifactRoot = path.join(matrixRoot, "artifacts");
 const installedExe = process.env.GUI_MATRIX_INSTALLED_EXE?.trim() || null;
+const installedSettings = process.env.GUI_MATRIX_INSTALLED_SETTINGS?.trim() || null;
 const runtimeLibraries = path.join(
   guiRoot,
   ".runtime-libs",
@@ -725,6 +726,12 @@ function waitForExit(child, timeoutMs) {
 }
 
 async function connectInstalledApp(specification, userData, caseOutput) {
+  if (installedSettings) {
+    if (!fs.existsSync(installedSettings)) {
+      throw new Error(`installed GUI settings were not found: ${installedSettings}`);
+    }
+    fs.copyFileSync(installedSettings, path.join(userData, "settings.json"));
+  }
   const port = 9400 + Math.floor(Math.random() * 1000);
   const childOutput = [];
   const child = spawn(

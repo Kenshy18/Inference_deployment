@@ -106,6 +106,19 @@ class UnifiedSqliteWriter:
                 raise RuntimeError(
                     f"unified SQLite integrity check failed: {integrity}"
                 )
+            # WAL is useful while importing large model outputs, but this is
+            # a completed, portable artifact after the final validation.
+            # Return it to a single-file journal mode so downstream readers
+            # and Windows output synchronization cannot leave ``-wal`` or
+            # ``-shm`` sidecars beside the database.
+            journal_mode = str(
+                self.connection.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
+            )
+            if journal_mode.lower() != "delete":
+                raise RuntimeError(
+                    "failed to finalize unified SQLite journal mode: "
+                    f"{journal_mode}"
+                )
         finally:
             self.connection.close()
             self.closed = True

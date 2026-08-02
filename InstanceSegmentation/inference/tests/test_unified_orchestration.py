@@ -143,6 +143,13 @@ class UnifiedOrchestrationTest(unittest.TestCase):
             execute.assert_called_once()
             self.assertEqual(1, result.frames)
             self.assertTrue(output_path.is_file())
+            self.assertFalse(Path(f"{output_path}-wal").exists())
+            self.assertFalse(Path(f"{output_path}-shm").exists())
+            with sqlite3.connect(output_path) as connection:
+                self.assertEqual(
+                    connection.execute("PRAGMA journal_mode").fetchone()[0],
+                    "delete",
+                )
 
     def test_parallel_mode_rejects_unapproved_model_combinations(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
