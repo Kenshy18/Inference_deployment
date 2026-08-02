@@ -41,6 +41,9 @@ foreach ($record in $files) {
 $backend = $artifacts | Where-Object role -eq "backend"
 $gui = $artifacts | Where-Object role -eq "gui"
 $fixtureRecord = $artifacts | Where-Object role -eq "fixture"
+$wslVersionText = ((& wsl.exe --version) -join "`n") -replace "`0", ""
+$wslVersionMatch = [regex]::Match($wslVersionText, '\d+\.\d+\.\d+\.\d+')
+$wslVersion = if ($wslVersionMatch.Success) { $wslVersionMatch.Value } else { "unknown" }
 $manifest = [ordered]@{
   schema_version = 1
   release_id = $releaseId
@@ -50,7 +53,7 @@ $manifest = [ordered]@{
   fixture = [ordered]@{ file=$fixtureRecord.file }
   compatibility = [ordered]@{
     windows_build = [Environment]::OSVersion.Version.ToString()
-    wsl_version = (& wsl.exe --version | Select-Object -First 1).Trim("`0 ")
+    wsl_version = $wslVersion
     ubuntu = "24.04"
     gpu_name = $GpuName
     driver_version = $DriverVersion
