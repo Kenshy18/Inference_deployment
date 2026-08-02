@@ -30,10 +30,17 @@ function Get-Distros {
 }
 
 function Convert-ToWslPath([string]$Distribution, [string]$WindowsPath) {
-  $converted = (& wsl.exe -d $Distribution -- wslpath -u $WindowsPath).Trim()
-  if ($LASTEXITCODE -ne 0 -or -not $converted) {
+  # Windows PowerShell 5 does not quote native arguments that contain no
+  # spaces. wsl.exe then consumes single backslashes as Linux shell escapes
+  # (D:\dir becomes D:dir). Double them explicitly before crossing the WSL
+  # command-line boundary.
+  $escaped = $WindowsPath.Replace("\", "\\")
+  $output = @(& wsl.exe -d $Distribution -- wslpath -u -- $escaped)
+  if ($LASTEXITCODE -ne 0 -or $output.Count -eq 0) {
     throw "Could not convert Windows path for WSL: $WindowsPath"
   }
+  $converted = ($output -join "`n").Trim()
+  if (-not $converted) { throw "WSL returned an empty path for: $WindowsPath" }
   return $converted
 }
 
