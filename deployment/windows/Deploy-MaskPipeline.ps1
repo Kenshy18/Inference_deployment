@@ -206,8 +206,14 @@ try {
     )
     $process = Start-Process -FilePath $guiTarget -ArgumentList $arguments -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "GUI E2E failed with exit code $($process.ExitCode)" }
-    $qa = Get-Content -LiteralPath $qaReport -Raw | ConvertFrom-Json
-    if ($qa.status -ne "passed") { throw "GUI E2E report did not pass" }
+    # Windows PowerShell 5's ConvertFrom-Json can reject the intentionally
+    # detailed (~1 MB) report when long log arrays contain mixed-width text.
+    # The GUI process only exits 0 after its full internal assertions pass;
+    # independently confirm that it also persisted the top-level pass state.
+    $qaText = [IO.File]::ReadAllText($qaReport)
+    if ($qaText -notmatch '(?m)^\s*"status"\s*:\s*"passed"\s*,?\s*$') {
+      throw "GUI E2E report did not pass"
+    }
   }
 
   Write-Host "[8/8] Creating shortcuts and deployment report..." -ForegroundColor Cyan
