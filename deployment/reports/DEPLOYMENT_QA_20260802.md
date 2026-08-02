@@ -7,7 +7,7 @@ Windows portable GUI＋移送用WSL VHDX＋ワンクリックデプロイヤー�
 
 ## 最終配布物
 
-- release: `D:\MaskPipelineDeployment\release\mask-pipeline-20260802-104355`
+- release: `D:\MaskPipelineDeployment\LATEST`
 - release id: `mask-pipeline-20260802-104355`
 - backend/GUI commit: `6fde9e834b2f6e85a13ee8b6ea0ab4fbd8ae7972`
 - deployer commit: `2ea885212450ff757a4155ef179a7c97c99fccee`
