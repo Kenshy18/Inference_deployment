@@ -178,8 +178,11 @@ def validate_inference_sqlite(
         segmentation_count = int(
             connection.execute("SELECT COUNT(*) FROM segmentations").fetchone()[0]
         )
-        if require_segmentation and segmentation_count == 0:
-            raise ArtifactError(f"{source}: no segmentation masks were produced")
+        # A detector role may legitimately produce an empty set for a valid
+        # video.  The role and complete frame domain are the contract; at
+        # least one positive mask is not.  Keeping the canonical tables empty
+        # lets postprocess, result packaging, and combined face overlays
+        # preserve the same public SQLite schema for negative videos.
         face_observations = 0
         face_keypoints = 0
         if executions.get("face_detection") == "face_dino_v2":

@@ -84,6 +84,12 @@ def main() -> int:
                 resolved_sync_from = sync_from.resolve()
                 if staging_root in resolved_sync_from.parents:
                     shutil.rmtree(resolved_sync_from, ignore_errors=True)
+                    try:
+                        resolved_sync_from.parent.rmdir()
+                    except OSError:
+                        # Keep a shared/non-empty parent; only the per-job
+                        # empty staging directory is eligible for removal.
+                        pass
             except OSError:
                 pass
         if sync_pending is not None:

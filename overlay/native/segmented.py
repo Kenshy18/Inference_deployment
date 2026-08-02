@@ -364,13 +364,19 @@ def seek_anchor(
     frames: list[VideoFrame],
     frame_index: int,
 ) -> tuple[int, VideoFrame]:
-    """Return the nearest keyframe at or before a requested frame."""
+    """Return a frame-accurate seek anchor at or before a requested frame.
+
+    MP4 edit lists may hide the codec keyframe that precedes visible frame 0.
+    In that case seeking backward from the first visible PTS still lands on
+    the hidden keyframe; the native decoder discards that pre-roll until this
+    visible timestamp and starts its ordinal at zero.
+    """
     keyframes = [index for index, frame in enumerate(frames) if frame.keyframe]
     position = bisect.bisect_right(keyframes, frame_index) - 1
     if position < 0:
-        raise RuntimeError(
-            f"no seekable keyframe exists at or before frame {frame_index}"
-        )
+        if not frames:
+            raise RuntimeError("source has no visible video frames")
+        return 0, frames[0]
     anchor_index = keyframes[position]
     return anchor_index, frames[anchor_index]
 

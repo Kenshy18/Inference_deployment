@@ -86,6 +86,7 @@ export class JobManager extends EventEmitter {
   private readonly jobsRoot: string;
   private current: JobSnapshot = emptyJob();
   private child: ChildProcess | null = null;
+  private activeRunToken: symbol | null = null;
   private stdoutBuffer = "";
   private stderrBuffer = "";
   private previewEnabled = false;
@@ -108,7 +109,7 @@ export class JobManager extends EventEmitter {
     settings: AppSettings,
     dryRun: boolean,
   ): Promise<JobSnapshot> {
-    if (this.child !== null) {
+    if (this.child !== null || this.activeRunToken !== null) {
       throw new Error("別のジョブが実行中です。");
     }
     if (!draft.inputVideo.trim()) {
@@ -120,6 +121,24 @@ export class JobManager extends EventEmitter {
     if (!settings.backendRoot.trim() || !settings.runtimePython.trim()) {
       throw new Error("バックエンドとPythonのパスを設定してください。");
     }
+    const runToken = Symbol("pipeline-run");
+    this.activeRunToken = runToken;
+    try {
+      return await this.launch(draft, settings, dryRun, runToken);
+    } catch (error) {
+      if (this.activeRunToken === runToken) {
+        this.activeRunToken = null;
+      }
+      throw error;
+    }
+  }
+
+  private async launch(
+    draft: PipelineDraft,
+    settings: AppSettings,
+    dryRun: boolean,
+    runToken: symbol,
+  ): Promise<JobSnapshot> {
     await validateWslBackend(settings);
 
     const outputRoot = availableOutputRoot(
@@ -253,11 +272,19 @@ export class JobManager extends EventEmitter {
     this.child = child;
 
     let finalized = false;
+    const ownsCurrentRun = (): boolean =>
+      this.activeRunToken === runToken &&
+      this.child === child &&
+      this.current.id === id;
     const finalize = (exitCode: number | null, error?: Error): void => {
       if (finalized) {
         return;
       }
       finalized = true;
+      if (!ownsCurrentRun()) {
+        return;
+      }
+      this.flushBufferedLines();
       this.child = null;
       const wasCancelling = this.current.status === "cancelling";
       this.current.exitCode = exitCode;
@@ -274,20 +301,22 @@ export class JobManager extends EventEmitter {
           this.current.artifacts = this.readArtifacts(outputRoot, settings);
         }
       }
+      this.activeRunToken = null;
       this.emitUpdate();
     };
 
-    child.stdout.on("data", (chunk: Buffer) =>
-      this.consumeChunk(chunk, "stdout"),
-    );
-    child.stderr.on("data", (chunk: Buffer) =>
-      this.consumeChunk(chunk, "stderr"),
-    );
-    child.once("error", (error) => finalize(null, error));
-    child.once("close", (code) => {
-      this.flushBufferedLines();
-      finalize(code);
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (ownsCurrentRun()) {
+        this.consumeChunk(chunk, "stdout");
+      }
     });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (ownsCurrentRun()) {
+        this.consumeChunk(chunk, "stderr");
+      }
+    });
+    child.once("error", (error) => finalize(null, error));
+    child.once("close", (code) => finalize(code));
     return this.snapshot();
   }
 

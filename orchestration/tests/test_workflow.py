@@ -14,6 +14,7 @@ from orchestration.contracts import PUBLIC_RESULT_SCHEMA_SIGNATURE
 from orchestration.runner import OrchestrationRunner
 
 from helpers import (
+    clear_instance_segmentation_detections,
     create_mask_sqlite,
     create_rich_face_unified_sqlite,
     create_unified_sqlite,
@@ -23,6 +24,80 @@ from helpers import (
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_zero_segmentation_with_faces_completes_full_postprocess(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi", frames=1)
+            inference = clear_instance_segmentation_detections(
+                create_rich_face_unified_sqlite(root / "inference.sqlite")
+            )
+            policy = root / "class-policy.json"
+            policy.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default": {
+                            "shape_mode": "polygon",
+                            "keyframe_interval": 2,
+                            "max_gap": 0,
+                        },
+                        "classes": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = root / "run"
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(output),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(inference),
+                            "mode": "segmentation-face",
+                            "face_model": "face_dino_v2",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "class_postprocess_policy_json": str(policy),
+                            "cut_detect": False,
+                            "remove_short_tracks_max_frames": 0,
+                            "device": "cpu",
+                            "face_mask_target": "eyes",
+                            "eye_mask_shape": "rectangle",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manifest = OrchestrationRunner(OrchestrationConfig.load(config_path)).run()
+
+            self.assertEqual("complete", manifest["status"])
+            validation = manifest["validation"]["result_sqlite"]
+            self.assertEqual(PUBLIC_RESULT_SCHEMA_SIGNATURE, validation["schema_signature"])
+            self.assertEqual(0, validation["inference"]["segmentations"])
+            self.assertEqual(1, validation["inference"]["face_observations"])
+            self.assertEqual(
+                "empty",
+                validation["components"]["instance_segmentation"]["status"],
+            )
+            self.assertEqual(
+                "complete",
+                validation["components"]["face_privacy_masks"]["status"],
+            )
+            tracked_outputs = list(
+                (output / "02_postprocess").glob("*_tracking/tracked.sqlite")
+            )
+            self.assertEqual(1, len(tracked_outputs))
+            tracked = tracked_outputs[0]
+            self.assertFalse(Path(f"{tracked}-wal").exists())
+            self.assertFalse(Path(f"{tracked}-shm").exists())
+
     def test_overlay_defaults_to_fast_and_exposes_typed_presets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

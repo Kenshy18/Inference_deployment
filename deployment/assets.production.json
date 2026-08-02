@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "core": "V3, V3-lite, Face V2, postprocess and fast overlay production path",
+    "all": "Every model selectable from the GUI, including legacy V1, V2 and Face V1"
+  },
+  "artifacts": [
+    {
+      "id": "v3-detector",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/dinov3_codino/artifacts/detector/teacher_vitl_codino_epoch6_deploy.pth",
+      "size": 1528754883,
+      "sha256": "0e5516b76af12b48feeb3e5a5079fe6bf7d1993520ae217fbdd9e7f079f06b27"
+    },
+    {
+      "id": "v3-classifier-fast",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/dinov3_codino/artifacts/classifier/backbone/checkpoints/backbone_gap320_k3_seed44.pt",
+      "size": 1758951,
+      "sha256": "0c592f91decec7b2d972bc8bd929e066b4ffbd1928bf1caf772729c64d5bda1e"
+    },
+    {
+      "id": "v3-classifier-accuracy",
+      "profiles": ["all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/dinov3_codino/artifacts/classifier/backbone/checkpoints",
+      "type": "directory"
+    },
+    {
+      "id": "v3-engine-bundle",
+      "profiles": ["core", "all"],
+      "stage": "runtime",
+      "path": "InstanceSegmentation/inference/dinov3_codino/artifacts/trt/fast-sm120-fixed-b2-epoch6-half2-v1",
+      "type": "directory",
+      "include": ["engines", "plugins", "runtime"]
+    },
+    {
+      "id": "v3-lite-detector",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/dinov3_codino_mh0/artifacts/detector/best_segm_mAP_epoch_7_deploy.pth",
+      "size": 200382795,
+      "sha256": "391f83fdeda4bd60ffede5f3b12068d657334b8bb5a91b403722806689f3c6b7"
+    },
+    {
+      "id": "v3-lite-classifier",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/dinov3_codino_mh0/artifacts/classifier/backbone/checkpoint/best.pt",
+      "size": 960231,
+      "sha256": "0696f6e92572ba48d534caebb49f1a10282efc247ab470d49dabd8eace429f29"
+    },
+    {
+      "id": "v3-lite-engine-bundle",
+      "profiles": ["core", "all"],
+      "stage": "runtime",
+      "path": "InstanceSegmentation/inference/dinov3_codino_mh0/artifacts/trt/fast-sm120-fixed-b16-epoch7-v1",
+      "type": "directory",
+      "include": ["engines/backbone_neck.engine", "engines/query_encoder.engine", "engines/decoder.engine", "engines/mask_head.engine", "plugins"]
+    },
+    {
+      "id": "face-v2-detector",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/face_dino_v2/artifacts/detector/model_residual_v2.pth",
+      "size": 170916579,
+      "sha256": "0f1021887b99019fd0de12eacb2a474a7c2110f87ea6876b0f61ec7f2e385c52"
+    },
+    {
+      "id": "face-v2-runtime-source",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/face_dino_v2/.runtime/src/face_detection",
+      "type": "directory"
+    },
+    {
+      "id": "face-v2-engine-bundle",
+      "profiles": ["core", "all"],
+      "stage": "runtime",
+      "path": "InstanceSegmentation/inference/face_dino_v2/artifacts/trt/fast-sm120-fixed-b8-v1",
+      "type": "directory",
+      "include": ["engines", "plugins"]
+    },
+    {
+      "id": "postprocess-k2",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "postprocess/models/k2_v5/best_exact.pt",
+      "size": 130497145,
+      "sha256": "ef3aab286091866447da16aafc9f7cbb62448e4dfe2142c35e794e24b87fb2f0"
+    },
+    {
+      "id": "postprocess-polygon",
+      "profiles": ["core", "all"],
+      "stage": "source",
+      "path": "postprocess/models/polygon_point_predictor/best.pt",
+      "size": 790234,
+      "sha256": "4b5e7e97cb99ac9a81d204f0ccd5f6c0c59427f26857f4c8d333f57808482562"
+    },
+    {
+      "id": "face-v1-detector",
+      "profiles": ["all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/rtdetr_head_face/artifacts/detector/head_face_best_stg1.pth",
+      "size": 322587625,
+      "sha256": "b46ddcb8c19dc89db9292ae106b2f722c32c0891f1fa0e5986575327d8632dcb"
+    },
+    {
+      "id": "v2-detector",
+      "profiles": ["all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/dinov3_cascade/artifacts/detector/model_final.pth",
+      "size": 5767863093,
+      "sha256": "77a581b8ffbb6cc744f41e92d63650e3b295ed8725e1d983e6c135568688ab1f"
+    },
+    {
+      "id": "v2-backbone",
+      "profiles": ["all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/dinov3_cascade/artifacts/backbone/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth",
+      "size": 1213050671,
+      "sha256": "8aa4cbddda325040fc78db2c272754af6ebe8ff2c55f6ec4f1964d8890f66035"
+    },
+    {
+      "id": "v2-classifier",
+      "profiles": ["all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/dinov3_cascade/artifacts/classifier/best.pt",
+      "size": 7779625,
+      "sha256": "e30ad528b233b82e5a7702eb8b3cfb9cec9b46f04a7332eeb0e0e81bcb4aa3cf"
+    },
+    {
+      "id": "v2-engine",
+      "profiles": ["all"],
+      "stage": "runtime",
+      "path": "InstanceSegmentation/inference/dinov3_cascade/artifacts/trt/dinov3_backbone_fp32_720x1280_dynamic_bf16_forced_b1_8_8.engine",
+      "size": 616814540,
+      "sha256": "a596b12cd1ec9f398e0b9e2cf09f83b89dc0962016e324ddc3eab3cc6b5651bd"
+    },
+    {
+      "id": "v1-detector",
+      "profiles": ["all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/eva02_cascade/artifacts/detector/model_final.pth",
+      "size": 5777987451,
+      "sha256": "86e96603e64723bd651b4c031c513f8ba0219c211a18a85544840741e0d5210d"
+    },
+    {
+      "id": "v1-classifier",
+      "profiles": ["all"],
+      "stage": "source",
+      "path": "InstanceSegmentation/inference/eva02_cascade/artifacts/classifier/best.pt",
+      "size": 8392561,
+      "sha256": "b6ec14d06c1c2ee70333305eb1bae21ffc7f2a4aa0d0bcfaa6db8834de5c781f"
+    },
+    {
+      "id": "v1-engine",
+      "profiles": ["all"],
+      "stage": "runtime",
+      "path": "InstanceSegmentation/inference/eva02_cascade/artifacts/trt/eva02-vit-dynamic-b1-20-fp16-v1/engines/eva02_backbone.engine",
+      "size": 537608652,
+      "sha256": "796ed395f60df4676b66b79fb3b7d193bf5492b21122fc9c8db3e79f5795f779"
+    }
+  ]
+}

@@ -134,6 +134,7 @@ describe("Windows/WSL bridge", () => {
       ) as { output_root: string };
       expect(manifest.output_root).toBe(target);
       expect(fs.existsSync(source)).toBe(false);
+      expect(fs.existsSync(path.dirname(source))).toBe(false);
       expect(fs.existsSync(`${target}.partial`)).toBe(false);
       expect(fs.existsSync(pidFile)).toBe(false);
     } finally {

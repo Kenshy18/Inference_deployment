@@ -48,3 +48,6 @@ Gitではソースコード、設定、manifest、テスト、ドキュメント
 、[`postprocess/README.md`](postprocess/README.md)、
 [`overlay/README.md`](overlay/README.md)、
 [`orchestration/README.md`](orchestration/README.md)を参照してください。
+
+クリーンCloneへの外部資産配置、production runtime検証、Windows GUI buildは
+[`deployment/README.md`](deployment/README.md)を正本とします。

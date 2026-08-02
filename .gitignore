@@ -30,10 +30,15 @@ dist/
 
 # Runtime datasets and generated pipeline outputs
 /data/
+/output/**
+!/output/.gitkeep
 **/input/**
 **/output/**
 !**/input/.gitkeep
 !**/output/.gitkeep
+
+# Local deployment asset packs and phase-2 verification workspaces.
+/deployment/local/
 
 # Local upstream delivery bundle used to package the standalone MH0 runtime
 /InstanceSegmentation/tentative_folder/

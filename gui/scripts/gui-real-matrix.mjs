@@ -372,6 +372,279 @@ const cases = [
       },
     },
   },
+  {
+    id: "11_v3_120m_single_load",
+    videos: [fixture("codino_120m_mixed.mp4")],
+    live: false,
+    timeoutMs: 3.5 * 60 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation",
+        segmentationModel: "dinov3_codino",
+        segmentationBackend: "tensorrt-fast",
+        maxFrames: 172800,
+        parallelModels: false,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        shapeMode: "polygon",
+        classPostprocessRules: mixedRules,
+        faceMaskTarget: "none",
+        cutDetect: true,
+        precomputeCutsDuringInference: true,
+        device: "cuda:0",
+      },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["genital-simple", "genital-detailed"],
+        faceMaskTarget: "none",
+        workers: 6,
+        cpuWorkers: 0,
+      },
+    },
+  },
+  {
+    id: "12_cancel_segmentation",
+    videos: [fixture("real_720p24_45s.mp4")],
+    live: true,
+    skipDryRun: true,
+    cancelPhase: "segmentation_inference",
+    timeoutMs: 5 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        maxFrames: 900,
+        fastSqlite: true,
+      },
+      postprocess: { enabled: true, classPostprocessRules: mixedRules },
+      overlay: { enabled: true, executionMode: "fast", presets: ["genital-simple"] },
+    },
+  },
+  {
+    id: "13_cancel_face",
+    videos: [fixture("real_720p24_45s.mp4")],
+    live: true,
+    skipDryRun: true,
+    cancelPhase: "face_inference",
+    timeoutMs: 5 * 60_000,
+    patch: {
+      inference: {
+        mode: "face",
+        faceModel: "face_dino_v2",
+        faceBackend: "tensorrt-fast",
+        maxFrames: 900,
+        fastSqlite: true,
+      },
+      postprocess: { enabled: false, faceMaskTarget: "none" },
+      overlay: { enabled: true, executionMode: "fast", presets: ["face-detailed"] },
+    },
+  },
+  {
+    id: "14_cancel_postprocess",
+    videos: [fixture("golden_1080p2997_h264_aac.mp4")],
+    live: true,
+    skipDryRun: true,
+    cancelPhase: "postprocess",
+    timeoutMs: 8 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation-face",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        faceModel: "face_dino_v2",
+        faceBackend: "tensorrt-fast",
+        maxFrames: 3000,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        classPostprocessRules: mixedRules,
+        faceMaskTarget: "eyes",
+        eyeMaskShape: "ellipse",
+        device: "cuda:0",
+      },
+      overlay: { enabled: true, executionMode: "fast", presets: ["combined-detailed"] },
+    },
+  },
+  {
+    id: "15_cancel_cpu_overlay",
+    videos: [fixture("golden_1080p2997_h264_aac.mp4")],
+    live: false,
+    skipDryRun: true,
+    cancelPhase: "overlay",
+    timeoutMs: 10 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        maxFrames: 3000,
+        fastSqlite: true,
+      },
+      postprocess: { enabled: true, classPostprocessRules: mixedRules },
+      overlay: {
+        enabled: true,
+        executionMode: "cpu",
+        presets: ["genital-detailed"],
+        h264Preset: "medium",
+      },
+    },
+  },
+  {
+    id: "16_ten_item_batch",
+    videos: [
+      fixture("golden_short.mp4"),
+      fixture("real_720p24_45s.mp4"),
+      fixture("landscape_720p24_h265.mkv"),
+      fixture("portrait_720x1280_30_h264.mp4"),
+      fixture("vfr_pts_gap_h264.mp4"),
+      fixture("long_gop_bframes.mov"),
+      fixture("short_60fps.mp4"),
+      fixture("unicode_日本語 space.mp4"),
+      fixture("h264_noaudio.mp4"),
+      fixture("real_4k24_20s_noaudio.mp4"),
+    ],
+    live: false,
+    timeoutMs: 25 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation-face",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        faceModel: "face_dino_v2",
+        faceBackend: "tensorrt-fast",
+        maxFrames: 240,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        classPostprocessRules: mixedRules,
+        faceMaskTarget: "eyes",
+        eyeMaskShape: "rectangle",
+      },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["combined-simple"],
+        copyAudio: true,
+      },
+    },
+  },
+  ...[false, true].map((live) => ({
+    id: `1${live ? 8 : 7}_live_${live ? "on" : "off"}_ab`,
+    videos: [fixture("golden_1080p2997_h264_aac.mp4")],
+    live,
+    timeoutMs: 12 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation-face",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        faceModel: "face_dino_v2",
+        faceBackend: "tensorrt-fast",
+        maxFrames: 3000,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        classPostprocessRules: mixedRules,
+        faceMaskTarget: "eyes",
+        eyeMaskShape: "rectangle",
+      },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["combined-simple"],
+        copyAudio: true,
+      },
+    },
+  })),
+  {
+    id: "19_facev2_none",
+    videos: [fixture("real_720p24_45s.mp4")],
+    live: false,
+    timeoutMs: 5 * 60_000,
+    patch: {
+      inference: {
+        mode: "face",
+        faceModel: "face_dino_v2",
+        faceBackend: "tensorrt-fast",
+        maxFrames: 480,
+        fastSqlite: true,
+      },
+      postprocess: { enabled: false, faceMaskTarget: "none" },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["face-detailed"],
+        faceMaskTarget: "none",
+      },
+    },
+  },
+  {
+    id: "20_h264_noaudio_single_repro",
+    videos: [fixture("h264_noaudio.mp4")],
+    live: false,
+    skipDryRun: true,
+    timeoutMs: 5 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation-face",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        faceModel: "face_dino_v2",
+        faceBackend: "tensorrt-fast",
+        maxFrames: 240,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        classPostprocessRules: mixedRules,
+        faceMaskTarget: "eyes",
+        eyeMaskShape: "rectangle",
+      },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["combined-simple"],
+        copyAudio: true,
+      },
+    },
+  },
+  {
+    id: "21_golden_short_single_repro",
+    videos: [fixture("golden_short.mp4")],
+    live: false,
+    skipDryRun: true,
+    timeoutMs: 5 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation-face",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        faceModel: "face_dino_v2",
+        faceBackend: "tensorrt-fast",
+        maxFrames: 240,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        classPostprocessRules: mixedRules,
+        faceMaskTarget: "eyes",
+        eyeMaskShape: "rectangle",
+      },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["combined-simple"],
+        copyAudio: true,
+      },
+    },
+  },
 ];
 
 function merge(base, patch) {
@@ -567,6 +840,8 @@ async function runCase(specification) {
   const startedAt = Date.now();
   let timedOut = false;
   let dryRun = null;
+  let cancellationTriggered = false;
+  let cancellationSnapshot = null;
   try {
     app = await launchApp(specification, userData, caseOutput);
     const window = app.window;
@@ -625,13 +900,29 @@ async function runCase(specification) {
       fullPage: true,
     });
 
-    await window.getByRole("button", { name: /Dry Run/ }).click();
-    await window.waitForFunction(
-      async () => (await window.maskStudio.bootstrap()).job.status === "validated",
-      null,
-      { timeout: 45_000 },
-    );
-    dryRun = await window.evaluate(async () => (await window.maskStudio.bootstrap()).job);
+    if (!specification.skipDryRun) {
+      await window.getByRole("button", { name: /Dry Run/ }).click();
+      const validationDeadline = Date.now() + 45_000;
+      while (Date.now() < validationDeadline) {
+        const candidate = await window.evaluate(async () =>
+          (await window.maskStudio.bootstrap()).job,
+        );
+        if (candidate.status === "validated") {
+          // Capture the exact terminal snapshot that satisfied the wait. A
+          // second IPC read can otherwise observe a subsequent transport
+          // transition and weaken the Dry Run assertion.
+          dryRun = candidate;
+          break;
+        }
+        if (["failed", "cancelled"].includes(candidate.status)) {
+          throw new Error(`Dry Run failed: ${JSON.stringify(candidate)}`);
+        }
+        await window.waitForTimeout(100);
+      }
+      if (dryRun === null) {
+        throw new Error("Dry Run did not reach validated within 45 seconds");
+      }
+    }
 
     await window.evaluate(() => {
       window.__qaHeartbeat = { last: performance.now(), deltas: [] };
@@ -678,7 +969,7 @@ async function runCase(specification) {
       const candidate = await window.evaluate(async () =>
         (await window.maskStudio.bootstrap()).job,
       );
-      if (candidate.id !== dryRun.id && !candidate.dryRun) {
+      if (candidate.id !== dryRun?.id && !candidate.dryRun) {
         startedJob = candidate;
         break;
       }
@@ -718,11 +1009,19 @@ async function runCase(specification) {
           scrollY: window.scrollY,
           bodyTextLength: document.body.innerText.length,
           appVisible: Boolean(document.querySelector(".app")),
+          rendererHeap: performance.memory
+            ? {
+                usedBytes: performance.memory.usedJSHeapSize,
+                totalBytes: performance.memory.totalJSHeapSize,
+                limitBytes: performance.memory.jsHeapSizeLimit,
+              }
+            : null,
         };
       });
       evaluateLatenciesMs.push(Date.now() - evaluateStarted);
       jobSamples.push({
         timestamp: Date.now(),
+        jobId: snapshot.job.id,
         status: snapshot.job.status,
         stage: snapshot.job.stage,
         fps: snapshot.job.telemetry.fps,
@@ -731,7 +1030,27 @@ async function runCase(specification) {
         scrollY: snapshot.scrollY,
         bodyTextLength: snapshot.bodyTextLength,
         appVisible: snapshot.appVisible,
+        rendererHeap: snapshot.rendererHeap,
+        queueStatusCounts: snapshot.queue.reduce((counts, item) => {
+          counts[item.status] = (counts[item.status] ?? 0) + 1;
+          return counts;
+        }, {}),
       });
+      if (
+        specification.cancelPhase &&
+        !cancellationTriggered &&
+        snapshot.job.telemetry.phases[specification.cancelPhase]?.state === "running" &&
+        snapshot.job.telemetry.phases[specification.cancelPhase]?.completed > 0 &&
+        (snapshot.job.telemetry.phases[specification.cancelPhase]?.progress ?? 0) < 0.98
+      ) {
+        const stop = window.getByRole("button", { name: /^停止/ });
+        await stop.click();
+        cancellationTriggered = true;
+      }
+      if (cancellationTriggered && snapshot.job.status === "cancelled") {
+        cancellationSnapshot = snapshot.job;
+        break;
+      }
       try {
         hardware.push(
           await window.evaluate(async () => window.maskStudio.sampleHardware()),
@@ -748,7 +1067,10 @@ async function runCase(specification) {
     const queue = await window.evaluate(() =>
       JSON.parse(localStorage.getItem("mask-studio-queue") ?? "[]"),
     );
-    if (queue.some((item) => ["pending", "processing"].includes(item.status))) {
+    if (
+      !cancellationTriggered &&
+      queue.some((item) => ["pending", "processing"].includes(item.status))
+    ) {
       timedOut = true;
       const stop = window.getByRole("button", { name: /^停止/ });
       if (await stop.isVisible()) await stop.click();
@@ -777,6 +1099,10 @@ async function runCase(specification) {
       status:
         timedOut
           ? "timed_out"
+          : specification.cancelPhase
+            ? cancellationTriggered && finalJob.status === "cancelled"
+              ? "passed"
+              : "failed"
           : queue.every((item) => item.status === "done")
             ? "passed"
             : "failed",
@@ -794,6 +1120,7 @@ async function runCase(specification) {
         error: finalJob.error,
         outputRoot: finalJob.outputRoot,
         artifacts: finalJob.artifacts,
+        logsTail: finalJob.logs.slice(-400),
       },
       queue,
       rendererErrors,
@@ -817,6 +1144,13 @@ async function runCase(specification) {
       ),
       jobSamples,
       generatedInputs,
+      cancellation: specification.cancelPhase
+        ? {
+            requestedPhase: specification.cancelPhase,
+            triggered: cancellationTriggered,
+            terminalStatus: cancellationSnapshot?.status ?? finalJob.status,
+          }
+        : null,
       installedExe,
       appOutputTail: app.childOutput.join("").slice(-16_000),
     };

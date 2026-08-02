@@ -351,6 +351,20 @@ class PacketIndexTests(unittest.TestCase):
         self.assertEqual(4, index.total_packets)
         self.assertEqual(1, index.hidden_preroll_packets)
 
+    def test_seek_uses_first_visible_pts_when_edit_list_hides_keyframe(self) -> None:
+        segmented = load_segmented_module()
+        frames = [
+            segmented.VideoFrame(timestamp=0, keyframe=False),
+            segmented.VideoFrame(timestamp=1, keyframe=False),
+            segmented.VideoFrame(timestamp=2, keyframe=True),
+        ]
+
+        anchor_index, anchor = segmented.seek_anchor(frames, 0)
+
+        self.assertEqual(0, anchor_index)
+        self.assertEqual(0, anchor.timestamp)
+        self.assertFalse(anchor.keyframe)
+
     def test_reported_count_accepts_only_visible_or_total_packet_count(self) -> None:
         segmented = load_segmented_module()
         index = segmented.VideoFrameIndex(

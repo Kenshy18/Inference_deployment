@@ -129,6 +129,11 @@ export default function App() {
   const removeAfterCancelRef = useRef<string | null>(null);
   const lastTransitionRef = useRef("");
   const probingRef = useRef(new Set<string>());
+  /* The main-process "running" snapshot arrives only after settings and WSL
+     validation finish. Reserve the transport locally during that async gap so
+     a double click or a fast Dry Run -> Run transition cannot submit twice. */
+  const launchPendingRef = useRef(false);
+  const [launchPending, setLaunchPending] = useState(false);
 
   useEffect(() => {
     draftRef.current = draft;
@@ -160,7 +165,7 @@ export default function App() {
     axis: "y",
   });
 
-  const busy = BUSY_STATUSES.includes(job.status);
+  const busy = launchPending || BUSY_STATUSES.includes(job.status);
   const pendingCount = queue.filter(
     (item) => item.status === "pending",
   ).length;
@@ -181,6 +186,11 @@ export default function App() {
 
   const startItem = useCallback(
     async (item: QueueItem) => {
+      if (launchPendingRef.current) {
+        return;
+      }
+      launchPendingRef.current = true;
+      setLaunchPending(true);
       const currentDraft = draftRef.current;
       const outputDir = uniqueOutputDir(
         currentDraft.outputRoot,
@@ -213,6 +223,9 @@ export default function App() {
         patchItem(item.id, { status: "failed", error: text });
         autoRunRef.current = false;
         setToast({ text, error: true });
+      } finally {
+        launchPendingRef.current = false;
+        setLaunchPending(false);
       }
     },
     [patchItem],
@@ -237,10 +250,15 @@ export default function App() {
   }, [startItem]);
 
   const dryRun = useCallback(async () => {
+    if (launchPendingRef.current) {
+      return;
+    }
     const next = queueRef.current.find((item) => item.status === "pending");
     if (!next || !draftRef.current.outputRoot.trim()) {
       return;
     }
+    launchPendingRef.current = true;
+    setLaunchPending(true);
     const outputDir = uniqueOutputDir(
       draftRef.current.outputRoot,
       next.title,
@@ -266,6 +284,9 @@ export default function App() {
         text: error instanceof Error ? error.message : "検証できませんでした。",
         error: true,
       });
+    } finally {
+      launchPendingRef.current = false;
+      setLaunchPending(false);
     }
   }, []);
 

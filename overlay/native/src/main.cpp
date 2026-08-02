@@ -4350,15 +4350,30 @@ RunSummary render(const Options& options, const FrameMasks& masks) {
             }
             if (
                 first_decoded_frame &&
-                options.seek_timestamp &&
-                frame->best_effort_timestamp != *options.seek_timestamp
+                options.seek_timestamp
             ) {
-                throw std::runtime_error(
-                    "seek landed on timestamp " +
-                    std::to_string(frame->best_effort_timestamp) +
-                    ", expected indexed keyframe timestamp " +
-                    std::to_string(*options.seek_timestamp)
-                );
+                const auto decoded_timestamp = frame->best_effort_timestamp;
+                if (decoded_timestamp == AV_NOPTS_VALUE) {
+                    throw std::runtime_error(
+                        "seek pre-roll frame has no presentation timestamp"
+                    );
+                }
+                if (decoded_timestamp < *options.seek_timestamp) {
+                    // A container edit list can place the codec keyframe
+                    // before visible stream start. av_seek_frame correctly
+                    // lands there; discard only that hidden pre-roll so
+                    // SQLite frame 0 stays aligned to visible frame 0.
+                    av_frame_unref(frame.get());
+                    continue;
+                }
+                if (decoded_timestamp != *options.seek_timestamp) {
+                    throw std::runtime_error(
+                        "seek landed on timestamp " +
+                        std::to_string(decoded_timestamp) +
+                        ", expected indexed anchor timestamp " +
+                        std::to_string(*options.seek_timestamp)
+                    );
+                }
             }
             first_decoded_frame = false;
             const int source_frame = next_source_frame++;

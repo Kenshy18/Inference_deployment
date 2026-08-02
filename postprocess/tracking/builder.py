@@ -439,9 +439,9 @@ def build_tracked_sqlite(
             connection.execute("DROP TABLE track_resolution_staging")
             connection.commit()
             journal_mode = str(
-                connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+                connection.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
             )
-            if journal_mode.lower() != "wal":
+            if journal_mode.lower() != "delete":
                 raise RuntimeError(
                     f"failed to finalize tracked SQLite journal: {journal_mode}"
                 )
@@ -450,12 +450,6 @@ def build_tracked_sqlite(
                 raise RuntimeError(
                     f"tracked SQLite integrity check failed: {integrity}"
                 )
-            checkpoint = connection.execute(
-                "PRAGMA wal_checkpoint(TRUNCATE)"
-            ).fetchone()
-            if checkpoint is not None and int(checkpoint[0]) != 0:
-                raise RuntimeError("tracked SQLite WAL checkpoint remained busy")
-
         _remove_sidecars(staging_path)
         _remove_sidecars(sqlite_path)
         os.replace(staging_path, sqlite_path)

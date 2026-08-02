@@ -427,3 +427,56 @@ def keep_only_inference_role(path: Path, role: str) -> Path:
                 removed_ids,
             )
     return path
+
+
+def clear_instance_segmentation_detections(path: Path) -> Path:
+    """Keep the requested segmentation role but make its result set empty."""
+
+    with sqlite3.connect(path) as connection:
+        detection_ids = [
+            int(row[0])
+            for row in connection.execute(
+                """
+                SELECT d.id
+                FROM detections d
+                JOIN model_executions me ON me.id=d.model_execution_id
+                WHERE me.role='instance_segmentation'
+                """
+            )
+        ]
+        if not detection_ids:
+            return path
+        placeholders = ",".join("?" for _ in detection_ids)
+        polygon_ids = [
+            int(row[0])
+            for row in connection.execute(
+                f"""
+                SELECT id FROM segmentation_polygons
+                WHERE detection_id IN ({placeholders})
+                """,
+                detection_ids,
+            )
+        ]
+        if polygon_ids:
+            polygon_placeholders = ",".join("?" for _ in polygon_ids)
+            connection.execute(
+                f"""
+                DELETE FROM segmentation_points
+                WHERE polygon_id IN ({polygon_placeholders})
+                """,
+                polygon_ids,
+            )
+        for table in (
+            "segmentation_polygons",
+            "segmentations",
+            "classifications",
+        ):
+            connection.execute(
+                f"DELETE FROM {table} WHERE detection_id IN ({placeholders})",
+                detection_ids,
+            )
+        connection.execute(
+            f"DELETE FROM detections WHERE id IN ({placeholders})",
+            detection_ids,
+        )
+    return path
