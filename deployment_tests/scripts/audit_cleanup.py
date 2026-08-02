@@ -46,7 +46,11 @@ def residue_files(root: Path) -> list[dict[str, object]]:
 
 
 def run_report(manifest: Path) -> dict[str, object]:
-    root = manifest.parent
+    root = (
+        manifest.parent.parent
+        if manifest.parent.name == "logs"
+        else manifest.parent
+    )
     stages = []
     for path in sorted(root.iterdir()):
         if not path.name[:2].isdigit():
@@ -60,7 +64,7 @@ def run_report(manifest: Path) -> dict[str, object]:
         )
     public = []
     for path in sorted(root.iterdir()):
-        if path.is_file() and path.name != "run_manifest.json":
+        if path.is_file():
             public.append({"name": path.name, "size_bytes": path.stat().st_size})
     return {
         "root": str(root),

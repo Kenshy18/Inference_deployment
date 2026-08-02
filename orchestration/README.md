@@ -304,27 +304,23 @@ overlay/native/build.sh
 
 ```text
 output_root/
-├── run_manifest.json
-├── resolved_config.json
+├── <動画ファイル名>.sqlite           # ソフトウェアへ渡す唯一の最終SQLite
+├── overlay/
+│   ├── raw.mp4
+│   ├── tracked.mp4
+│   ├── final.mp4
+│   └── faces.mp4
 ├── logs/
-├── 00_preflight/
-│   └── cuts.json
-├── 01_inference/
-│   └── inference.sqlite             # 内部中間成果物
-├── 02_postprocess/
-│   ├── pipeline_manifest.json
-│   ├── ...                          # 内部中間成果物
-│   └── NN_integrated_result_sqlite/
-│       └── result.sqlite            # 後処理ありの公開SQLite
-├── 02_result/
-│   └── result.sqlite                # 後処理なしの場合の公開SQLite
-└── 03_overlay/
-    ├── raw.mp4
-    ├── raw.json
-    ├── tracked.mp4
-    ├── final.mp4
-    └── faces.mp4
+│   ├── run_manifest.json
+│   ├── resolved_config.json
+│   ├── inference.log
+│   ├── postprocess.log
+│   ├── overlay/                     # overlay処理manifest
+│   └── work/                        # 実行中・失敗時だけ残る内部中間成果物
 ```
+
+正常完了時は`logs/work/`を削除するため、通常は直下SQLite、`overlay/`、
+`logs/`だけが残ります。
 
 後処理の有無、性器検出の有無、旧/新顔検出の組み合わせにかかわらず、公開
 SQLiteは`result_sqlite`の1つです。推論の全生出力を保持したまま、
@@ -332,8 +328,8 @@ SQLiteは`result_sqlite`の1つです。推論の全生出力を保持したま�
 provenanceテーブルを常に同じ列契約で持ちます。実行していない機能は
 テーブル欠落ではなく空テーブルで表現し、`result_capabilities`で利用可否と
 件数を確認できます。
-stage番号から場所を推測せず、
-`run_manifest.json`の`artifacts.result_sqlite`を使用してください。
+最終SQLiteは動画名で直下へ配置されます。プログラムからはファイル名を推測せず、
+`logs/run_manifest.json`の`artifacts.result_sqlite`を使用してください。
 raw/tracked/final/facesのoverlayもこの1ファイルだけを読みます。
 
 安定契約は`result_schema_info`の
@@ -397,12 +393,14 @@ trackの両端に観測がある短い内部欠損だけです。カットをま
 観測IDを保存します。`result_capabilities.face_tracking`で利用可否と件数を
 確認できます。
 
-`01_inference`と各postprocess stageのSQLiteは、失敗時の安全性、stage契約、
-resumeのための内部中間成果物です。`run_manifest.json`の公開artifactには出さず、
-下流ソフトウェアへ渡しません。各overlay JSONには選択した実行方式、overlay
-種別、入力role、encode設定と処理結果が記録されます。
+`logs/work/01_inference`と各postprocess stageのSQLiteは、失敗時の安全性、
+stage契約、resumeのための内部中間成果物です。正常完了後は削除し、失敗・中断時
+だけ診断とresume用に残します。`logs/run_manifest.json`の公開artifactには出さず、
+下流ソフトウェアへ渡しません。各overlay JSONは`logs/overlay/`に置き、選択した
+実行方式、overlay種別、入力role、encode設定と処理結果を記録します。
 
 `postprocess.export_legacy_sqlite: true`では、現行`result_sqlite`とは別に旧
-`Dinov3_postprocess`互換の`legacy_final_sqlite`もrun manifestへ公開します。
+`Dinov3_postprocess`互換の`legacy_final_sqlite`も`logs/legacy/`へ保存し、run
+manifestへ公開します。
 互換版は旧契約の`masks`、`tracks`、`cuts`のみを持ち、元マスクおよび詳細な
 カット検出メタデータは現行SQLiteにだけ保持されます。

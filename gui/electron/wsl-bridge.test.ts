@@ -160,16 +160,13 @@ describe("Windows/WSL bridge", () => {
       );
       const target = path.join(root, "windows-output");
       const pidFile = path.join(root, "runner.pid");
-      const resultSqlite = path.join(
-        source,
-        "02_postprocess",
-        "09_integrated_result_sqlite",
-        "result.sqlite",
-      );
-      const overlay = path.join(source, "03_overlay", "combined_simple.mp4");
+      const resultSqlite = path.join(source, "sample.sqlite");
+      const overlay = path.join(source, "overlay", "combined_simple.mp4");
       const log = path.join(source, "logs", "postprocess.log");
       const intermediate = path.join(
         source,
+        "logs",
+        "work",
         "02_postprocess",
         "04_classwise_postprocess",
         "reproducible.sqlite",
@@ -183,12 +180,12 @@ describe("Windows/WSL bridge", () => {
       fs.writeFileSync(log, "log\n", "utf8");
       fs.writeFileSync(intermediate, "large temporary data\n", "utf8");
       fs.writeFileSync(
-        path.join(source, "resolved_config.json"),
+        path.join(source, "logs", "resolved_config.json"),
         `${JSON.stringify({ output_root: source })}\n`,
         "utf8",
       );
       fs.writeFileSync(
-        path.join(source, "run_manifest.json"),
+        path.join(source, "logs", "run_manifest.json"),
         `${JSON.stringify({
           status: "complete",
           output_root: source,
@@ -221,19 +218,11 @@ describe("Windows/WSL bridge", () => {
           "log\n",
         );
         expect(
-          fs.readFileSync(
-            path.join(
-              target,
-              "02_postprocess",
-              "09_integrated_result_sqlite",
-              "result.sqlite",
-            ),
-            "utf8",
-          ),
+          fs.readFileSync(path.join(target, "sample.sqlite"), "utf8"),
         ).toBe("sqlite\n");
         expect(
           fs.readFileSync(
-            path.join(target, "03_overlay", "combined_simple.mp4"),
+            path.join(target, "overlay", "combined_simple.mp4"),
             "utf8",
           ),
         ).toBe("video\n");
@@ -241,6 +230,8 @@ describe("Windows/WSL bridge", () => {
           fs.existsSync(
             path.join(
               target,
+              "logs",
+              "work",
               "02_postprocess",
               "04_classwise_postprocess",
               "reproducible.sqlite",
@@ -248,15 +239,13 @@ describe("Windows/WSL bridge", () => {
           ),
         ).toBe(false);
         const manifest = JSON.parse(
-          fs.readFileSync(path.join(target, "run_manifest.json"), "utf8"),
+          fs.readFileSync(
+            path.join(target, "logs", "run_manifest.json"),
+            "utf8",
+          ),
         ) as { artifacts: { result_sqlite: string } };
         expect(manifest.artifacts.result_sqlite).toBe(
-          path.join(
-            target,
-            "02_postprocess",
-            "09_integrated_result_sqlite",
-            "result.sqlite",
-          ),
+          path.join(target, "sample.sqlite"),
         );
         expect(fs.existsSync(source)).toBe(false);
       } finally {

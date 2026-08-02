@@ -100,15 +100,10 @@ function mockJob(): JobSnapshot {
       exitCode: 0,
       completedAt: new Date().toISOString(),
       artifacts: {
-        inference_sqlite:
-          "/home/kenshin/runs/job-041/01_inference/inference.sqlite",
-        tracked_sqlite:
-          "/home/kenshin/runs/job-041/02_postprocess/tracked.sqlite",
-        predictions_sqlite:
-          "/home/kenshin/runs/job-041/02_postprocess/predictions.sqlite",
-        overlay_raw: "/home/kenshin/runs/job-041/03_overlay/raw.mp4",
-        overlay_tracked: "/home/kenshin/runs/job-041/03_overlay/tracked.mp4",
-        overlay_final: "/home/kenshin/runs/job-041/03_overlay/final.mp4",
+        result_sqlite: "/home/kenshin/runs/job-041/sample.sqlite",
+        overlay_raw: "/home/kenshin/runs/job-041/overlay/raw.mp4",
+        overlay_tracked: "/home/kenshin/runs/job-041/overlay/tracked.mp4",
+        overlay_final: "/home/kenshin/runs/job-041/overlay/final.mp4",
       },
     };
   }

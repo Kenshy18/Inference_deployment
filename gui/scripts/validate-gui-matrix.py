@@ -259,7 +259,7 @@ def validate_sqlite(path: Path) -> tuple[dict[str, Any], list[str]]:
 
 
 def validate_output(output: Path) -> dict[str, Any]:
-    manifest_path = output / "run_manifest.json"
+    manifest_path = output / "logs" / "run_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     result_path = host_path(str(manifest["artifacts"]["result_sqlite"]))
     sqlite_report, issues = validate_sqlite(result_path)
@@ -272,8 +272,8 @@ def validate_output(output: Path) -> dict[str, Any]:
         stream.get("codec_type") == "audio" for stream in input_media.get("streams", [])
     )
     overlays = []
-    for video in sorted((output / "03_overlay").glob("*.mp4")):
-        overlay_manifest_path = video.with_suffix(".json")
+    for video in sorted((output / "overlay").glob("*.mp4")):
+        overlay_manifest_path = output / "logs" / "overlay" / f"{video.stem}.json"
         overlay_manifest = json.loads(overlay_manifest_path.read_text(encoding="utf-8"))
         summary = overlay_manifest.get("summary", overlay_manifest)
         probe = ffprobe(video, packets=True)

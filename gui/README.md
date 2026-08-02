@@ -76,7 +76,7 @@ DaVinci Resolve / Premiere Proに倣った固定4ペインのNLE型レイアウ�
 - ジョブ実行、キャンセル、stage timeline、throughput scope、リアルタイムログ
 - MonitorのLiveタブ: 推論結果に加え、NMS、カット、追跡・短命削除、
   polygon/ellipse近似、keyframe、補完、顔tracking/privacy maskを960×540で表示
-- `run_manifest.json`から成果物を読み、出力フォルダを開く
+- `logs/run_manifest.json`から成果物を読み、出力フォルダを開く
 - Linux native PythonとWindows WSL2の切り替え
 
 ## 開発
@@ -213,10 +213,9 @@ Electron main process
   │ WSL2:   wsl.exe ... <python> -m orchestration
   ▼
 inference_backend2
-  ├── unified inference SQLite
-  ├── postprocess mask SQLite
-  ├── overlay proxy
-  └── run_manifest.json
+  ├── <動画ファイル名>.sqlite
+  ├── overlay/
+  └── logs/run_manifest.json
 ```
 
 rendererではNode.jsを有効にしていません。`contextIsolation`とsandboxを有効にし、

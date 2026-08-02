@@ -5,10 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import shutil
 import sqlite3
 import subprocess
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,6 +78,36 @@ def _atomic_json(path: Path, value: object) -> None:
     os.replace(temporary, path)
 
 
+def _safe_output_stem(value: str) -> str:
+    """Return a Windows-safe public artifact stem for a source video."""
+
+    cleaned = re.sub(r'[\\/:*?"<>|]', "_", value).strip(" .")
+    return cleaned or "video"
+
+
+def _atomic_copy(source: Path, destination: Path) -> None:
+    """Publish a completed file by hard link, with an atomic copy fallback."""
+
+    resolved_source = source.expanduser().resolve()
+    resolved_destination = destination.expanduser().resolve()
+    if resolved_source == resolved_destination:
+        return
+    resolved_destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = resolved_destination.with_name(
+        f".{resolved_destination.name}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        try:
+            os.link(resolved_source, temporary)
+        except OSError:
+            # Cross-device and Windows-backed destinations may not support a
+            # hard link. Keep the destination atomic in that case as well.
+            shutil.copy2(resolved_source, temporary)
+        os.replace(temporary, resolved_destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _emit_phase_complete(phase: str, completed: int) -> None:
     print(
         "[phase-progress] "
@@ -107,7 +140,17 @@ class OrchestrationRunner:
         self.dry_run = dry_run
         self.output_root = config.output_root
         self.logs_dir = self.output_root / "logs"
-        self.manifest_path = self.output_root / "run_manifest.json"
+        self.work_dir = self.logs_dir / "work"
+        self.manifest_path = self.logs_dir / "run_manifest.json"
+        self.resolved_config_path = self.logs_dir / "resolved_config.json"
+        self.inference_dir = self.work_dir / "01_inference"
+        self.preflight_dir = self.work_dir / "00_preflight"
+        self.postprocess_dir = self.work_dir / "02_postprocess"
+        self.overlay_dir = self.output_root / "overlay"
+        self.overlay_manifest_dir = self.logs_dir / "overlay"
+        self.public_result_path = self.output_root / (
+            f"{_safe_output_stem(config.input_video.stem)}.sqlite"
+        )
         self.config_hash = hashlib.sha256(
             json.dumps(
                 config.resolved_dict(),
@@ -242,7 +285,7 @@ class OrchestrationRunner:
         precomputed_cuts: Path | None = None,
     ) -> list[str]:
         settings = self.config.postprocess
-        output = self.output_root / "02_postprocess"
+        output = self.postprocess_dir
         command = [
             str(self.config.execution.runtime_python),
             str(POSTPROCESS_CLI),
@@ -253,7 +296,7 @@ class OrchestrationRunner:
             "--output-dir",
             str(output),
             "--orchestration-config-json",
-            str(self.output_root / "resolved_config.json"),
+            str(self.resolved_config_path),
             "--shape-mode",
             settings.shape_mode,
             "--device",
@@ -333,6 +376,7 @@ class OrchestrationRunner:
         mode: str | None,
         source_sqlite: Path,
         output: Path,
+        manifest: Path | None = None,
         face_sqlite: Path | None = None,
         preset: str | None = None,
     ) -> list[str]:
@@ -350,7 +394,7 @@ class OrchestrationRunner:
             "--output",
             str(output),
             "--manifest",
-            str(output.with_suffix(".json")),
+            str(manifest or output.with_suffix(".json")),
             "--mask-alpha",
             str(settings.mask_alpha),
             "--outline-thickness",
@@ -485,7 +529,7 @@ class OrchestrationRunner:
             "--output-sqlite",
             str(output),
             "--orchestration-config-json",
-            str(self.output_root / "resolved_config.json"),
+            str(self.resolved_config_path),
         ]
         if tracked_sqlite is not None:
             command.extend(["--tracked-sqlite", str(tracked_sqlite)])
@@ -523,7 +567,7 @@ class OrchestrationRunner:
         return command
 
     def plan(self) -> dict[str, object]:
-        inference_output = self.output_root / "01_inference" / "inference.sqlite"
+        inference_output = self.inference_dir / "inference.sqlite"
         inference_source = (
             inference_output
             if self.config.inference.enabled
@@ -532,7 +576,7 @@ class OrchestrationRunner:
         assert inference_source is not None
         plan: list[dict[str, object]] = []
         if self.config.postprocess.precompute_cuts_during_inference:
-            cut_output = self.output_root / "00_preflight" / "cuts.json"
+            cut_output = self.preflight_dir / "cuts.json"
             cut_command = [
                 str(self.config.execution.runtime_python),
                 str(PRECOMPUTE_CUTS_CLI),
@@ -574,7 +618,7 @@ class OrchestrationRunner:
             )
         if self.config.postprocess.enabled:
             precomputed_cuts = (
-                self.output_root / "00_preflight" / "cuts.json"
+                self.preflight_dir / "cuts.json"
                 if self.config.postprocess.precompute_cuts_during_inference
                 else None
             )
@@ -589,7 +633,7 @@ class OrchestrationRunner:
                 }
             )
         else:
-            result_output = self.output_root / "02_result" / "result.sqlite"
+            result_output = self.public_result_path
             plan.append(
                 {
                     "stage": "result_packaging",
@@ -600,7 +644,7 @@ class OrchestrationRunner:
                         final_sqlite=self.config.postprocess.final_sqlite,
                         output=result_output,
                         precomputed_cuts=(
-                            self.output_root / "00_preflight" / "cuts.json"
+                            self.preflight_dir / "cuts.json"
                             if self.config.postprocess.precompute_cuts_during_inference
                             else None
                         ),
@@ -641,6 +685,9 @@ class OrchestrationRunner:
             self._validate_reused_inputs()
             return self.plan()
         self._prepare_output()
+        if self.resume and self.manifest.get("status") == "complete":
+            self._validate_completed_run()
+            return self.manifest
         self.manifest["status"] = "running"
         self.manifest.pop("error", None)
         self.manifest["started_at_utc"] = _utc_now()
@@ -670,6 +717,7 @@ class OrchestrationRunner:
             self.manifest["completed_at_utc"] = _utc_now()
             self._save_manifest()
             raise
+        self._cleanup_completed_work()
         self.manifest["status"] = "complete"
         self.manifest["completed_at_utc"] = _utc_now()
         self._save_manifest()
@@ -696,7 +744,7 @@ class OrchestrationRunner:
             )
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         _atomic_json(
-            self.output_root / "resolved_config.json",
+            self.resolved_config_path,
             self.config.resolved_dict(),
         )
 
@@ -719,9 +767,41 @@ class OrchestrationRunner:
             if self.config.postprocess.final_sqlite is not None:
                 validate_mask_sqlite(self.config.postprocess.final_sqlite)
 
+    def _validate_completed_run(self) -> None:
+        """Make completed-run resume a validated no-op after work cleanup."""
+
+        artifacts = self.manifest.get("artifacts", {})
+        if not isinstance(artifacts, dict):
+            raise OrchestrationError("completed run has an invalid artifact manifest")
+        missing = [
+            name
+            for name, value in artifacts.items()
+            if not isinstance(value, str)
+            or not value
+            or not Path(value).expanduser().is_file()
+        ]
+        if missing:
+            raise OrchestrationError(
+                "completed run is missing published artifacts: "
+                + ", ".join(sorted(missing))
+            )
+        result = artifacts.get("result_sqlite")
+        if not isinstance(result, str) or not result:
+            raise OrchestrationError("completed run has no published result_sqlite")
+        validate_result_sqlite(
+            Path(result),
+            require_segmentation=self.config.inference.uses_segmentation,
+            require_faces=self.config.inference.uses_faces,
+            expected_face_model=(
+                self.config.inference.face_model
+                if self.config.inference.uses_faces
+                else None
+            ),
+        )
+
     def _run_inference(self) -> WorkflowArtifacts:
         settings = self.config.inference
-        output = self.output_root / "01_inference" / "inference.sqlite"
+        output = self.inference_dir / "inference.sqlite"
         if settings.enabled:
             if self._can_resume_stage("inference", {"inference_sqlite": output}):
                 inference_sqlite = output
@@ -761,7 +841,7 @@ class OrchestrationRunner:
     ) -> WorkflowArtifacts:
         settings = self.config.postprocess
         if settings.enabled:
-            post_root = self.output_root / "02_postprocess"
+            post_root = self.postprocess_dir
             manifest_path = post_root / "pipeline_manifest.json"
             resumed_postprocess = self._can_resume_stage(
                 "postprocess",
@@ -809,8 +889,17 @@ class OrchestrationRunner:
                 published["result_sqlite"] = final
                 validation["result_sqlite"] = result_validation
             if legacy is not None:
-                published["legacy_final_sqlite"] = legacy
-                validation["legacy_final_sqlite"] = validate_legacy_mask_sqlite(legacy)
+                public_legacy = (
+                    self.logs_dir
+                    / "legacy"
+                    / f"{_safe_output_stem(self.config.input_video.stem)}_legacy.sqlite"
+                )
+                _atomic_copy(legacy, public_legacy)
+                published["legacy_final_sqlite"] = public_legacy
+                validation["legacy_final_sqlite"] = validate_legacy_mask_sqlite(
+                    public_legacy
+                )
+                legacy = public_legacy
             self._publish_artifacts(
                 published,
                 validation=validation,
@@ -848,8 +937,25 @@ class OrchestrationRunner:
         """Guarantee one stable public result SQLite for every mode."""
 
         if artifacts.result_sqlite is not None:
+            output = self.public_result_path
+            if not self._can_resume_stage(
+                "result_publication",
+                {"result_sqlite": output},
+            ):
+                started = time.perf_counter()
+                _atomic_copy(artifacts.result_sqlite, output)
+                self._replace_stage_record(
+                    {
+                        "name": "result_publication",
+                        "status": "complete",
+                        "source": str(artifacts.result_sqlite),
+                        "artifact": str(output),
+                        "elapsed_seconds": time.perf_counter() - started,
+                        "completed_at_utc": _utc_now(),
+                    }
+                )
             validation = validate_result_sqlite(
-                artifacts.result_sqlite,
+                output,
                 require_segmentation=self.config.inference.uses_segmentation,
                 require_faces=self.config.inference.uses_faces,
                 expected_face_model=(
@@ -859,12 +965,19 @@ class OrchestrationRunner:
                 ),
             )
             self._publish_artifacts(
-                {"result_sqlite": artifacts.result_sqlite},
+                {"result_sqlite": output},
                 validation={"result_sqlite": validation},
+                replace_sqlite_outputs=True,
             )
-            return artifacts
+            return WorkflowArtifacts(
+                inference_sqlite=artifacts.inference_sqlite,
+                tracked_sqlite=artifacts.tracked_sqlite,
+                final_sqlite=artifacts.final_sqlite,
+                result_sqlite=output,
+                legacy_final_sqlite=artifacts.legacy_final_sqlite,
+            )
 
-        output = self.output_root / "02_result" / "result.sqlite"
+        output = self.public_result_path
         if not self._can_resume_stage(
             "result_packaging",
             {"result_sqlite": output},
@@ -908,7 +1021,7 @@ class OrchestrationRunner:
         settings = self.config.postprocess
         if not settings.precompute_cuts_during_inference:
             return None
-        output = self.output_root / "00_preflight" / "cuts.json"
+        output = self.preflight_dir / "cuts.json"
         command = [
             str(self.config.execution.runtime_python),
             str(PRECOMPUTE_CUTS_CLI),
@@ -999,7 +1112,7 @@ class OrchestrationRunner:
                 "precomputed cut detection failed with exit code "
                 f"{return_code}; see {stage.log_path}"
             )
-        output = self.output_root / "00_preflight" / "cuts.json"
+        output = self.preflight_dir / "cuts.json"
         if not output.is_file() or output.stat().st_size == 0:
             raise OrchestrationError(
                 f"precomputed cut detection did not create {output}"
@@ -1022,7 +1135,7 @@ class OrchestrationRunner:
         settings = self.config.overlay
         if not settings.enabled:
             return
-        output_root = self.output_root / "03_overlay"
+        output_root = self.overlay_dir
         output_root.mkdir(parents=True, exist_ok=True)
         requested: list[tuple[str, str | None, Path, Path | None, str | None]] = []
         unified = artifacts.result_sqlite or artifacts.inference_sqlite
@@ -1087,7 +1200,7 @@ class OrchestrationRunner:
             preset,
         ) in enumerate(requested):
             output = output_root / f"{name}.mp4"
-            output_manifest = output.with_suffix(".json")
+            output_manifest = self.overlay_manifest_dir / f"{name}.json"
             artifact_name = f"overlay_{name}"
             if self._can_resume_stage(
                 f"overlay_{name}",
@@ -1101,6 +1214,7 @@ class OrchestrationRunner:
                 mode=mode,
                 source_sqlite=source,
                 output=output,
+                manifest=output_manifest,
                 face_sqlite=face_source,
                 preset=preset,
             )
@@ -1123,6 +1237,33 @@ class OrchestrationRunner:
                     f"{artifact_name}_manifest": output_manifest,
                 }
             )
+
+    def _cleanup_completed_work(self) -> None:
+        """Remove reproducible stage data only after every public output exists."""
+
+        resolved_work = self.work_dir.resolve()
+        current = dict(self.manifest.get("artifacts", {}))
+        removed_artifacts: list[str] = []
+        for name, value in list(current.items()):
+            if not isinstance(value, str) or not value:
+                continue
+            try:
+                candidate = Path(value).expanduser().resolve()
+            except OSError:
+                continue
+            if candidate == resolved_work or resolved_work in candidate.parents:
+                current.pop(name, None)
+                removed_artifacts.append(name)
+        if self.work_dir.exists():
+            shutil.rmtree(self.work_dir)
+        self.manifest["artifacts"] = current
+        self.manifest["cleanup"] = {
+            "work_directory": str(self.work_dir),
+            "work_removed": not self.work_dir.exists(),
+            "removed_internal_artifacts": sorted(removed_artifacts),
+            "completed_at_utc": _utc_now(),
+        }
+        self._save_manifest()
 
     def _execute(
         self,

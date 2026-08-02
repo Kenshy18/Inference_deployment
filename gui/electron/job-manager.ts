@@ -539,7 +539,10 @@ export class JobManager extends EventEmitter {
 
   private readArtifacts(outputRoot: string, settings: AppSettings): ArtifactMap {
     try {
-      const manifestPath = path.join(outputRoot, "run_manifest.json");
+      const compactManifest = path.join(outputRoot, "logs", "run_manifest.json");
+      const manifestPath = fs.existsSync(compactManifest)
+        ? compactManifest
+        : path.join(outputRoot, "run_manifest.json");
       const manifest = JSON.parse(
         fs.readFileSync(manifestPath, "utf8"),
       ) as { artifacts?: ArtifactMap };

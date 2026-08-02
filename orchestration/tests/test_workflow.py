@@ -90,13 +90,17 @@ class WorkflowTests(unittest.TestCase):
                 "complete",
                 validation["components"]["face_privacy_masks"]["status"],
             )
-            tracked_outputs = list(
-                (output / "02_postprocess").glob("*_tracking/tracked.sqlite")
+            result = Path(manifest["artifacts"]["result_sqlite"])
+            self.assertEqual(output / "input.sqlite", result)
+            self.assertEqual(
+                {"input.sqlite", "logs"},
+                {path.name for path in output.iterdir()},
             )
-            self.assertEqual(1, len(tracked_outputs))
-            tracked = tracked_outputs[0]
-            self.assertFalse(Path(f"{tracked}-wal").exists())
-            self.assertFalse(Path(f"{tracked}-shm").exists())
+            self.assertTrue((output / "logs" / "run_manifest.json").is_file())
+            self.assertTrue((output / "logs" / "resolved_config.json").is_file())
+            self.assertFalse((output / "logs" / "work").exists())
+            self.assertFalse(Path(f"{result}-wal").exists())
+            self.assertFalse(Path(f"{result}-shm").exists())
 
     def test_overlay_defaults_to_fast_and_exposes_typed_presets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -882,8 +886,13 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn("final_sqlite", manifest["artifacts"])
             result = Path(manifest["artifacts"]["result_sqlite"])
             self.assertTrue(result.is_file())
+            self.assertEqual(output / "input.sqlite", result)
             legacy = Path(manifest["artifacts"]["legacy_final_sqlite"])
             self.assertTrue(legacy.is_file())
+            self.assertEqual(
+                output / "logs" / "legacy" / "input_legacy.sqlite",
+                legacy,
+            )
             with sqlite3.connect(result) as connection:
                 self.assertEqual(
                     [("disabled", 0, "first_frame_of_new_scene")],
@@ -953,6 +962,15 @@ class WorkflowTests(unittest.TestCase):
             for mode in ("raw", "tracked", "final", "faces"):
                 path = Path(manifest["artifacts"][f"overlay_{mode}"])
                 self.assertTrue(path.is_file())
+                self.assertEqual(output / "overlay" / f"{mode}.mp4", path)
+                overlay_manifest = Path(
+                    manifest["artifacts"][f"overlay_{mode}_manifest"]
+                )
+                self.assertEqual(
+                    output / "logs" / "overlay" / f"{mode}.json",
+                    overlay_manifest,
+                )
+                self.assertTrue(overlay_manifest.is_file())
                 capture = cv2.VideoCapture(str(path))
                 self.assertTrue(capture.isOpened())
                 self.assertEqual(8, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
@@ -965,6 +983,11 @@ class WorkflowTests(unittest.TestCase):
             ]
             self.assertTrue(cpu_stages)
             self.assertTrue(all(stage["cpu_only"] for stage in cpu_stages))
+            self.assertEqual(
+                {"input.sqlite", "overlay", "logs"},
+                {path.name for path in output.iterdir()},
+            )
+            self.assertFalse((output / "logs" / "work").exists())
 
             resumed = OrchestrationRunner(config, resume=True).run()
             self.assertEqual("complete", resumed["status"])

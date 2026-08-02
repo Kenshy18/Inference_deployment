@@ -111,7 +111,8 @@ def _cleanup_stale_staging(current: Path | None) -> None:
 
 def _copy_path(source: Path, destination: Path) -> None:
     if source.is_dir():
-        shutil.copytree(source, destination, dirs_exist_ok=True)
+        ignore = shutil.ignore_patterns("work") if source.name == "logs" else None
+        shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore)
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
@@ -124,7 +125,10 @@ def _copy_published_output(source: Path, destination: Path) -> bool:
     non-orchestration callers without that contract retain the historical full
     directory copy behavior.
     """
-    manifest_path = source / "run_manifest.json"
+    manifest_path = source / "logs" / "run_manifest.json"
+    if not manifest_path.is_file():
+        # Read releases produced before the compact public layout as well.
+        manifest_path = source / "run_manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         artifacts = manifest["artifacts"]
@@ -135,8 +139,13 @@ def _copy_published_output(source: Path, destination: Path) -> bool:
 
     resolved_source = source.resolve()
     selected: set[Path] = set()
-    for name in ("run_manifest.json", "resolved_config.json"):
-        candidate = resolved_source / name
+    for relative in (
+        Path("logs/run_manifest.json"),
+        Path("logs/resolved_config.json"),
+        Path("run_manifest.json"),
+        Path("resolved_config.json"),
+    ):
+        candidate = resolved_source / relative
         if candidate.exists():
             selected.add(candidate)
     logs = resolved_source / "logs"
