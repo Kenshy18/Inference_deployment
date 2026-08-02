@@ -114,11 +114,22 @@ def main() -> int:
             failures.append(f"nvidia-smi probe failed: {exc}")
     overlay_binary = root / "overlay" / "native" / "build" / "overlay_native"
     overlay_ffmpeg = root / "overlay" / "native" / ".runtime" / "ffmpeg" / "bin" / "ffmpeg"
+    fast_overlay_ffmpeg = (
+        root / "overlay" / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
+    )
+    fast_overlay_ffprobe = fast_overlay_ffmpeg.with_name("ffprobe")
     report["overlay"] = {
         "binary": str(overlay_binary),
         "ffmpeg": str(overlay_ffmpeg),
+        "fast_ffmpeg": str(fast_overlay_ffmpeg),
+        "fast_ffprobe": str(fast_overlay_ffprobe),
     }
-    for path in (overlay_binary, overlay_ffmpeg):
+    for path in (
+        overlay_binary,
+        overlay_ffmpeg,
+        fast_overlay_ffmpeg,
+        fast_overlay_ffprobe,
+    ):
         if not path.is_file() or not os.access(path, os.X_OK):
             failures.append(f"overlay runtime is unavailable: {path}")
     output = root / "output"

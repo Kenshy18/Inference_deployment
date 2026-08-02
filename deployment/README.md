@@ -75,6 +75,7 @@ production manifestとasset packを更新します。
 - production Python環境
 - production環境の`.pth`が固定参照する21MBのruntime source tree
 - 構築・検証済みnative overlay runtime
+- SHA-256固定の高速overlay用FFmpeg/FFprobe runtime
 - 非センシティブな8秒のsynthetic E2E fixture
 
 `.codex`、SSH鍵、shell履歴、入力動画、過去出力、開発用cacheは含めません。

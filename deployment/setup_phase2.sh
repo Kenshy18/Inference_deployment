@@ -46,6 +46,7 @@ if [[ "$profile" == all ]]; then
 fi
 
 if [[ $skip_overlay_bootstrap -eq 0 ]]; then
+  "$repo_root/overlay/bootstrap_fast_runtime.sh"
   "$repo_root/overlay/native/bootstrap_runtime.sh"
 fi
 "$repo_root/overlay/native/build.sh"
