@@ -34,6 +34,7 @@ if [[ $(id -u kenshin) -ne 1000 ]]; then
   echo "distribution user kenshin must have uid 1000" >&2
   exit 1
 fi
+install -m 0644 "$stage_root/wsl.conf" /etc/wsl.conf
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update

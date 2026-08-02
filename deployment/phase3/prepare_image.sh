@@ -67,6 +67,7 @@ install -m 0644 "$repository_root/deployment/phase3/wsl.conf" /etc/wsl.conf
 # has no APT index, so refresh it for image construction and remove it again at
 # the end. The deployed runtime itself remains offline-capable.
 apt-get update
+cd "$repository_root"
 runuser -u kenshin -- env \
   INFERENCE_RUNTIME_PYTHON="$runtime_root/bin/python3.10" \
   "$repository_root/deployment/setup_phase2.sh" \

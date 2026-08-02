@@ -63,6 +63,7 @@ tar -cpf "$stage_root/runtime-sources.tar" \
   -C "$runtime_env_root" src
 cp "$script_dir/phase3/bootstrap_image.sh" "$stage_root/bootstrap_image.sh"
 cp "$script_dir/phase3/prepare_image.sh" "$stage_root/prepare_image.sh"
+cp "$script_dir/phase3/wsl.conf" "$stage_root/wsl.conf"
 
 cleanup_on_failure=0
 echo "[PASS] release stage: root=$stage_root commit=$release_commit profile=$profile"

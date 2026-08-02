@@ -35,13 +35,19 @@ function Convert-ToWslPath([string]$Distribution, [string]$WindowsPath) {
   # (D:\dir becomes D:dir). Double them explicitly before crossing the WSL
   # command-line boundary.
   $escaped = $WindowsPath.Replace("\", "\\")
-  $output = @(& wsl.exe -d $Distribution -- wslpath -u -- $escaped)
+  $output = @(& wsl.exe -d $Distribution --cd / -- wslpath -u -- $escaped)
   if ($LASTEXITCODE -ne 0 -or $output.Count -eq 0) {
     throw "Could not convert Windows path for WSL: $WindowsPath"
   }
   $converted = ($output -join "`n").Trim()
   if (-not $converted) { throw "WSL returned an empty path for: $WindowsPath" }
   return $converted
+}
+
+function Restore-WslInterop([string]$Distribution, [string]$Root) {
+  & wsl.exe -d $Distribution -u root --cd / -- `
+    "$Root/deployment/phase3/restore_wsl_interop.sh"
+  if ($LASTEXITCODE -ne 0) { throw "Could not restore WSLInterop" }
 }
 
 $releaseStamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -54,9 +60,9 @@ if ((Get-Distros) -contains $BuildDistribution) {
   throw "Build distribution already exists: $BuildDistribution"
 }
 
-$commit = (& wsl.exe -d $SourceDistribution -- git -C $RepositoryRoot rev-parse HEAD).Trim()
+$commit = (& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $commit) { throw "Could not resolve source commit" }
-$status = @(& wsl.exe -d $SourceDistribution -- git -C $RepositoryRoot status --porcelain)
+$status = @(& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot status --porcelain)
 if ($status.Count -gt 0) { throw "Release builds require a clean source worktree" }
 
 $workDirectory = Join-Path $WorkRoot $releaseId
@@ -104,10 +110,21 @@ try {
     "--install", "Ubuntu-24.04", "--name", $BuildDistribution,
     "--location", $distroDirectory, "--version", "2", "--no-launch"
   )
-  Write-Host "[4/8] Constructing and validating the production image..." -ForegroundColor Cyan
-  $buildStageWsl = Convert-ToWslPath $BuildDistribution $stageDirectory
+  # Ubuntu's first boot enables systemd. systemd-binfmt can remove the shared
+  # WSLInterop registration when this temporary distro stops, so install the
+  # production wsl.conf before doing any image work, restart once, and restore
+  # the source distro's registration defensively.
   Invoke-Checked "wsl.exe" @(
-    "-d", $BuildDistribution, "-u", "root", "--",
+    "-d", $BuildDistribution, "-u", "root", "--cd", "/", "--",
+    "install", "-m", "0644", "$stageWsl/wsl.conf", "/etc/wsl.conf"
+  )
+  Invoke-Checked "wsl.exe" @("--terminate", $BuildDistribution)
+  Restore-WslInterop $SourceDistribution $RepositoryRoot
+
+  Write-Host "[4/8] Constructing and validating the production image..." -ForegroundColor Cyan
+  $buildStageWsl = $stageWsl
+  Invoke-Checked "wsl.exe" @(
+    "-d", $BuildDistribution, "-u", "root", "--cd", "/", "--",
     "bash", "$buildStageWsl/bootstrap_image.sh",
     "--stage-root", $buildStageWsl,
     "--release-commit", $commit,
@@ -117,7 +134,7 @@ try {
   $fixture = Join-Path $stageDirectory "deployment-smoke.mp4"
   $fixtureWsl = "$buildStageWsl/deployment-smoke.mp4"
   Invoke-Checked "wsl.exe" @(
-    "-d", $BuildDistribution, "-u", "root", "--",
+    "-d", $BuildDistribution, "-u", "root", "--cd", "/", "--",
     "cp", "/opt/mask-pipeline/fixtures/deployment-smoke.mp4", $fixtureWsl
   )
 
@@ -178,7 +195,11 @@ try {
     & wsl.exe --terminate $BuildDistribution 2>$null | Out-Null
     & wsl.exe --unregister $BuildDistribution 2>$null | Out-Null
   }
+  Restore-WslInterop $SourceDistribution $RepositoryRoot
   if (-not $KeepWork -and (Test-Path -LiteralPath $workDirectory)) {
-    Remove-Item -LiteralPath $workDirectory -Recurse -Force
+    $workWsl = Convert-ToWslPath $SourceDistribution $workDirectory
+    & wsl.exe -d $SourceDistribution -u kenshin --cd / -- `
+      "$RepositoryRoot/deployment/cleanup_release_work.sh" $workWsl
+    if ($LASTEXITCODE -ne 0) { Write-Warning "Could not clean release work: $workDirectory" }
   }
 }
