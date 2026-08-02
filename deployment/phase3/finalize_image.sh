@@ -25,7 +25,9 @@ fixture_root=/opt/mask-pipeline/fixtures
 report_root=/opt/mask-pipeline/release
 install -d -o kenshin -g kenshin "$fixture_root" "$report_root"
 ffmpeg_binary="$repository_root/overlay/native/.runtime/ffmpeg/bin/ffmpeg"
-runuser -u kenshin -- "$ffmpeg_binary" -hide_banner -loglevel error -y \
+ffmpeg_library="$repository_root/overlay/native/.runtime/ffmpeg/lib"
+runuser -u kenshin -- env LD_LIBRARY_PATH="$ffmpeg_library" \
+  "$ffmpeg_binary" -hide_banner -loglevel error -y \
   -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=8" \
   -f lavfi -i "sine=frequency=880:sample_rate=48000:duration=8" \
   -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p \
