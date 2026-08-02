@@ -18,7 +18,8 @@ PowerShellから直接実行する場合:
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File `
-  \\wsl.localhost\Ubuntu-24.04\home\kenshin\inference_backend2\gui\windows\Build-Windows.ps1
+  \\wsl.localhost\Ubuntu-24.04\home\kenshin\inference_backend2\gui\windows\Build-Windows.ps1 `
+  -RepositoryRoot /home/kenshin/inference_backend2
 ```
 
 スクリプトはソースだけを`D:\GUI_frontend\build\source`へ同期し、Windows上で
@@ -45,6 +46,10 @@ powershell.exe -ExecutionPolicy Bypass -File `
 ```bash
 ./scripts/dev-windows.sh
 ```
+
+WSL側の2つのwrapperは、実行したClone自身のrepository rootを自動的に渡します。
+別Cloneから起動しても旧固定パスへ戻りません。PowerShellを直接呼ぶ場合だけ、上記の
+ように`-RepositoryRoot`を明示してください。
 
 既定の一時領域は`%LOCALAPPDATA%\MaskPipelineStudioDev`です。`package-lock.json`が
 変わった場合だけ`npm ci`をやり直し、通常のソース変更ではすぐに開発GUIを起動します。
