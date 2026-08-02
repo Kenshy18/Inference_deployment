@@ -97,6 +97,8 @@ Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は
 `wsl --import-in-place`し、full-hash backend preflightとWindows GUI経由の120-frame E2Eを
 通過した後にだけショートカットと完了reportを作ります。失敗時は新規distribution、GUI
 設定、VHDXをrollbackします。Windows Node.jsは配布先には不要です。
+通常入口のexeは必ずUAC昇格します。`-AllowNonAdministrator`は、管理者権限を使わず
+書込み可能な隔離ディレクトリへ導入するQA専用スイッチで、exeの通常導線では使いません。
 
 初回のWSL導入、再起動を伴うGPU driver交換、Secure Boot/組織ポリシーは自動化の境界外です。
 デプロイヤーは検証済みRTX 5090/driverとの不一致を、環境を変更せず明示的に停止します。
