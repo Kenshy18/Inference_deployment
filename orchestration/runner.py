@@ -36,6 +36,10 @@ POSTPROCESS_CLI = REPOSITORY_ROOT / "postprocess" / "run_pipeline.py"
 PRECOMPUTE_CUTS_CLI = REPOSITORY_ROOT / "postprocess" / "precompute_cuts.py"
 PACKAGE_RESULT_CLI = REPOSITORY_ROOT / "postprocess" / "package_result.py"
 OVERLAY_ROOT = REPOSITORY_ROOT / "overlay"
+BUNDLED_FFMPEG = (
+    OVERLAY_ROOT / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
+)
+INTERLACED_FIELD_ORDERS = {"tt", "bb", "tb", "bt"}
 
 
 class OrchestrationError(RuntimeError):
@@ -136,6 +140,10 @@ class OrchestrationRunner:
         dry_run: bool = False,
     ) -> None:
         self.config = config
+        # The public configuration always keeps the user-selected source.  An
+        # interlaced source is normalized once and all processing stages use
+        # this private progressive working copy instead.
+        self.processing_video = config.input_video
         self.resume = config.execution.resume if resume is None else bool(resume)
         self.dry_run = dry_run
         self.output_root = config.output_root
@@ -225,7 +233,7 @@ class OrchestrationRunner:
             str(self.config.execution.runtime_python),
             str(INFERENCE_CLI),
             "--input",
-            str(self.config.input_video),
+            str(self.processing_video),
             "--output",
             str(output),
             "--mode",
@@ -292,7 +300,7 @@ class OrchestrationRunner:
             "--input-sqlite",
             str(inference_sqlite),
             "--input-video",
-            str(self.config.input_video),
+            str(self.processing_video),
             "--output-dir",
             str(output),
             "--orchestration-config-json",
@@ -388,7 +396,7 @@ class OrchestrationRunner:
             "--execution-mode",
             settings.execution_mode,
             "--video",
-            str(self.config.input_video),
+            str(self.processing_video),
             "--sqlite",
             str(source_sqlite),
             "--output",
@@ -694,6 +702,7 @@ class OrchestrationRunner:
         self._save_manifest()
         cut_stage: BackgroundStage | None = None
         try:
+            self._prepare_processing_video()
             cut_stage = self._start_cut_precompute()
             artifacts = self._run_inference()
             precomputed_cuts = (
@@ -747,6 +756,149 @@ class OrchestrationRunner:
             self.resolved_config_path,
             self.config.resolved_dict(),
         )
+
+    def _ffmpeg_tools(self) -> tuple[Path, Path]:
+        """Resolve the matching FFmpeg/FFprobe pair used for normalization."""
+
+        configured = self.config.overlay.ffmpeg_bin
+        ffmpeg = configured if configured is not None else BUNDLED_FFMPEG
+        if not ffmpeg.is_file():
+            system_ffmpeg = shutil.which("ffmpeg")
+            if system_ffmpeg is None:
+                raise OrchestrationError(
+                    "interlace inspection requires FFmpeg, but no executable was found"
+                )
+            ffmpeg = Path(system_ffmpeg)
+        ffprobe = ffmpeg.with_name("ffprobe")
+        if not ffprobe.is_file():
+            system_ffprobe = shutil.which("ffprobe")
+            if system_ffprobe is None:
+                raise OrchestrationError(
+                    "interlace inspection requires FFprobe, but no executable was found"
+                )
+            ffprobe = Path(system_ffprobe)
+        return ffmpeg.resolve(), ffprobe.resolve()
+
+    @staticmethod
+    def _probe_field_order(ffprobe: Path, video: Path) -> str:
+        completed = subprocess.run(
+            [
+                str(ffprobe),
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=field_order",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(video),
+            ],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or "unknown FFprobe error"
+            raise OrchestrationError(
+                f"could not inspect input field order: {detail}"
+            )
+        values = [line.strip().lower() for line in completed.stdout.splitlines()]
+        return values[0] if values and values[0] else "unknown"
+
+    def _prepare_processing_video(self) -> None:
+        """Normalize a flagged interlaced source once for every later stage."""
+
+        ffmpeg, ffprobe = self._ffmpeg_tools()
+        field_order = self._probe_field_order(ffprobe, self.config.input_video)
+        if field_order not in INTERLACED_FIELD_ORDERS:
+            self.processing_video = self.config.input_video
+            self._replace_stage_record(
+                {
+                    "name": "input_normalization",
+                    "status": "reused",
+                    "action": "use_original_progressive_input",
+                    "input_field_order": field_order,
+                    "artifact": str(self.config.input_video),
+                    "completed_at_utc": _utc_now(),
+                }
+            )
+            return
+
+        output = self.preflight_dir / "input_progressive.mp4"
+        if self._can_resume_stage(
+            "input_normalization", {"normalized_input_video": output}
+        ):
+            output_field_order = self._probe_field_order(ffprobe, output)
+            if output_field_order not in INTERLACED_FIELD_ORDERS:
+                self.processing_video = output
+                return
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output.with_name(f".{output.stem}.orchestrating.mp4")
+        temporary.unlink(missing_ok=True)
+        command = [
+            str(ffmpeg),
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-y",
+            "-i",
+            str(self.config.input_video),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-vf",
+            "bwdif=mode=send_frame:parity=auto:deint=all",
+            "-fps_mode",
+            "passthrough",
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p1",
+            "-tune",
+            "hq",
+            "-rc",
+            "constqp",
+            "-qp",
+            "14",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(temporary),
+        ]
+        try:
+            self._execute("input_normalization", command, cpu_only=False)
+            os.replace(temporary, output)
+        finally:
+            temporary.unlink(missing_ok=True)
+        output_field_order = self._probe_field_order(ffprobe, output)
+        if output_field_order in INTERLACED_FIELD_ORDERS:
+            raise OrchestrationError(
+                "deinterlaced working input is still marked as interlaced: "
+                f"{output_field_order}"
+            )
+        record = next(
+            item
+            for item in self.manifest.get("stages", [])
+            if item.get("name") == "input_normalization"
+        )
+        record.update(
+            {
+                "input_field_order": field_order,
+                "output_field_order": output_field_order,
+                "artifact": str(output),
+            }
+        )
+        self._replace_stage_record(record)
+        self._publish_artifacts({"normalized_input_video": output})
+        self.processing_video = output
 
     def _validate_reused_inputs(self) -> None:
         if not self.config.inference.enabled:
@@ -954,6 +1106,7 @@ class OrchestrationRunner:
                         "completed_at_utc": _utc_now(),
                     }
                 )
+            self._restore_original_video_path(output)
             validation = validate_result_sqlite(
                 output,
                 require_segmentation=self.config.inference.uses_segmentation,
@@ -994,6 +1147,7 @@ class OrchestrationRunner:
                 ),
                 cpu_only=True,
             )
+        self._restore_original_video_path(output)
         validation = validate_result_sqlite(
             output,
             require_segmentation=self.config.inference.uses_segmentation,
@@ -1017,6 +1171,33 @@ class OrchestrationRunner:
             legacy_final_sqlite=artifacts.legacy_final_sqlite,
         )
 
+    def _restore_original_video_path(self, sqlite_path: Path) -> None:
+        """Keep the public SQLite pointed at the user-selected source video."""
+
+        if self.processing_video == self.config.input_video:
+            return
+        try:
+            with sqlite3.connect(sqlite_path) as connection:
+                table = connection.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table' AND name='videos'
+                    """
+                ).fetchone()
+                if table is None:
+                    raise OrchestrationError(
+                        f"result SQLite has no videos table: {sqlite_path}"
+                    )
+                connection.execute(
+                    "UPDATE videos SET path=?",
+                    (str(self.config.input_video),),
+                )
+                connection.commit()
+        except sqlite3.Error as exc:
+            raise OrchestrationError(
+                f"could not restore source video path in {sqlite_path}: {exc}"
+            ) from exc
+
     def _start_cut_precompute(self) -> BackgroundStage | None:
         settings = self.config.postprocess
         if not settings.precompute_cuts_during_inference:
@@ -1026,7 +1207,7 @@ class OrchestrationRunner:
             str(self.config.execution.runtime_python),
             str(PRECOMPUTE_CUTS_CLI),
             "--input-video",
-            str(self.config.input_video),
+            str(self.processing_video),
             "--output",
             str(output),
         ]
