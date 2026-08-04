@@ -716,6 +716,25 @@ class ConfigTests(unittest.TestCase):
                             command[command.index("--nvenc-cq") + 1],
                             "18",
                         )
+                    if execution_mode == "fast":
+                        cpu_fallback = OrchestrationRunner(
+                            config,
+                            dry_run=True,
+                        ).overlay_command(
+                            mode="raw",
+                            source_sqlite=sqlite,
+                            output=root / "output" / "fallback.mp4",
+                            execution_mode="cpu",
+                        )
+                        self.assertEqual(
+                            cpu_fallback[
+                                cpu_fallback.index("--execution-mode") + 1
+                            ],
+                            "cpu",
+                        )
+                        self.assertIn("--h264-crf", cpu_fallback)
+                        self.assertNotIn("--codec", cpu_fallback)
+                        self.assertNotIn("--copy-audio", cpu_fallback)
 
     def test_dry_run_builds_inference_command_without_executing_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

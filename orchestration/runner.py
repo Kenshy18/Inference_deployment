@@ -26,6 +26,7 @@ from .contracts import (
     validate_mask_sqlite,
     validate_result_sqlite,
 )
+from .rescale_result_sqlite import VideoGeometry, rescale_result_sqlite
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,10 @@ POSTPROCESS_CLI = REPOSITORY_ROOT / "postprocess" / "run_pipeline.py"
 PRECOMPUTE_CUTS_CLI = REPOSITORY_ROOT / "postprocess" / "precompute_cuts.py"
 PACKAGE_RESULT_CLI = REPOSITORY_ROOT / "postprocess" / "package_result.py"
 OVERLAY_ROOT = REPOSITORY_ROOT / "overlay"
+BUNDLED_FFMPEG = (
+    OVERLAY_ROOT / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
+)
+INTERLACED_FIELD_ORDERS = {"tt", "bb", "tb", "bt"}
 
 
 class OrchestrationError(RuntimeError):
@@ -48,6 +53,7 @@ class WorkflowArtifacts:
     tracked_sqlite: Path | None = None
     final_sqlite: Path | None = None
     result_sqlite: Path | None = None
+    overlay_sqlite: Path | None = None
     legacy_final_sqlite: Path | None = None
 
 
@@ -136,6 +142,10 @@ class OrchestrationRunner:
         dry_run: bool = False,
     ) -> None:
         self.config = config
+        # The public configuration always keeps the user-selected source.  An
+        # interlaced source is normalized once and all processing stages use
+        # this private progressive working copy instead.
+        self.processing_video = config.input_video
         self.resume = config.execution.resume if resume is None else bool(resume)
         self.dry_run = dry_run
         self.output_root = config.output_root
@@ -148,6 +158,11 @@ class OrchestrationRunner:
         self.postprocess_dir = self.work_dir / "02_postprocess"
         self.overlay_dir = self.output_root / "overlay"
         self.overlay_manifest_dir = self.logs_dir / "overlay"
+        self.proxy_video_path = self.preflight_dir / "analysis_proxy_1920x1080.mp4"
+        self.proxy_result_path = self.preflight_dir / "result_1920x1080.sqlite"
+        self.analysis_video = config.input_video
+        self.original_geometry: VideoGeometry | None = None
+        self.analysis_geometry: VideoGeometry | None = None
         self.public_result_path = self.output_root / (
             f"{_safe_output_stem(config.input_video.stem)}.sqlite"
         )
@@ -172,6 +187,116 @@ class OrchestrationRunner:
             "artifacts": {},
         }
         self._sqlite_frame_bounds_cache: dict[Path, tuple[int, int]] = {}
+
+    @staticmethod
+    def _probe_video(path: Path) -> VideoGeometry:
+        import cv2
+
+        capture = cv2.VideoCapture(str(path))
+        if not capture.isOpened():
+            raise OrchestrationError(f"failed to probe video: {path}")
+        try:
+            geometry = VideoGeometry(
+                width=int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                height=int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                fps=float(capture.get(cv2.CAP_PROP_FPS) or 0.0),
+                frame_count=int(capture.get(cv2.CAP_PROP_FRAME_COUNT)),
+            )
+        finally:
+            capture.release()
+        if (
+            min(geometry.width, geometry.height, geometry.frame_count) <= 0
+            or geometry.fps <= 0
+        ):
+            raise OrchestrationError(f"video has invalid geometry: {path}: {geometry}")
+        return geometry
+
+    @staticmethod
+    def _uses_1080p_proxy(geometry: VideoGeometry) -> bool:
+        return (
+            geometry.width > 1920
+            and geometry.height > 1080
+            and geometry.width * 9 == geometry.height * 16
+        )
+
+    def _prepare_analysis_video(self) -> None:
+        """Use a 1080p analysis proxy for larger 16:9 source videos."""
+
+        self.original_geometry = self._probe_video(self.config.input_video)
+        self.analysis_geometry = self._probe_video(self.processing_video)
+        if (
+            not self.config.inference.enabled
+            or not self._uses_1080p_proxy(self.original_geometry)
+        ):
+            self.analysis_video = self.processing_video
+            return
+        ffmpeg, _ffprobe = self._ffmpeg_tools()
+        if not self._can_resume_stage(
+            "analysis_proxy", {"analysis_proxy_video": self.proxy_video_path}
+        ):
+            self.proxy_video_path.parent.mkdir(parents=True, exist_ok=True)
+            command = [
+                str(ffmpeg),
+                "-hide_banner",
+                "-y",
+                "-i",
+                str(self.processing_video),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
+                "-vf",
+                "scale=1920:1080:flags=lanczos,format=yuv420p",
+                "-fps_mode",
+                "passthrough",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "15",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(self.proxy_video_path),
+            ]
+            self._execute("analysis_proxy", command, cpu_only=True)
+        self.analysis_geometry = self._probe_video(self.proxy_video_path)
+        if (
+            self.analysis_geometry.width != 1920
+            or self.analysis_geometry.height != 1080
+        ):
+            raise OrchestrationError(
+                f"analysis proxy has unexpected size: {self.analysis_geometry}"
+            )
+        if self.analysis_geometry.frame_count != self.original_geometry.frame_count:
+            raise OrchestrationError(
+                "analysis proxy changed frame count: "
+                f"source={self.original_geometry.frame_count}, "
+                f"proxy={self.analysis_geometry.frame_count}"
+            )
+        if abs(self.analysis_geometry.fps - self.original_geometry.fps) > 1e-3:
+            raise OrchestrationError(
+                "analysis proxy changed fps: "
+                f"source={self.original_geometry.fps}, "
+                f"proxy={self.analysis_geometry.fps}"
+            )
+        self.analysis_video = self.proxy_video_path
+        self._publish_artifacts(
+            {"analysis_proxy_video": self.proxy_video_path},
+            validation={
+                "analysis_proxy_video": {
+                    "source": str(self.config.input_video),
+                    "source_width": self.original_geometry.width,
+                    "source_height": self.original_geometry.height,
+                    "proxy_width": self.analysis_geometry.width,
+                    "proxy_height": self.analysis_geometry.height,
+                    "frame_count": self.analysis_geometry.frame_count,
+                    "fps": self.analysis_geometry.fps,
+                }
+            },
+        )
 
     def _sqlite_frame_bounds(self, source: Path) -> tuple[int, int] | None:
         """Return the materialized frame domain without revalidating the SQLite."""
@@ -225,7 +350,7 @@ class OrchestrationRunner:
             str(self.config.execution.runtime_python),
             str(INFERENCE_CLI),
             "--input",
-            str(self.config.input_video),
+            str(self.analysis_video),
             "--output",
             str(output),
             "--mode",
@@ -292,7 +417,7 @@ class OrchestrationRunner:
             "--input-sqlite",
             str(inference_sqlite),
             "--input-video",
-            str(self.config.input_video),
+            str(self.analysis_video),
             "--output-dir",
             str(output),
             "--orchestration-config-json",
@@ -379,16 +504,18 @@ class OrchestrationRunner:
         manifest: Path | None = None,
         face_sqlite: Path | None = None,
         preset: str | None = None,
+        execution_mode: str | None = None,
     ) -> list[str]:
         settings = self.config.overlay
+        selected_execution_mode = execution_mode or settings.execution_mode
         command = [
             str(self.config.execution.runtime_python),
             "-m",
             "overlay_renderer",
             "--execution-mode",
-            settings.execution_mode,
+            selected_execution_mode,
             "--video",
-            str(self.config.input_video),
+            str(self.analysis_video),
             "--sqlite",
             str(source_sqlite),
             "--output",
@@ -465,16 +592,14 @@ class OrchestrationRunner:
             command.extend(["--end-frame", str(effective_end_frame)])
         if not settings.show_labels:
             command.append("--no-labels")
-        if settings.execution_mode == "cpu" and settings.codec != "h264":
-            command.extend(["--codec", settings.codec])
-        if settings.execution_mode == "cpu" and settings.codec == "h264":
+        if selected_execution_mode == "cpu":
             command.extend(
                 [
                     "--h264-crf",
                     str(settings.h264_crf),
                 ]
             )
-        if settings.execution_mode in {"cpu", "fast"}:
+        if selected_execution_mode in {"cpu", "fast"}:
             command.extend(["--h264-preset", settings.h264_preset])
         if settings.target_bitrate_mbps is not None:
             command.extend(
@@ -494,7 +619,7 @@ class OrchestrationRunner:
                     str(settings.nvenc_gpu),
                 ]
             )
-        if settings.execution_mode == "fast":
+        if selected_execution_mode == "fast":
             command.extend(
                 [
                     "--workers",
@@ -694,6 +819,8 @@ class OrchestrationRunner:
         self._save_manifest()
         cut_stage: BackgroundStage | None = None
         try:
+            self._prepare_processing_video()
+            self._prepare_analysis_video()
             cut_stage = self._start_cut_precompute()
             artifacts = self._run_inference()
             precomputed_cuts = (
@@ -747,6 +874,149 @@ class OrchestrationRunner:
             self.resolved_config_path,
             self.config.resolved_dict(),
         )
+
+    def _ffmpeg_tools(self) -> tuple[Path, Path]:
+        """Resolve the matching FFmpeg/FFprobe pair used for normalization."""
+
+        configured = self.config.overlay.ffmpeg_bin
+        ffmpeg = configured if configured is not None else BUNDLED_FFMPEG
+        if not ffmpeg.is_file():
+            system_ffmpeg = shutil.which("ffmpeg")
+            if system_ffmpeg is None:
+                raise OrchestrationError(
+                    "interlace inspection requires FFmpeg, but no executable was found"
+                )
+            ffmpeg = Path(system_ffmpeg)
+        ffprobe = ffmpeg.with_name("ffprobe")
+        if not ffprobe.is_file():
+            system_ffprobe = shutil.which("ffprobe")
+            if system_ffprobe is None:
+                raise OrchestrationError(
+                    "interlace inspection requires FFprobe, but no executable was found"
+                )
+            ffprobe = Path(system_ffprobe)
+        return ffmpeg.resolve(), ffprobe.resolve()
+
+    @staticmethod
+    def _probe_field_order(ffprobe: Path, video: Path) -> str:
+        completed = subprocess.run(
+            [
+                str(ffprobe),
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=field_order",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(video),
+            ],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or "unknown FFprobe error"
+            raise OrchestrationError(
+                f"could not inspect input field order: {detail}"
+            )
+        values = [line.strip().lower() for line in completed.stdout.splitlines()]
+        return values[0] if values and values[0] else "unknown"
+
+    def _prepare_processing_video(self) -> None:
+        """Normalize a flagged interlaced source once for every later stage."""
+
+        ffmpeg, ffprobe = self._ffmpeg_tools()
+        field_order = self._probe_field_order(ffprobe, self.config.input_video)
+        if field_order not in INTERLACED_FIELD_ORDERS:
+            self.processing_video = self.config.input_video
+            self._replace_stage_record(
+                {
+                    "name": "input_normalization",
+                    "status": "reused",
+                    "action": "use_original_progressive_input",
+                    "input_field_order": field_order,
+                    "artifact": str(self.config.input_video),
+                    "completed_at_utc": _utc_now(),
+                }
+            )
+            return
+
+        output = self.preflight_dir / "input_progressive.mp4"
+        if self._can_resume_stage(
+            "input_normalization", {"normalized_input_video": output}
+        ):
+            output_field_order = self._probe_field_order(ffprobe, output)
+            if output_field_order not in INTERLACED_FIELD_ORDERS:
+                self.processing_video = output
+                return
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output.with_name(f".{output.stem}.orchestrating.mp4")
+        temporary.unlink(missing_ok=True)
+        command = [
+            str(ffmpeg),
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-y",
+            "-i",
+            str(self.config.input_video),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-vf",
+            "bwdif=mode=send_frame:parity=auto:deint=all",
+            "-fps_mode",
+            "passthrough",
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p1",
+            "-tune",
+            "hq",
+            "-rc",
+            "constqp",
+            "-qp",
+            "14",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(temporary),
+        ]
+        try:
+            self._execute("input_normalization", command, cpu_only=False)
+            os.replace(temporary, output)
+        finally:
+            temporary.unlink(missing_ok=True)
+        output_field_order = self._probe_field_order(ffprobe, output)
+        if output_field_order in INTERLACED_FIELD_ORDERS:
+            raise OrchestrationError(
+                "deinterlaced working input is still marked as interlaced: "
+                f"{output_field_order}"
+            )
+        record = next(
+            item
+            for item in self.manifest.get("stages", [])
+            if item.get("name") == "input_normalization"
+        )
+        record.update(
+            {
+                "input_field_order": field_order,
+                "output_field_order": output_field_order,
+                "artifact": str(output),
+            }
+        )
+        self._replace_stage_record(record)
+        self._publish_artifacts({"normalized_input_video": output})
+        self.processing_video = output
 
     def _validate_reused_inputs(self) -> None:
         if not self.config.inference.enabled:
@@ -936,24 +1206,51 @@ class OrchestrationRunner:
     ) -> WorkflowArtifacts:
         """Guarantee one stable public result SQLite for every mode."""
 
+        proxy_run = self.analysis_video == self.proxy_video_path
+        if proxy_run and (
+            self.original_geometry is None or self.analysis_geometry is None
+        ):
+            raise OrchestrationError("analysis proxy geometry was not initialized")
+
         if artifacts.result_sqlite is not None:
             output = self.public_result_path
+            expected_publication = {"result_sqlite": output}
+            if proxy_run:
+                expected_publication["proxy_result_sqlite"] = self.proxy_result_path
             if not self._can_resume_stage(
                 "result_publication",
-                {"result_sqlite": output},
+                expected_publication,
             ):
                 started = time.perf_counter()
-                _atomic_copy(artifacts.result_sqlite, output)
+                transform = None
+                publication_source = artifacts.result_sqlite
+                if proxy_run:
+                    _atomic_copy(artifacts.result_sqlite, self.proxy_result_path)
+                    assert self.original_geometry is not None
+                    assert self.analysis_geometry is not None
+                    transform = rescale_result_sqlite(
+                        self.proxy_result_path,
+                        output,
+                        proxy=self.analysis_geometry,
+                        original=self.original_geometry,
+                        original_video=self.config.input_video,
+                    )
+                    publication_source = self.proxy_result_path
+                else:
+                    _atomic_copy(artifacts.result_sqlite, output)
                 self._replace_stage_record(
                     {
                         "name": "result_publication",
                         "status": "complete",
-                        "source": str(artifacts.result_sqlite),
+                        "source": str(publication_source),
                         "artifact": str(output),
+                        "coordinate_transform": transform,
                         "elapsed_seconds": time.perf_counter() - started,
                         "completed_at_utc": _utc_now(),
                     }
                 )
+            if not proxy_run:
+                self._restore_original_video_path(output)
             validation = validate_result_sqlite(
                 output,
                 require_segmentation=self.config.inference.uses_segmentation,
@@ -964,9 +1261,26 @@ class OrchestrationRunner:
                     else None
                 ),
             )
+            published = {"result_sqlite": output}
+            publication_validation: dict[str, object] = {
+                "result_sqlite": validation
+            }
+            if proxy_run:
+                proxy_validation = validate_result_sqlite(
+                    self.proxy_result_path,
+                    require_segmentation=self.config.inference.uses_segmentation,
+                    require_faces=self.config.inference.uses_faces,
+                    expected_face_model=(
+                        self.config.inference.face_model
+                        if self.config.inference.uses_faces
+                        else None
+                    ),
+                )
+                published["proxy_result_sqlite"] = self.proxy_result_path
+                publication_validation["proxy_result_sqlite"] = proxy_validation
             self._publish_artifacts(
-                {"result_sqlite": output},
-                validation={"result_sqlite": validation},
+                published,
+                validation=publication_validation,
                 replace_sqlite_outputs=True,
             )
             return WorkflowArtifacts(
@@ -974,26 +1288,43 @@ class OrchestrationRunner:
                 tracked_sqlite=artifacts.tracked_sqlite,
                 final_sqlite=artifacts.final_sqlite,
                 result_sqlite=output,
+                overlay_sqlite=self.proxy_result_path if proxy_run else output,
                 legacy_final_sqlite=artifacts.legacy_final_sqlite,
             )
 
         output = self.public_result_path
+        package_output = self.proxy_result_path if proxy_run else output
+        expected_packaging = {"result_sqlite": output}
+        if proxy_run:
+            expected_packaging["proxy_result_sqlite"] = self.proxy_result_path
         if not self._can_resume_stage(
             "result_packaging",
-            {"result_sqlite": output},
+            expected_packaging,
         ):
-            output.parent.mkdir(parents=True, exist_ok=True)
+            package_output.parent.mkdir(parents=True, exist_ok=True)
             self._execute(
                 "result_packaging",
                 self.package_result_command(
                     inference_sqlite=artifacts.inference_sqlite,
                     tracked_sqlite=artifacts.tracked_sqlite,
                     final_sqlite=artifacts.final_sqlite,
-                    output=output,
+                    output=package_output,
                     precomputed_cuts=precomputed_cuts,
                 ),
                 cpu_only=True,
             )
+            if proxy_run:
+                assert self.original_geometry is not None
+                assert self.analysis_geometry is not None
+                rescale_result_sqlite(
+                    package_output,
+                    output,
+                    proxy=self.analysis_geometry,
+                    original=self.original_geometry,
+                    original_video=self.config.input_video,
+                )
+        if not proxy_run:
+            self._restore_original_video_path(output)
         validation = validate_result_sqlite(
             output,
             require_segmentation=self.config.inference.uses_segmentation,
@@ -1004,9 +1335,23 @@ class OrchestrationRunner:
                 else None
             ),
         )
+        published = {"result_sqlite": output}
+        validation_payload: dict[str, object] = {"result_sqlite": validation}
+        if proxy_run:
+            published["proxy_result_sqlite"] = self.proxy_result_path
+            validation_payload["proxy_result_sqlite"] = validate_result_sqlite(
+                self.proxy_result_path,
+                require_segmentation=self.config.inference.uses_segmentation,
+                require_faces=self.config.inference.uses_faces,
+                expected_face_model=(
+                    self.config.inference.face_model
+                    if self.config.inference.uses_faces
+                    else None
+                ),
+            )
         self._publish_artifacts(
-            {"result_sqlite": output},
-            validation={"result_sqlite": validation},
+            published,
+            validation=validation_payload,
             replace_sqlite_outputs=True,
         )
         return WorkflowArtifacts(
@@ -1014,8 +1359,48 @@ class OrchestrationRunner:
             tracked_sqlite=artifacts.tracked_sqlite,
             final_sqlite=artifacts.final_sqlite,
             result_sqlite=output,
+            overlay_sqlite=self.proxy_result_path if proxy_run else output,
             legacy_final_sqlite=artifacts.legacy_final_sqlite,
         )
+
+    def _restore_original_video_path(self, sqlite_path: Path) -> None:
+        """Keep the public SQLite pointed at the user-selected source video."""
+
+        if self.processing_video == self.config.input_video:
+            return
+        try:
+            with sqlite3.connect(sqlite_path) as connection:
+                table = connection.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table' AND name='videos'
+                    """
+                ).fetchone()
+                if table is None:
+                    raise OrchestrationError(
+                        f"result SQLite has no videos table: {sqlite_path}"
+                    )
+                connection.execute(
+                    "UPDATE videos SET path=?",
+                    (str(self.config.input_video),),
+                )
+                model_metadata = connection.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table' AND name='model_metadata'
+                    """
+                ).fetchone()
+                if model_metadata is not None:
+                    connection.execute(
+                        "UPDATE model_metadata SET value=?, value_type='str' "
+                        "WHERE key='input'",
+                        (str(self.config.input_video),),
+                    )
+                connection.commit()
+        except sqlite3.Error as exc:
+            raise OrchestrationError(
+                f"could not restore source video path in {sqlite_path}: {exc}"
+            ) from exc
 
     def _start_cut_precompute(self) -> BackgroundStage | None:
         settings = self.config.postprocess
@@ -1026,7 +1411,7 @@ class OrchestrationRunner:
             str(self.config.execution.runtime_python),
             str(PRECOMPUTE_CUTS_CLI),
             "--input-video",
-            str(self.config.input_video),
+            str(self.analysis_video),
             "--output",
             str(output),
         ]
@@ -1138,7 +1523,11 @@ class OrchestrationRunner:
         output_root = self.overlay_dir
         output_root.mkdir(parents=True, exist_ok=True)
         requested: list[tuple[str, str | None, Path, Path | None, str | None]] = []
-        unified = artifacts.result_sqlite or artifacts.inference_sqlite
+        unified = (
+            artifacts.overlay_sqlite
+            or artifacts.result_sqlite
+            or artifacts.inference_sqlite
+        )
         if settings.presets:
             requested.extend(
                 (
@@ -1155,18 +1544,26 @@ class OrchestrationRunner:
                 (
                     "raw",
                     "raw",
-                    artifacts.result_sqlite or artifacts.inference_sqlite,
+                    unified,
                     None,
                     None,
                 )
             )
         if settings.tracked:
-            tracked_source = artifacts.result_sqlite or artifacts.tracked_sqlite
+            tracked_source = (
+                artifacts.overlay_sqlite
+                or artifacts.result_sqlite
+                or artifacts.tracked_sqlite
+            )
             if tracked_source is None:
                 raise OrchestrationError("tracked overlay has no tracked SQLite")
             requested.append(("tracked", "tracked", tracked_source, None, None))
         if settings.final:
-            final_source = artifacts.result_sqlite or artifacts.final_sqlite
+            final_source = (
+                artifacts.overlay_sqlite
+                or artifacts.result_sqlite
+                or artifacts.final_sqlite
+            )
             if final_source is None:
                 raise OrchestrationError("final overlay has no final SQLite")
             requested.append(
@@ -1174,11 +1571,7 @@ class OrchestrationRunner:
                     "final",
                     "final",
                     final_source,
-                    (
-                        artifacts.result_sqlite or artifacts.inference_sqlite
-                        if settings.final_include_faces
-                        else None
-                    ),
+                    (unified if settings.final_include_faces else None),
                     None,
                 )
             )
@@ -1187,7 +1580,7 @@ class OrchestrationRunner:
                 (
                     "faces",
                     "faces",
-                    artifacts.result_sqlite or artifacts.inference_sqlite,
+                    unified,
                     None,
                     None,
                 )
@@ -1210,25 +1603,82 @@ class OrchestrationRunner:
                 },
             ):
                 continue
-            command = self.overlay_command(
-                mode=mode,
-                source_sqlite=source,
-                output=output,
-                manifest=output_manifest,
-                face_sqlite=face_source,
-                preset=preset,
-            )
-            self._execute(
-                f"overlay_{name}",
-                command,
-                cpu_only=not settings.uses_nvenc,
-                extra_pythonpath=OVERLAY_ROOT / "src",
-                extra_environment={
-                    "MASK_PIPELINE_PROGRESS_ITEM_INDEX": str(overlay_index),
-                    "MASK_PIPELINE_PROGRESS_ITEM_COUNT": str(len(requested)),
-                    "MASK_PIPELINE_PROGRESS_ITEM_NAME": name,
-                },
-            )
+            fallback_modes = {
+                "fast": ("fast", "nvenc", "cpu"),
+                "nvenc": ("nvenc", "cpu"),
+                "cpu": ("cpu",),
+            }[settings.execution_mode]
+            attempts: list[dict[str, object]] = []
+            last_error: OrchestrationError | None = None
+            for attempt_index, execution_mode in enumerate(fallback_modes):
+                output.unlink(missing_ok=True)
+                output_manifest.unlink(missing_ok=True)
+                command = self.overlay_command(
+                    mode=mode,
+                    source_sqlite=source,
+                    output=output,
+                    manifest=output_manifest,
+                    face_sqlite=face_source,
+                    preset=preset,
+                    execution_mode=execution_mode,
+                )
+                attempt_stage = (
+                    f"overlay_{name}"
+                    if attempt_index == 0
+                    else f"overlay_{name}_{execution_mode}_fallback"
+                )
+                try:
+                    self._execute(
+                        attempt_stage,
+                        command,
+                        cpu_only=execution_mode == "cpu",
+                        extra_pythonpath=OVERLAY_ROOT / "src",
+                        extra_environment={
+                            "MASK_PIPELINE_PROGRESS_ITEM_INDEX": str(overlay_index),
+                            "MASK_PIPELINE_PROGRESS_ITEM_COUNT": str(len(requested)),
+                            "MASK_PIPELINE_PROGRESS_ITEM_NAME": name,
+                        },
+                    )
+                except OrchestrationError as exc:
+                    last_error = exc
+                    attempts.append(
+                        {
+                            "execution_mode": execution_mode,
+                            "status": "failed",
+                            "error": str(exc),
+                            "log": str(self.logs_dir / f"{attempt_stage}.log"),
+                        }
+                    )
+                    if attempt_index + 1 < len(fallback_modes):
+                        print(
+                            f"[overlay_{name}] {execution_mode} failed; "
+                            f"retrying with {fallback_modes[attempt_index + 1]}",
+                            flush=True,
+                        )
+                    continue
+                attempts.append(
+                    {
+                        "execution_mode": execution_mode,
+                        "status": "complete",
+                        "log": str(self.logs_dir / f"{attempt_stage}.log"),
+                    }
+                )
+                if attempt_index > 0:
+                    self._replace_stage_record(
+                        {
+                            "name": f"overlay_{name}",
+                            "status": "complete",
+                            "execution_mode": execution_mode,
+                            "attempts": attempts,
+                            "completed_at_utc": _utc_now(),
+                        }
+                    )
+                break
+            else:
+                output.unlink(missing_ok=True)
+                output_manifest.unlink(missing_ok=True)
+                assert last_error is not None
+                raise last_error
             if not output.is_file() or output.stat().st_size == 0:
                 raise OrchestrationError(f"overlay did not create output: {output}")
             self._publish_artifacts(
