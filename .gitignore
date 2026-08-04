@@ -29,7 +29,8 @@ dist/
 *.so
 
 # Runtime datasets and generated pipeline outputs
-/data/
+/data/*
+!/data/README.md
 /output/**
 !/output/.gitkeep
 **/input/**
