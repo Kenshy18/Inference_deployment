@@ -97,7 +97,10 @@ class ClasswisePostprocessStage:
         fallback = ClassPostprocessSettings(
             shape_mode=fallback_shape,
             keyframe_interval=int(
-                self.options.get("default_keyframe_interval", 3)
+                self.options.get(
+                    "default_keyframe_interval",
+                    6 if fallback_shape == "polygon" else 3,
+                )
             ),
             max_gap=(
                 int(fallback_gap_value)

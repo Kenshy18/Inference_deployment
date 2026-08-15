@@ -419,7 +419,7 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                 {
                     "default_shape_mode": args.shape_mode,
                     "default_keyframe_interval": (
-                        3
+                        (6 if args.shape_mode == "polygon" else 3)
                         if args.keyframe_interval is None
                         else int(args.keyframe_interval)
                     ),
