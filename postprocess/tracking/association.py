@@ -58,11 +58,19 @@ class AssociationConfig:
 
 
 def detection_features(detection: dict[str, Any]) -> DetectionFeatures:
-    x1, y1, x2, y2 = map(float, detection.get("bbox_xyxy", [0.0, 0.0, 0.0, 0.0]))
+    association_bbox = detection.get(
+        "_association_bbox_xyxy", detection.get("bbox_xyxy", [0.0, 0.0, 0.0, 0.0])
+    )
+    x1, y1, x2, y2 = map(float, association_bbox)
     width = max(0.0, x2 - x1)
     height = max(0.0, y2 - y1)
     area = width * height
-    polygon_area = float(detection.get("_mask_area") or 0.0) or None
+    polygon_area = (
+        float(
+            detection.get("_association_mask_area", detection.get("_mask_area")) or 0.0
+        )
+        or None
+    )
     return DetectionFeatures(
         bbox=(x1, y1, x2, y2),
         center=(x1 + width * 0.5, y1 + height * 0.5),

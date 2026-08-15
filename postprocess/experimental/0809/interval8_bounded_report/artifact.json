@@ -1,0 +1,142 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "目標間隔8・膨張制約付き形状候補探索",
+    "description": "最小Recall 0.97を維持しながら、過大な形状変化を避けて実効キーフレーム間隔8へ近づける探索結果。",
+    "generatedAt": "2026-08-11T12:00:00+09:00",
+    "cards": [],
+    "charts": [
+      {
+        "id": "interval_comparison",
+        "title": "v4から安全側v7への到達度",
+        "subtitle": "目標8に対する全クラス集計の実効間隔。",
+        "type": "bar",
+        "dataset": "variant_comparison",
+        "sourceId": "phase2_matrix",
+        "valueFormat": "number",
+        "encodings": {
+          "x": { "field": "variant", "type": "nominal", "label": "候補セット" },
+          "y": { "field": "effective_interval", "type": "quantitative", "label": "実効間隔" },
+          "tooltip": [
+            { "field": "keyframes", "type": "quantitative", "label": "キーフレーム", "format": "number" },
+            { "field": "mean_iou", "type": "quantitative", "label": "平均IoU", "format": "number" }
+          ]
+        }
+      }
+    ],
+    "tables": [],
+    "sources": [
+      {
+        "id": "phase2_matrix",
+        "label": "フル探索集計",
+        "path": "output/phase2_production_candidate_interval8_safe_v7_full_20260811/phase2_matrix.json",
+        "query": {
+          "engine": "portable-values",
+          "sql": "SELECT * FROM (VALUES ('best v4', 6.456072, 3973, 0.871793), ('bounded safe v7', 6.481193, 3958, 0.871630)) AS t(variant, effective_interval, keyframes, mean_iou)",
+          "description": "phase2_matrix.jsonから抽出したv4/v7比較値。",
+          "executed_at": "2026-08-11T12:00:00+09:00"
+        }
+      },
+      { "id": "male_audit", "label": "男性器候補監査", "path": "output/phase2_production_candidate_interval8_safe_v7_full_20260811/production_candidate_interval8_safe_v7/男性器/runtime/phase2_audit.json" },
+      { "id": "validation", "label": "編集用SQLite検証", "path": "output/phase2_production_candidate_interval8_safe_v7_full_20260811/software_review/12月KPI動画_production_candidate_interval8_safe_v7_目標間隔8_Recall097.validation.json" }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# 目標間隔8・膨張制約付き形状候補探索\n\n**判定: 条件付き成功。** 過大膨張を起こさない安全なPareto点は得られたが、最小Recall 0.97・線形補間・形状膨張抑制を同時に守ると、このデータ全体で実効間隔8には到達しない。"
+      },
+      {
+        "id": "summary",
+        "type": "markdown",
+        "sourceId": "phase2_matrix",
+        "body": "## Technical summary\n\n新しい逆算候補 `IVB8_115` は、8フレーム区間の中間raw形状から終端形状を逆算し、複数フレームで支持される局所追加だけを残す。平行移動・回転・等方スケールは位置合わせで分離し、候補面積をrawの最大1.15倍へ制限した。安全側v7では男性器の冗長候補1状態をこれに置換し、女性器・結合部分はv4から変更していない。"
+      },
+      {
+        "id": "comparison",
+        "type": "markdown",
+        "sourceId": "phase2_matrix",
+        "body": "## Overall comparison\n\n| candidate | effective interval | keyframes | mean IoU | worst q01 | max area ratio | FPS |\n|---|---:|---:|---:|---:|---:|---:|\n| best v4 | 6.456072 | 3,973 | 0.871793 | 0.420098 | 4.371832 | 253.840 |\n| bounded safe v7 | 6.481193 | 3,958 | 0.871630 | 0.420098 | 4.371832 | 227.961 |"
+      },
+      { "id": "interval_chart", "type": "chart", "chartId": "interval_comparison" },
+      {
+        "id": "findings",
+        "type": "markdown",
+        "sourceId": "phase2_matrix",
+        "body": "## Key findings\n\n- v7はv4よりキーフレームを15枚削減し、実効間隔を6.4561から6.4812へ改善した。\n- 代償は平均IoU -0.000163で、最悪クラスq01 IoUと全体最大面積比は悪化していない。\n- 採用候補自体の面積比は最大1.1343、重心移動は等価半径の最大0.0477、Hausdorff距離は最大0.2878で、過去に見られた全方向の巨大化はない。\n- 男性器は実効間隔6.8567から6.9652へ改善した。一方、女性器と結合部分は安全性優先でv4をそのまま維持した。"
+      },
+      {
+        "id": "geometry",
+        "type": "markdown",
+        "sourceId": "male_audit",
+        "body": "## IVB8_115 candidate geometry safety\n\nSelected male keys: 134 non-gapfilled candidates.\n\n| metric | median | q95 | maximum |\n|---|---:|---:|---:|\n| area / raw area | 1.0991 | 1.1279 | 1.1343 |\n| centroid shift / radius | 0.0125 | 0.0366 | 0.0477 |\n| Hausdorff distance / radius | 0.1326 | 0.2457 | 0.2878 |"
+      },
+      {
+        "id": "scope",
+        "type": "markdown",
+        "body": "## Scope, data, and metric definitions\n\n動画フレームは開かず、SQLite内のポリゴン幾何だけを使用した。Pair-voteは無効。`実効間隔 = 有効観測数 / 選択キー数`、Recallは各補間マスクが同フレームのraw参照を被覆する割合で、全有効フレームの下限を0.97とした。IoUは補間結果とraw参照の一致度、面積比は出力面積/raw面積である。"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "## Methodology\n\n1. 10%/15%面積上限の最小二乗端点、順方向・逆方向の補間逆算、20%上限、既存状態との置換・追加・削除を探索した。\n2. 半量・難トラックでRecall実行可能性、平均/q01/q05 IoU、面積q95/q99/最大値をスクリーニングした。\n3. 有望構成だけを全23,510フレーム相当で再実行した。\n4. 候補が実際に選択されたキーについて、面積、重心移動、Hausdorff距離をraw形状に対して監査した。\n5. 編集ソフト互換SQLiteを出力し、schema fingerprint、integrity check、外部キー、境界Recallを検証した。"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## Limitations and robustness\n\n結合部分track 71は8フレーム弦に対する重心の非線形逸脱が等価半径比で中央値0.810、q95 1.807に達する。10〜15%の形状拡大では最小Recall 0.97を満たせず、実効間隔2.315までキー追加が必要だった。したがって厳密な全体間隔8は、形状候補だけで安全に達成できない。なお評価参照はAI rawであり、人手GTではない。速度は227.96 FPSでv4の253.84 FPSを下回り、候補生成の最適化も未完了である。"
+      },
+      {
+        "id": "recommendations",
+        "type": "markdown",
+        "body": "## Recommended next steps\n\n- v7は編集ソフトで局所品質を確認する探索候補として使用し、現時点でv4を無条件置換しない。\n- 次はトラック別に間隔8を強制せず、難区間の短い間隔を静止区間の8超で補償する**全体キーバジェットDP**を実装する。これが安全条件を維持したまま全体平均8へ到達する正攻法である。\n- Production昇格前にIVB候補生成を最適化し、少なくとも既存240 FPS基準を回復する。"
+      },
+      {
+        "id": "questions",
+        "type": "markdown",
+        "body": "## Further questions\n\n- 編集上、平均間隔8は動画全体の目標でよいか、それとも各トラックで要求されるか。\n- raw Recall 0.97を信頼度付き参照へ将来変更するか。\n- 男性器で得た小さなIoU低下と15キー削減の交換を実運用で許容するか。"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-11T12:00:00+09:00",
+    "status": "ready",
+    "datasets": {
+      "summary": [
+        { "effective_interval": 6.481193, "keyframes": 3958, "mean_iou": 0.871630, "worst_q01": 0.420098 }
+      ],
+      "variant_comparison": [
+        { "variant": "best v4", "effective_interval": 6.456072, "keyframes": 3973, "mean_iou": 0.871793, "worst_q01": 0.420098, "max_area_ratio": 4.371832, "video_fps": 253.840 },
+        { "variant": "bounded safe v7", "effective_interval": 6.481193, "keyframes": 3958, "mean_iou": 0.871630, "worst_q01": 0.420098, "max_area_ratio": 4.371832, "video_fps": 227.961 }
+      ],
+      "candidate_geometry": [
+        { "metric": "area / raw area", "median": 1.0991, "q95": 1.1279, "maximum": 1.1343 },
+        { "metric": "centroid shift / radius", "median": 0.0125, "q95": 0.0366, "maximum": 0.0477 },
+        { "metric": "Hausdorff distance / radius", "median": 0.1326, "q95": 0.2457, "maximum": 0.2878 }
+      ]
+    },
+    "accessIssues": []
+  },
+  "sources": [
+    {
+      "id": "phase2_matrix",
+      "label": "フル探索集計",
+      "path": "output/phase2_production_candidate_interval8_safe_v7_full_20260811/phase2_matrix.json",
+      "query": {
+        "engine": "portable-values",
+        "sql": "SELECT * FROM (VALUES ('best v4', 6.456072, 3973, 0.871793), ('bounded safe v7', 6.481193, 3958, 0.871630)) AS t(variant, effective_interval, keyframes, mean_iou)",
+        "description": "phase2_matrix.jsonから抽出したv4/v7比較値。",
+        "executed_at": "2026-08-11T12:00:00+09:00"
+      }
+    },
+    { "id": "male_audit", "label": "男性器候補監査", "path": "output/phase2_production_candidate_interval8_safe_v7_full_20260811/production_candidate_interval8_safe_v7/男性器/runtime/phase2_audit.json" },
+    { "id": "validation", "label": "編集用SQLite検証", "path": "output/phase2_production_candidate_interval8_safe_v7_full_20260811/software_review/12月KPI動画_production_candidate_interval8_safe_v7_目標間隔8_Recall097.validation.json" }
+  ],
+  "package_info": {
+    "originUrl": "artifact://interval8-bounded-candidate-search-20260811",
+    "controls": { "edit": false, "refresh": false }
+  }
+}

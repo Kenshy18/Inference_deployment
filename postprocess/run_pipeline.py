@@ -391,6 +391,9 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             "preprocessing.raw_sqlite",
             "preprocessing.score_policy",
             "nms.adaptive",
+            "nms.component_aware_mask_candidate_v2",
+            "nms.virtual_component_candidate_v3",
+            "nms.virtual_component_mask_candidate_v4",
             "cut_detection.video",
             "tracking.greedy",
         }

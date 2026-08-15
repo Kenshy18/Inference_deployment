@@ -34,6 +34,24 @@ def adaptive_nms(options: dict[str, Any]) -> PostprocessStage:
     return AdaptiveNmsStage(options)
 
 
+def component_aware_mask_nms(options: dict[str, Any]) -> PostprocessStage:
+    from nms.stages import ComponentAwareMaskNmsStage
+
+    return ComponentAwareMaskNmsStage(options)
+
+
+def virtual_component_nms(options: dict[str, Any]) -> PostprocessStage:
+    from nms.stages import VirtualComponentNmsStage
+
+    return VirtualComponentNmsStage(options)
+
+
+def virtual_component_mask_nms(options: dict[str, Any]) -> PostprocessStage:
+    from nms.stages import VirtualComponentNmsStage
+
+    return VirtualComponentNmsStage({**options, "comparison_policy": "adaptive_mask"})
+
+
 def cut_detection(options: dict[str, Any]) -> PostprocessStage:
     from cut_detection.stages import VideoCutDetectionStage
 
@@ -146,6 +164,9 @@ register_stage("preprocessing.normalize", normalization)
 register_stage("preprocessing.raw_sqlite", raw_sqlite_normalization)
 register_stage("preprocessing.score_policy", score_policy)
 register_stage("nms.adaptive", adaptive_nms)
+register_stage("nms.component_aware_mask_candidate_v2", component_aware_mask_nms)
+register_stage("nms.virtual_component_candidate_v3", virtual_component_nms)
+register_stage("nms.virtual_component_mask_candidate_v4", virtual_component_mask_nms)
 register_stage("cut_detection.video", cut_detection)
 register_stage("tracking.greedy", tracking)
 register_stage("approximation.polygon.rdp", polygon_approximation)
