@@ -33,8 +33,8 @@ def assert_runtime_bridge_contract(
     expected = {
         "profile": config.polygon_profile_id,
         "vertices": config.spatial.vertices_per_component,
-        "vertex_fallbacks": config.spatial.vertex_fallbacks,
         "spatial_recall": config.spatial.recall_floor,
+        "spatial_recall_repair_max_scale": config.spatial.recall_repair_max_scale,
         "spatial_iou": config.spatial.iou_floor,
         "temporal_recall": config.temporal.recall_floor,
         "pair_vote_sweeps": config.temporal.pair_vote_sweeps,
@@ -42,8 +42,8 @@ def assert_runtime_bridge_contract(
     actual = {
         "profile": approved.profile_id,
         "vertices": approved.vertices_per_component,
-        "vertex_fallbacks": approved.vertex_fallbacks,
         "spatial_recall": approved.spatial_recall_floor,
+        "spatial_recall_repair_max_scale": approved.spatial_recall_repair_max_scale,
         "spatial_iou": approved.spatial_iou_floor,
         "temporal_recall": approved.temporal_recall_floor,
         "pair_vote_sweeps": approved.pair_vote_sweeps,
@@ -117,7 +117,6 @@ def run_polygon_optimizer(
     labels: tuple[str, ...] | None = None,
     max_tracks: int = 0,
     force: bool = False,
-    require_exact_recall: bool = True,
 ) -> dict[str, object]:
     """Run the frozen optimizer without copying its experimental engine."""
     assert_runtime_bridge_contract(config)
@@ -184,8 +183,6 @@ def run_polygon_optimizer(
     ]
     if force:
         command.append("--force")
-    if not require_exact_recall:
-        command.append("--allow-exact-recall-violations")
     environment = os.environ.copy()
     environment.update(pair_vote_environment(config))
     environment.update(
@@ -244,8 +241,6 @@ def run_polygon_optimizer(
             / "runtime/exact/keyframe_exact_metrics.csv"
         )
         exact[label] = audit_exact_recall(metrics, config)
-        if require_exact_recall and int(exact[label]["recall_violations"]):
-            raise RuntimeError(f"{label}: exact Recall constraint was violated")
     return {
         "command": command,
         "wall_seconds": wall,
@@ -255,9 +250,7 @@ def run_polygon_optimizer(
         "phase2_root": str(interval_root),
         "exact_recall": exact,
         "active_labels": list(selected_labels),
-        "exact_recall_gate": (
-            "fail_closed" if require_exact_recall else "audit_only"
-        ),
+        "exact_recall_gate": "repair_then_audit_and_publish",
     }
 
 

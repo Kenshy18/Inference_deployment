@@ -1,4 +1,4 @@
-"""Stable boundary around the approved track-consistent 14/16/18/20 fitter."""
+"""Stable boundary around the approved track-consistent fixed-14 fitter."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ def _assert_same_contract(config: CandidateConfig) -> None:
             actual.vertices_per_component,
             expected.vertices_per_component,
         ),
-        "vertex_fallbacks": (
-            actual.vertex_fallbacks,
-            expected.vertex_fallbacks,
-        ),
         "recall_floor": (actual.recall_floor, expected.spatial_recall_floor),
+        "recall_repair_max_scale": (
+            actual.recall_repair_max_scale,
+            expected.spatial_recall_repair_max_scale,
+        ),
         "iou_floor": (actual.iou_floor, expected.spatial_iou_floor),
         "dense_vertices": (actual.dense_vertices, expected.spatial_dense_vertices),
         "coverage_quantile": (

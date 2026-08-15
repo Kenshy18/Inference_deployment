@@ -1137,7 +1137,7 @@ def _patch_phase2_candidates(module: ModuleType, profile: str) -> ModuleType:
 
             if not bool(getattr(module, "_phase1_native_interval_enabled", False)):
                 raise RuntimeError(
-                    "adaptive Production vertices require native exact interval evaluation"
+                    "fixed-14 Production Recall repair requires native exact interval evaluation"
                 )
             run._phase2_endpoint_evaluator = (
                 module._phase1_get_native_interval_evaluator(

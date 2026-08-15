@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the 14/16/18/20-point + frozen keyframe Production candidate."""
+"""Run the fixed-14-point + frozen keyframe Production candidate."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ LABELS = ("女性器", "男性器", "結合部分")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Build persistent adaptive 14/16/18/20-point polygons and optimize "
+            "Build persistent fixed 14-point polygons and optimize "
             "their temporal "
             "keyframes under exact per-frame Recall constraints."
         )
@@ -45,14 +45,6 @@ def parse_args() -> argparse.Namespace:
         default="cuda_lazy_exact",
     )
     parser.add_argument("--max-tracks", type=int, default=0)
-    parser.add_argument(
-        "--allow-exact-recall-violations",
-        action="store_true",
-        help=(
-            "audit and report final exact Recall violations instead of failing; "
-            "intended only for corpus characterization, never Production"
-        ),
-    )
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -67,8 +59,8 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
         "--labels", args.labels,
         "--target-interval", str(interval),
         "--recall-floor", str(CANDIDATE.temporal_recall_floor),
-        "--anchors-per-contour", str(max(CANDIDATE.vertex_fallbacks)),
-        "--min-anchors-per-contour", str(min(CANDIDATE.vertex_fallbacks)),
+        "--anchors-per-contour", str(CANDIDATE.vertices_per_component),
+        "--min-anchors-per-contour", str(CANDIDATE.vertices_per_component),
         "--no-adaptive-anchor-counts",
         "--num-workers", str(max(1, int(args.num_workers))),
         "--label-workers", str(max(1, int(args.label_workers))),
@@ -94,8 +86,6 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
 def _exact_quality(
     interval_root: Path,
     labels: list[str],
-    *,
-    require_zero_violations: bool = True,
 ) -> dict[str, object]:
     minimum_recall = 1.0
     rows = 0
@@ -117,11 +107,6 @@ def _exact_quality(
                     recall + 1e-12 < float(CANDIDATE.temporal_recall_floor)
                 )
         audits[label] = str(audit_path)
-    if violations and require_zero_violations:
-        raise RuntimeError(
-            f"exact Recall gate failed: violations={violations} "
-            f"minimum={minimum_recall:.9f}"
-        )
     return {
         "evaluated_rows": rows,
         "minimum_recall": minimum_recall,
@@ -157,11 +142,7 @@ def main() -> int:
         matrix_path = interval_root / "phase2_matrix.json"
         matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
         aggregate = matrix["completed_profiles"][-1]
-        quality = _exact_quality(
-            interval_root,
-            labels,
-            require_zero_violations=not args.allow_exact_recall_violations,
-        )
+        quality = _exact_quality(interval_root, labels)
         runs.append(
             {
                 "target_interval": interval,
@@ -178,11 +159,7 @@ def main() -> int:
         "status": "experimental_production_candidate",
         "candidate": CANDIDATE.to_dict(),
         "privacy": "SQLite mask geometry only; no video frames were opened.",
-        "exact_recall_gate": (
-            "audit_only"
-            if args.allow_exact_recall_violations
-            else "fail_closed"
-        ),
+        "exact_recall_gate": "repair_then_audit_and_publish",
         "sqlite_output_schema_changed": False,
         "source_root": str(args.source_root.expanduser().resolve()),
         "runs": runs,

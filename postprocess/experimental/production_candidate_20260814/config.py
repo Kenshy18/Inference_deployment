@@ -41,8 +41,8 @@ class TrackingConfig:
 @dataclass(frozen=True, slots=True)
 class SpatialConfig:
     vertices_per_component: int = 14
-    vertex_fallbacks: tuple[int, ...] = (14, 16, 18, 20)
     recall_floor: float = 0.97
+    recall_repair_max_scale: float = 1.05
     iou_floor: float = 0.95
     dense_vertices: int = 64
     coverage_quantile: float = 0.65
@@ -121,8 +121,6 @@ class CandidateConfig:
             raise ValueError("polygon profile is part of the frozen contract")
         if self.spatial.vertices_per_component != 14:
             raise ValueError("candidate minimum vertex count must be 14")
-        if self.spatial.vertex_fallbacks != (14, 16, 18, 20):
-            raise ValueError("candidate vertex fallbacks must be 14,16,18,20")
         for name, value in (
             ("spatial recall", self.spatial.recall_floor),
             ("spatial IoU", self.spatial.iou_floor),
@@ -134,6 +132,10 @@ class CandidateConfig:
         ):
             if not math.isfinite(float(value)) or not 0.0 < float(value) <= 1.0:
                 raise ValueError(f"{name} must be in (0, 1]")
+        if not math.isfinite(float(self.spatial.recall_repair_max_scale)) or not (
+            1.0 <= float(self.spatial.recall_repair_max_scale) <= 1.05
+        ):
+            raise ValueError("spatial Recall repair scale must be in [1, 1.05]")
         if not (
             self.nms.mask_tiny_iou_threshold
             <= self.nms.mask_small_iou_threshold
@@ -238,9 +240,7 @@ class CandidateConfig:
 
     def to_dict(self) -> dict[str, object]:
         self.validate()
-        payload = asdict(self)
-        payload["spatial"]["vertex_fallbacks"] = list(self.spatial.vertex_fallbacks)
-        return payload
+        return asdict(self)
 
 
 CANDIDATE = CandidateConfig()

@@ -288,10 +288,8 @@ def _run_one(
         labels=tuple(shared["preparation"]["active_labels"]),
         max_tracks=0,
         force=False,
-        # A corpus benchmark records the strict native-exact result instead of
-        # hiding it. Production's public runner remains fail-closed if adaptive
-        # 14/16/18/20 selection leaves any exact Recall violation.
-        require_exact_recall=False,
+        # A corpus benchmark records the native-exact audit instead of hiding
+        # any residual violation left after fixed-14 local Recall repair.
     )
     optimizer_wall = time.perf_counter() - started
     phase2_root = Path(str(optimizer["phase2_root"]))

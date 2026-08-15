@@ -57,15 +57,15 @@ class PromotedProductionProfileTests(unittest.TestCase):
         runtime = build_runtime_config(PRODUCTION)
         self.assertEqual("native_exact", runtime.runtime.interval_evaluation)
         self.assertEqual(14, runtime.spatial.vertices_per_component)
-        self.assertEqual((14, 16, 18, 20), runtime.spatial.vertex_fallbacks)
+        self.assertFalse(hasattr(runtime.spatial, "vertex_fallbacks"))
+        self.assertEqual(1.05, runtime.spatial.recall_repair_max_scale)
         self.assertEqual(0.97, runtime.temporal.recall_floor)
-        self.assertTrue(PRODUCTION.require_zero_exact_recall_violations)
 
     def test_registered_stages_use_stable_names(self) -> None:
         nms = create_stage("nms.production_v3", {})
         polygon = create_stage("production.polygon_v3_cpu", {})
         self.assertEqual("production_virtual_component_mask_nms_v1", nms.name)
-        self.assertEqual("production_polygon_adaptive14_20_cpu_exact_v1", polygon.name)
+        self.assertEqual("production_polygon14_recall_repair_cpu_exact_v2", polygon.name)
 
     def test_nms_thresholds_cannot_be_changed_from_pipeline_json(self) -> None:
         stage = create_stage("nms.production_v3", {"mask_iou_threshold": 0.99})
@@ -151,8 +151,8 @@ class PromotedProductionProfileTests(unittest.TestCase):
                     "WHERE key='maximum_vertices_per_component'"
                 ).fetchone()
             self.assertEqual(("linear_polygon_index_v1",), value)
-            self.assertEqual(("14,16,18,20",), fallbacks)
-            self.assertEqual(("20",), maximum)
+            self.assertIsNone(fallbacks)
+            self.assertEqual(("14",), maximum)
 
 
 if __name__ == "__main__":

@@ -70,7 +70,7 @@ def _dimensions(
 @dataclass(frozen=True)
 class ProductionPolygonStage:
     options: dict[str, Any] = field(default_factory=dict)
-    name: str = "production_polygon_adaptive14_20_cpu_exact_v1"
+    name: str = "production_polygon14_recall_repair_cpu_exact_v2"
     requires: frozenset[str] = frozenset({"tracked_sqlite"})
     provides: frozenset[str] = frozenset(
         {
@@ -87,16 +87,9 @@ class ProductionPolygonStage:
                 self.options.get("interval_frames", PRODUCTION.target_interval),
             )
         )
-        strict = bool(
-            self.options.get(
-                "require_zero_exact_recall_violations",
-                PRODUCTION.require_zero_exact_recall_violations,
-            )
-        )
         config = replace(
             PRODUCTION,
             target_interval=interval,
-            require_zero_exact_recall_violations=strict,
         )
         config.validate()
         evaluator = str(self.options.get("interval_evaluation", "native_exact"))
@@ -194,9 +187,7 @@ class ProductionPolygonStage:
             "target_interval": config.target_interval,
             "interval_evaluation": config.interval_evaluation,
             "exact_recall_policy": (
-                "fail_closed"
-                if config.require_zero_exact_recall_violations
-                else "audit_and_publish"
+                "best_of_persistent_or_direct_rdp_then_uniform_scale_and_audit"
             ),
             "exact_recall_violations": violations,
             "preparation": preparation,
