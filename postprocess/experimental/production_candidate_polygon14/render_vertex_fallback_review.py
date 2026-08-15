@@ -145,6 +145,57 @@ def _panel(
     return image
 
 
+def _video_panel(
+    frame_image: np.ndarray,
+    reference,
+    approximation,
+    bounds,
+    *,
+    title: str,
+    color: tuple[int, int, int],
+    metrics: dict[str, float] | None,
+    fill_reference: bool = False,
+    show_reference: bool = True,
+    size: int = 500,
+) -> np.ndarray:
+    x1, y1, x2, y2 = bounds
+    scale = min((size - 40) / max(x2 - x1, 1.0), (size - 40) / max(y2 - y1, 1.0))
+    offset_x = (size - (x2 - x1) * scale) / 2.0 - x1 * scale
+    offset_y = (size - (y2 - y1) * scale) / 2.0 - y1 * scale
+    affine = np.asarray(
+        [[scale, 0.0, offset_x], [0.0, scale, offset_y]], dtype=np.float32
+    )
+    image = cv2.warpAffine(
+        frame_image,
+        affine,
+        (size, size),
+        flags=cv2.INTER_AREA,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(20, 20, 20),
+    )
+    raw = [_transform(poly, bounds, size) for poly in reference]
+    if fill_reference and show_reference:
+        layer = image.copy()
+        cv2.fillPoly(layer, raw, (255, 210, 20))
+        image = cv2.addWeighted(layer, 0.32, image, 0.68, 0.0)
+    if show_reference:
+        for contour in raw:
+            cv2.polylines(image, [contour], True, (255, 220, 30), 2, cv2.LINE_AA)
+    if approximation is not None:
+        for polygon in approximation:
+            contour = _transform(polygon, bounds, size)
+            cv2.polylines(image, [contour], True, color, 3, cv2.LINE_AA)
+            for x, y in contour:
+                cv2.circle(image, (int(x), int(y)), 4, color, -1, cv2.LINE_AA)
+    cv2.rectangle(image, (0, 0), (size - 1, 42), (0, 0, 0), -1)
+    cv2.putText(image, title, (14, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+    if metrics is not None:
+        text = f"R {metrics['recall']:.4f}  IoU {metrics['iou']:.4f}"
+        cv2.rectangle(image, (0, size - 36), (size - 1, size - 1), (0, 0, 0), -1)
+        cv2.putText(image, text, (14, size - 13), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    return image
+
+
 def _discover_groups(roots: tuple[Path, ...]) -> list[dict[str, object]]:
     output: list[dict[str, object]] = []
     for root in roots:
@@ -178,6 +229,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--samples", type=int, default=12)
+    parser.add_argument("--video-overlay", action="store_true")
     return parser.parse_args()
 
 
@@ -206,6 +258,7 @@ def main() -> int:
     manifest = []
     rendered = []
     cache: dict[tuple[Path, str], list] = {}
+    video_cache: dict[str, cv2.VideoCapture] = {}
     for sample_index, item in enumerate(selected, start=1):
         run_root = Path(item["run_root"])
         label = str(item["label"])
@@ -250,49 +303,139 @@ def main() -> int:
 
         best = None
         for local_index, frame in enumerate(run.frame_numbers):
-            if int(frame) not in keyframes:
+            if (
+                run.gapfilled_flags is not None
+                and local_index < len(run.gapfilled_flags)
+                and bool(run.gapfilled_flags[local_index])
+            ):
                 continue
             reference = run.gt_polygons[local_index]
             poly14 = [np.asarray(value) for value in candidates[14][local_index]]
             poly20 = [np.asarray(value) for value in candidates[20][local_index]]
             metric14 = _metrics(module, reference, poly14)
             metric20 = _metrics(module, reference, poly20)
+            recall_shortfall = max(
+                float(CANDIDATE.spatial_recall_floor) - metric14["recall"], 0.0
+            )
+            iou_shortfall = max(
+                float(CANDIDATE.spatial_iou_floor) - metric14["iou"], 0.0
+            )
+            # A 20-vertex choice is track-wide.  Show the observed frame that
+            # most strongly prevented the same run from staying at 14, rather
+            # than an arbitrary final keyframe that may itself be easy.
             score = (
+                max(recall_shortfall, iou_shortfall),
                 metric20["iou"] - metric14["iou"],
                 metric20["recall"] - metric14["recall"],
             )
             if best is None or score > best[0]:
-                best = (score, int(frame), reference, poly14, poly20, metric14, metric20)
+                best = (
+                    score,
+                    int(frame),
+                    reference,
+                    poly14,
+                    poly20,
+                    metric14,
+                    metric20,
+                    recall_shortfall,
+                    iou_shortfall,
+                )
         if best is None:
             continue
-        _score, frame, reference, poly14, poly20, metric14, metric20 = best
+        (
+            _score,
+            frame,
+            reference,
+            poly14,
+            poly20,
+            metric14,
+            metric20,
+            recall_shortfall,
+            iou_shortfall,
+        ) = best
         bounds = _bounds([reference, poly14, poly20])
-        panels = [
-            _panel(
-                reference,
-                None,
-                bounds,
-                title="AI source mask",
-                color=(255, 255, 255),
-                metrics=None,
-            ),
-            _panel(
-                reference,
-                poly14,
-                bounds,
-                title="14 vertices (counterfactual)",
-                color=(80, 80, 255),
-                metrics=metric14,
-            ),
-            _panel(
-                reference,
-                poly20,
-                bounds,
-                title="20 vertices (selected fallback)",
-                color=(80, 230, 80),
-                metrics=metric20,
-            ),
-        ]
+        if args.video_overlay:
+            shared = json.loads(
+                (run_root / "shared/shared_manifest.json").read_text(encoding="utf-8")
+            )
+            video_path = str(shared["run"]["video"])
+            capture = video_cache.get(video_path)
+            if capture is None:
+                capture = cv2.VideoCapture(video_path)
+                if not capture.isOpened():
+                    raise FileNotFoundError(video_path)
+                video_cache[video_path] = capture
+            capture.set(cv2.CAP_PROP_POS_FRAMES, int(frame))
+            ok, frame_image = capture.read()
+            if not ok or frame_image is None:
+                raise RuntimeError(f"could not decode {video_path} frame {frame}")
+            panels = [
+                _video_panel(
+                    frame_image,
+                    reference,
+                    None,
+                    bounds,
+                    title="Original frame",
+                    color=(255, 255, 255),
+                    metrics=None,
+                    show_reference=False,
+                ),
+                _video_panel(
+                    frame_image,
+                    reference,
+                    None,
+                    bounds,
+                    title="AI source mask (cyan)",
+                    color=(255, 255, 255),
+                    metrics=None,
+                    fill_reference=True,
+                ),
+                _video_panel(
+                    frame_image,
+                    reference,
+                    poly14,
+                    bounds,
+                    title="14 vertices (red)",
+                    color=(80, 80, 255),
+                    metrics=metric14,
+                ),
+                _video_panel(
+                    frame_image,
+                    reference,
+                    poly20,
+                    bounds,
+                    title="20 vertices (green)",
+                    color=(80, 230, 80),
+                    metrics=metric20,
+                ),
+            ]
+        else:
+            panels = [
+                _panel(
+                    reference,
+                    None,
+                    bounds,
+                    title="AI source mask",
+                    color=(255, 255, 255),
+                    metrics=None,
+                ),
+                _panel(
+                    reference,
+                    poly14,
+                    bounds,
+                    title="14 vertices (counterfactual)",
+                    color=(80, 80, 255),
+                    metrics=metric14,
+                ),
+                _panel(
+                    reference,
+                    poly20,
+                    bounds,
+                    title="20 vertices (selected fallback)",
+                    color=(80, 230, 80),
+                    metrics=metric20,
+                ),
+            ]
         image = np.concatenate(panels, axis=1)
         filename = (
             f"sample_{sample_index:02d}_{item['run']}_{label}_"
@@ -314,6 +457,9 @@ def main() -> int:
                 "metrics_20": metric20,
                 "iou_improvement": metric20["iou"] - metric14["iou"],
                 "recall_improvement": metric20["recall"] - metric14["recall"],
+                "recall_14_shortfall": recall_shortfall,
+                "iou_14_shortfall": iou_shortfall,
+                "selection": "worst observed non-gapfill frame for 14-point spatial floors",
             }
         )
 
@@ -327,7 +473,12 @@ def main() -> int:
     (output_root / "manifest.json").write_text(
         json.dumps(
             {
-                "privacy": "Mask geometry only; no video pixels were opened.",
+                "privacy": (
+                    "Local video frames were decoded only to render this artifact; "
+                    "nothing was uploaded."
+                    if args.video_overlay
+                    else "Mask geometry only; no video pixels were opened."
+                ),
                 "description": (
                     "Frames from continuous runs selected at 20 vertices. "
                     "Panels isolate the pre-temporal spatial approximation."
@@ -340,6 +491,8 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
+    for capture in video_cache.values():
+        capture.release()
     print(json.dumps({"output": str(output_root), "samples": len(manifest)}))
     return 0
 
