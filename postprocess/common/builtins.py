@@ -52,6 +52,12 @@ def virtual_component_mask_nms(options: dict[str, Any]) -> PostprocessStage:
     return VirtualComponentNmsStage({**options, "comparison_policy": "adaptive_mask"})
 
 
+def production_mask_nms(options: dict[str, Any]) -> PostprocessStage:
+    from nms.production import ProductionMaskNmsStage
+
+    return ProductionMaskNmsStage(options)
+
+
 def cut_detection(options: dict[str, Any]) -> PostprocessStage:
     from cut_detection.stages import VideoCutDetectionStage
 
@@ -74,6 +80,12 @@ def polygon_production(options: dict[str, Any]) -> PostprocessStage:
     from approximation.polygon.production import ProductionPolygonV22Stage
 
     return ProductionPolygonV22Stage(options)
+
+
+def polygon_production_v3_cpu(options: dict[str, Any]) -> PostprocessStage:
+    from production.polygon import ProductionPolygonStage
+
+    return ProductionPolygonStage(options)
 
 
 def ellipse_approximation(options: dict[str, Any]) -> PostprocessStage:
@@ -167,10 +179,12 @@ register_stage("nms.adaptive", adaptive_nms)
 register_stage("nms.component_aware_mask_candidate_v2", component_aware_mask_nms)
 register_stage("nms.virtual_component_candidate_v3", virtual_component_nms)
 register_stage("nms.virtual_component_mask_candidate_v4", virtual_component_mask_nms)
+register_stage("nms.production_v3", production_mask_nms)
 register_stage("cut_detection.video", cut_detection)
 register_stage("tracking.greedy", tracking)
 register_stage("approximation.polygon.rdp", polygon_approximation)
 register_stage("approximation.polygon.production_v22", polygon_production)
+register_stage("production.polygon_v3_cpu", polygon_production_v3_cpu)
 register_stage("approximation.ellipse.production", ellipse_approximation)
 register_stage("keyframes.polygon.interval", polygon_keyframes)
 register_stage("keyframes.ellipse.dense", ellipse_keyframes)

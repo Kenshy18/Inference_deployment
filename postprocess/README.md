@@ -29,6 +29,7 @@ postprocess/
   face_privacy/            顔楕円・Eye点から顔/目マスクを生成・統合
   evaluation/              品質評価
   artifacts/               最終SQLite生成・検証
+  production/              昇格済み構成、CPU厳密DP、成果物統合
   visualization/           可視化
 ```
 
@@ -112,7 +113,19 @@ python run_pipeline.py \
 未追跡SQLiteの場合だけ、動画をカット検出に使用した後、スコア方針、NMS、
 トラッキングから実行します。
 
-小島清掃は既存Productionでは既定無効です。旧実験候補
+ポリゴン構成の既定Productionは2026-08-15から次の構成です。
+
+- `nms.production_v3`: 全穴埋め、所有本体比1%以下の島削除、仮想連結成分、
+  Mask版Adaptive NMS、島対本体80%/50%判定
+- `production.polygon_v3_cpu`: 14頂点ポリゴン、最小Recall制約付き多状態DP、
+  2 sweep pair-vote、全補間フレームtopology検査、CPU `native_exact`区間評価
+- 既定の努力目標キーフレーム間隔は6。`--keyframe-interval`で変更可能
+
+旧`nms.adaptive`と`approximation.polygon.production_v22`はロールバック・比較用に
+登録を残していますが、標準pipelineからは選択されません。昇格版の責務と凍結条件は
+`production/README.md`を参照してください。
+
+旧実験候補
 `production_candidate_v1`（90%/30%をNMS前に適用）も比較再現用に保持します。
 2026-08-13の新候補は`nms.component_aware_mask_candidate_v2`です。全穴を埋め、
 所有本体比1%以下の島だけを事前削除し、全インスタンスMask IoU 0.70でNMSした後、
@@ -128,15 +141,15 @@ SQLite schemaは変更せず、NMS以降の作業マスクだけを変更しま�
 島と本体では、島被覆率80%以上かつ島/相手本体面積比50%以下の場合だけ島を削除し、
 本体は削除しません。同じ所有者の成分同士は比較せず、処理後に生存成分を元の
 インスタンスへ戻します。仮想インスタンスは中間計算だけに存在し、JSONLの公開契約と
-最終SQLite schemaは変更しません。既定値は引き続き既存Productionであり、v1/v2も
-比較再現用に保持します。
+最終SQLite schemaは変更しません。v1/v2も比較再現用に保持します。
 
 同日の後継opt-in候補`nms.virtual_component_mask_candidate_v4`は、v3の仮成分化と
 穴・1%島・島対本体80%/50%処理を維持し、本体同士と島同士の最終重複判定だけを
 Mask版Adaptive NMSへ置換します。確信度順と面積帯別閾値（0.20/0.10/0.05）、
 包含面積比上限（8/5/5）は既存Productionを継承します。bboxは高速な候補抽出にだけ
 使い、削除はnative画素のMask IoU、または小さい側のMask被覆率80%以上と面積比上限
-によって確定します。v3とlegacyは比較再現用に変更せず保持します。
+によって確定します。このv4の凍結設定が`nms.production_v3`として昇格済みです。
+v3とlegacyは比較再現用に変更せず保持します。
 
 高精度カット検出は、連続したゼロ始まりのフレームではFFmpegで96×54へ直接
 縮小デコードします。検出ロジックと閾値は従来と同じです。別処理と重ねる場合は

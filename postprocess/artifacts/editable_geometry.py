@@ -343,6 +343,27 @@ def _polygon_key_rows(path: Path) -> dict[str, dict[int, tuple[str, str]]]:
     return by_track
 
 
+def _polygon_interpolation_method(path: Path) -> str:
+    source = Path(path).expanduser().resolve()
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema WHERE type='table'"
+            )
+        }
+        if "polygon_keyframe_metadata" not in tables:
+            return "linear_polygon_aligned_v1"
+        row = connection.execute(
+            "SELECT value FROM polygon_keyframe_metadata "
+            "WHERE key='interpolation_method'"
+        ).fetchone()
+    method = "linear_polygon_aligned_v1" if row is None else str(row[0])
+    if method not in {"linear_polygon_aligned_v1", "linear_polygon_index_v1"}:
+        raise ValueError(f"unsupported polygon interpolation method: {method}")
+    return method
+
+
 def import_polygon_keyframes(
     connection: sqlite3.Connection,
     path: Path,
@@ -352,6 +373,7 @@ def import_polygon_keyframes(
 ) -> dict[str, int]:
     cuts = _cuts(connection)
     keys_by_track = _polygon_key_rows(path)
+    interpolation_method = _polygon_interpolation_method(path)
     represented_tracks = (
         {
             str(row[0])
@@ -417,7 +439,7 @@ def import_polygon_keyframes(
                 start_frame=start,
                 end_frame=end,
                 shape_type="polygon",
-                interpolation_method="linear_polygon_aligned_v1",
+                interpolation_method=interpolation_method,
                 component_count=expected_components,
                 source_run_key=f"{source_prefix}:{track_id}:{run_index}:{start}:{end}",
                 segment_reason="continuous_topology",

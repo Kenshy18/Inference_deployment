@@ -35,11 +35,12 @@ def _nested_pipeline(
         stages = (
             StageSpec(
                 "polygon_optimization",
-                "approximation.polygon.production_v22",
+                "production.polygon_v3_cpu",
                 {
                     **polygon_options,
-                    "interval_frames": settings.keyframe_interval,
+                    "target_interval": settings.keyframe_interval,
                     "max_gap": settings.max_gap,
+                    "interval_evaluation": "native_exact",
                 },
             ),
             StageSpec("exact_evaluation", "evaluation.mask_iou"),
@@ -153,6 +154,9 @@ class ClasswisePostprocessStage:
                     track_ids=track_ids,
                 )
             nested_root = group_root / "pipeline"
+            nested_inputs = {"tracked_sqlite": projected}
+            if context.artifacts.get("input_video") is not None:
+                nested_inputs["input_video"] = context.artifacts["input_video"]
             manifest = PipelineRunner(
                 _nested_pipeline(
                     settings,
@@ -160,7 +164,7 @@ class ClasswisePostprocessStage:
                     polygon_options=polygon_options,
                 ),
                 nested_root,
-            ).run({"tracked_sqlite": projected})
+            ).run(nested_inputs)
             predictions = Path(
                 str(manifest["artifacts"]["predictions_sqlite"])
             ).expanduser().resolve()

@@ -286,7 +286,7 @@ class PipelineTests(unittest.TestCase):
             )
             self.assertEqual("polygon_modular", manifest["pipeline"])
             self.assertEqual(
-                "approximation.polygon.production_v22",
+                "production.polygon_v3_cpu",
                 manifest["stages"][0]["implementation"],
             )
             self.assertIn("keyframes_sqlite", manifest["artifacts"])

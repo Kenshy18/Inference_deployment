@@ -69,7 +69,7 @@ def default_polygon_pipeline(*, include_preprocess: bool) -> PipelineConfig:
                     "preprocessing.score_policy",
                     {"score_min": 0.35},
                 ),
-                StageSpec("nms", "nms.adaptive"),
+                StageSpec("nms", "nms.production_v3"),
                 StageSpec(
                     "cut_detection",
                     "cut_detection.video",
@@ -86,12 +86,10 @@ def default_polygon_pipeline(*, include_preprocess: bool) -> PipelineConfig:
         [
             StageSpec(
                 "polygon_optimization",
-                "approximation.polygon.production_v22",
+                "production.polygon_v3_cpu",
                 {
-                    "interval_frames": 3,
-                    "max_gap": 30,
-                    "border_expand": True,
-                    "endpoint_extend": True,
+                    "target_interval": 6,
+                    "interval_evaluation": "native_exact",
                 },
             ),
             StageSpec("exact_evaluation", "evaluation.mask_iou"),

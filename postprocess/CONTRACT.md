@@ -38,12 +38,10 @@ validatorは`contracts.artifacts`へ集約されています。新しい成果�
 | --- | --- | --- | --- |
 | 正規化 | `preprocessing.normalize` | `input_jsonl` | `normalized_jsonl` |
 | スコア方針 | `preprocessing.score_policy` | `normalized_jsonl` | `scored_jsonl` |
-| NMS | `nms.adaptive` / `nms.component_aware_mask_candidate_v2` / `nms.virtual_component_candidate_v3` / `nms.virtual_component_mask_candidate_v4` | `scored_jsonl` | `nms_jsonl` |
+| NMS | `nms.production_v3`（旧実装・候補も明示指定可能） | `scored_jsonl` | `nms_jsonl` |
 | カット検出 | `cut_detection.video` | `nms_jsonl` | `cuts_json` |
 | tracking | `tracking.greedy` | `nms_jsonl`, `cuts_json` | `tracked_sqlite` |
-| polygon近似 | `approximation.polygon.rdp` | `tracked_sqlite` | `approximated_sqlite` |
-| keyframe | `keyframes.polygon.interval` | `approximated_sqlite` | `keyframes_sqlite` |
-| gap fill | `gap_fill.polygon.linear` | `approximated_sqlite`, `keyframes_sqlite` | `predictions_sqlite` |
+| polygon近似・keyframe・補完 | `production.polygon_v3_cpu` | `tracked_sqlite` | `predictions_sqlite`, `keyframes_sqlite`, `production_polygon_manifest` |
 | 評価 | `evaluation.mask_iou` | `tracked_sqlite`, `predictions_sqlite` | `evaluation_summary` |
 | 出力検証 | `artifacts.validate` | `predictions_sqlite` | `validation_report` |
 
@@ -124,6 +122,14 @@ private association hintの扱いと破棄条件はv2と同じです。
 broad-phaseに限定し、抑制はnative画素Mask IoUまたは方向付きMask被覆率で決定します。
 確信度順、面積帯、閾値は既存Productionと同じです。仮成分と追跡用private hintは
 SQLiteへ永続化されないため、最終schemaは不変です。
+
+`nms.production_v3`は、このv4の検証済み閾値を凍結した正式入口です。任意の閾値変更を
+受理せず、bboxはbroad-phase、最終判定はnative画素Maskだけで行います。
+
+`production.polygon_v3_cpu`はクラスごとに独立して14頂点空間近似、複数形状DP、
+pair-vote、topology検査を実行します。区間評価は`native_exact`に固定し、CUDA近似経路を
+Productionから選択できません。最終Recall監査結果は
+`production_polygon_manifest`へ全件記録されます。
 
 ### 未追跡の検出SQLite
 

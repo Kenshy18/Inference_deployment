@@ -82,10 +82,10 @@ class ArchitectureTests(unittest.TestCase):
             [
                 "preprocessing.normalize",
                 "preprocessing.score_policy",
-                "nms.adaptive",
+                "nms.production_v3",
                 "cut_detection.video",
                 "tracking.greedy",
-                "approximation.polygon.production_v22",
+                "production.polygon_v3_cpu",
                 "evaluation.mask_iou",
                 "artifacts.validate",
             ],

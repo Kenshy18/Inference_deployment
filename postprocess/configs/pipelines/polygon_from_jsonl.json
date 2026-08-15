@@ -14,7 +14,7 @@
     },
     {
       "id": "nms",
-      "implementation": "nms.adaptive"
+      "implementation": "nms.production_v3"
     },
     {
       "id": "cut_detection",
@@ -33,12 +33,10 @@
     },
     {
       "id": "polygon_optimization",
-      "implementation": "approximation.polygon.production_v22",
+      "implementation": "production.polygon_v3_cpu",
       "options": {
-        "interval_frames": 3,
-        "max_gap": 30,
-        "border_expand": true,
-        "endpoint_extend": true
+        "target_interval": 6,
+        "interval_evaluation": "native_exact"
       }
     },
     {

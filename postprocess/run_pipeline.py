@@ -357,6 +357,15 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             if args.max_gap is not None:
                 options["max_gap"] = int(args.max_gap)
             options = _polygon_stage_options(args, options)
+        elif stage.implementation == "production.polygon_v3_cpu":
+            if args.keyframe_interval is not None:
+                options["target_interval"] = int(args.keyframe_interval)
+            if args.max_gap is not None:
+                options["max_gap"] = int(args.max_gap)
+            options = _polygon_stage_options(args, options)
+            # The promoted profile intentionally ignores the inference device:
+            # interval evaluation is exact native CPU by contract.
+            options["interval_evaluation"] = "native_exact"
         elif (
             stage.implementation == "keyframes.polygon.interval"
             and args.keyframe_interval is not None
@@ -394,6 +403,7 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             "nms.component_aware_mask_candidate_v2",
             "nms.virtual_component_candidate_v3",
             "nms.virtual_component_mask_candidate_v4",
+            "nms.production_v3",
             "cut_detection.video",
             "tracking.greedy",
         }
