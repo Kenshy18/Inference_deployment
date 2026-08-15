@@ -86,9 +86,7 @@ def _read_exact(paths: Iterable[Path]) -> dict[str, float | int]:
         result[f"{metric}_min"] = min(current)
         result[f"{metric}_q01"] = _quantile(current, 0.01)
         result[f"{metric}_q05"] = _quantile(current, 0.05)
-    result["recall_violations"] = sum(
-        value < 0.97 - 1e-9 for value in values["recall"]
-    )
+    result["recall_violations"] = sum(value < 0.97 - 1e-9 for value in values["recall"])
     area = values["area_ratio"]
     result.update(
         {
@@ -101,11 +99,26 @@ def _read_exact(paths: Iterable[Path]) -> dict[str, float | int]:
     return result
 
 
-def _prediction_paths(root: Path, arm: str, interval: int) -> list[tuple[str | None, Path]]:
+def _candidate_phase2_root(root: Path, arm: str, interval: int) -> Path:
+    run_root = root / arm / f"interval_{interval}"
+    direct = run_root / POLYGON_PROFILE_ID
+    if direct.is_dir():
+        return run_root
+    nested = run_root / "06_polygon_keyframes" / f"interval_{interval}"
+    if nested.is_dir():
+        return nested
+    raise FileNotFoundError(f"candidate phase2 root is unavailable: {run_root}")
+
+
+def _prediction_paths(
+    root: Path, arm: str, interval: int
+) -> list[tuple[str | None, Path]]:
     if arm == "legacy_production":
-        stage = next((root / arm / f"interval_{interval}").glob("*_polygon_optimization"))
+        stage = next(
+            (root / arm / f"interval_{interval}").glob("*_polygon_optimization")
+        )
         return [(None, stage / "predictions.sqlite")]
-    interval_root = root / arm / f"interval_{interval}" / POLYGON_PROFILE_ID
+    interval_root = _candidate_phase2_root(root, arm, interval) / POLYGON_PROFILE_ID
     return [
         (label, interval_root / label / "runtime/pred/predictions.sqlite")
         for label in LABELS
@@ -114,27 +127,32 @@ def _prediction_paths(root: Path, arm: str, interval: int) -> list[tuple[str | N
 
 def _keyframe_paths(root: Path, arm: str, interval: int) -> list[Path]:
     if arm == "legacy_production":
-        stage = next((root / arm / f"interval_{interval}").glob("*_polygon_optimization"))
+        stage = next(
+            (root / arm / f"interval_{interval}").glob("*_polygon_optimization")
+        )
         return [stage / "vendor_output/opt/final_keyframes.json"]
-    interval_root = root / arm / f"interval_{interval}" / POLYGON_PROFILE_ID
+    interval_root = _candidate_phase2_root(root, arm, interval) / POLYGON_PROFILE_ID
     return [
-        interval_root / label / "runtime/opt/final_keyframes.json"
-        for label in LABELS
+        interval_root / label / "runtime/opt/final_keyframes.json" for label in LABELS
     ]
 
 
 def _exact_paths(root: Path, arm: str, interval: int) -> list[Path]:
     if arm == "legacy_production":
-        stage = next((root / arm / f"interval_{interval}").glob("*_polygon_optimization"))
+        stage = next(
+            (root / arm / f"interval_{interval}").glob("*_polygon_optimization")
+        )
         return [stage / "vendor_output/exact/keyframe_exact_metrics.csv"]
-    interval_root = root / arm / f"interval_{interval}" / POLYGON_PROFILE_ID
+    interval_root = _candidate_phase2_root(root, arm, interval) / POLYGON_PROFILE_ID
     return [
         interval_root / label / "runtime/exact/keyframe_exact_metrics.csv"
         for label in LABELS
     ]
 
 
-def _optimizer_runtime(root: Path, arm: str, interval: int) -> tuple[float, float | None]:
+def _optimizer_runtime(
+    root: Path, arm: str, interval: int
+) -> tuple[float, float | None]:
     if arm == "legacy_production":
         manifest = json.loads(
             (root / arm / f"interval_{interval}" / "pipeline_manifest.json").read_text(
@@ -153,7 +171,7 @@ def _optimizer_runtime(root: Path, arm: str, interval: int) -> tuple[float, floa
             None if reported is None else float(reported)
         )
     matrix = json.loads(
-        (root / arm / f"interval_{interval}" / "phase2_matrix.json").read_text(
+        (_candidate_phase2_root(root, arm, interval) / "phase2_matrix.json").read_text(
             encoding="utf-8"
         )
     )
@@ -165,14 +183,16 @@ def _optimizer_runtime(root: Path, arm: str, interval: int) -> tuple[float, floa
 
 def _reported_interval(root: Path, arm: str, interval: int) -> float | None:
     if arm == "legacy_production":
-        stage = next((root / arm / f"interval_{interval}").glob("*_polygon_optimization"))
+        stage = next(
+            (root / arm / f"interval_{interval}").glob("*_polygon_optimization")
+        )
         summary = json.loads(
             (stage / "vendor_output/summary.json").read_text(encoding="utf-8")
         )
         rate = float(summary["optimizer_summary"]["mean_keyframe_rate"])
         return None if rate <= 0.0 else 1.0 / rate
     matrix = json.loads(
-        (root / arm / f"interval_{interval}" / "phase2_matrix.json").read_text(
+        (_candidate_phase2_root(root, arm, interval) / "phase2_matrix.json").read_text(
             encoding="utf-8"
         )
     )
@@ -182,11 +202,7 @@ def _reported_interval(root: Path, arm: str, interval: int) -> float | None:
 def _software_sqlite(root: Path, arm: str, interval: int) -> Path:
     if arm == "legacy_production":
         standardized = (
-            root
-            / arm
-            / "software_sqlite"
-            / f"interval_{interval}"
-            / "12月KPI動画.sqlite"
+            root / arm / "software_sqlite" / f"interval_{interval}" / "12月KPI動画.sqlite"
         )
         if standardized.is_file():
             return standardized
@@ -198,7 +214,75 @@ def _software_sqlite(root: Path, arm: str, interval: int) -> Path:
         if len(candidate) != 1:
             raise RuntimeError(f"legacy result SQLite not unique: {candidate}")
         return candidate[0]
+    current = (
+        root / arm / f"interval_{interval}" / "07_software_sqlite" / "12月KPI動画.sqlite"
+    )
+    if current.is_file():
+        return current
     return root / arm / "software_sqlite" / f"interval_{interval}" / "12月KPI動画.sqlite"
+
+
+def _full_runtime(root: Path, arm: str, interval: int) -> float:
+    run_root = root / arm / f"interval_{interval}"
+    if arm == "legacy_production":
+        manifest = json.loads(
+            (run_root / "pipeline_manifest.json").read_text(encoding="utf-8")
+        )
+        return sum(
+            float(stage.get("elapsed_seconds", 0.0)) for stage in manifest["stages"]
+        )
+    manifest = json.loads(
+        (run_root / "candidate_manifest.json").read_text(encoding="utf-8")
+    )
+    return float(manifest["elapsed_seconds"])
+
+
+def _external_wall_runtime(root: Path, arm: str, interval: int) -> float | None:
+    short_arm = "legacy" if arm == "legacy_production" else "candidate"
+    path = root.parent / f"{root.name}_{short_arm}_i{interval}.time"
+    if not path.is_file():
+        return None
+    value = path.read_text(encoding="utf-8").strip()
+    return None if not value else float(value)
+
+
+def _stage_stats(root: Path, arm: str, interval: int) -> dict[str, Any]:
+    run_root = root / arm / f"interval_{interval}"
+    if arm == "legacy_production":
+        manifest = json.loads(
+            (run_root / "pipeline_manifest.json").read_text(encoding="utf-8")
+        )
+        stages = {stage["implementation"]: stage for stage in manifest["stages"]}
+        nms = stages["nms.adaptive"]["metadata"]
+        tracking = stages["tracking.greedy"]["metadata"]
+        return {
+            "nms_detections_in": int(nms["detections_in"]),
+            "nms_detections_out": int(nms["detections_out"]),
+            "nms_suppressed": int(nms["detections_in"]) - int(nms["detections_out"]),
+            "holes_filled": None,
+            "tiny_islands_removed": None,
+            "island_main_suppressed": None,
+            "tracking_rows": int(tracking["rows_after_prune"]),
+            "tracking_tracks": int(tracking["tracks_after_prune"]),
+            "tracking_short_rows_removed": int(tracking["removed_rows"]),
+        }
+    manifest = json.loads(
+        (run_root / "candidate_manifest.json").read_text(encoding="utf-8")
+    )
+    nms = manifest["stages"]["nms"]
+    diagnostics = nms.get("diagnostics", {})
+    tracking = manifest["stages"]["tracking"]
+    return {
+        "nms_detections_in": int(nms["detections_in"]),
+        "nms_detections_out": int(nms["detections_out"]),
+        "nms_suppressed": int(nms["detections_in"]) - int(nms["detections_out"]),
+        "holes_filled": int(diagnostics.get("holes_filled", 0)),
+        "tiny_islands_removed": int(diagnostics.get("tiny_islands_removed", 0)),
+        "island_main_suppressed": int(diagnostics.get("island_main_suppressed", 0)),
+        "tracking_rows": int(tracking["rows_after_prune"]),
+        "tracking_tracks": int(tracking["tracks_after_prune"]),
+        "tracking_short_rows_removed": int(tracking["removed_rows"]),
+    }
 
 
 def _load_predictions(
@@ -333,9 +417,7 @@ def _common_raw_metrics(
     result.update(
         {
             "pixel_weighted_recall": 1.0 if raw == 0 else intersection / raw,
-            "pixel_weighted_precision": (
-                1.0 if final == 0 else intersection / final
-            ),
+            "pixel_weighted_precision": (1.0 if final == 0 else intersection / final),
             "pixel_weighted_iou": 1.0 if union == 0 else intersection / union,
         }
     )
@@ -365,9 +447,63 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
-def collect(root: Path, scored_jsonl: Path) -> dict[str, Any]:
+def _write_report(path: Path, payload: dict[str, Any]) -> None:
+    lines = [
+        "# KPI動画：修正後Production候補 vs 旧Production",
+        "",
+        "同一のV3推論SQLite、score 0.30、同一カット、短命トラック削除10を使用し、",
+        "目標キーフレーム間隔2・3・6をCPU厳密経路で比較した結果です。",
+        "",
+        "## 主要指標",
+        "",
+        "|目標|方式|実効間隔|キー数|平均IoU|IoU下位1%|最低IoU|最低Recall|Recall違反|全処理FPS|",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    names = {
+        "legacy_production": "旧Production",
+        "production_candidate_20260814": "修正後候補",
+    }
+    for row in payload["rows"]:
+        lines.append(
+            "|{target_interval}|{name}|{actual_interval:.3f}|{keyframes:,}|"
+            "{iou_mean:.6f}|{iou_q01:.6f}|{iou_min:.6f}|{recall_min:.6f}|"
+            "{recall_violations:,}|{fps:.2f}|".format(
+                name=names[row["arm"]],
+                fps=row["external_wall_video_fps"] or row["full_postprocess_video_fps"],
+                **row,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## 読み方と制約",
+            "",
+            "- `最低Recall` と `Recall違反` は、各方式の追跡後マスクを参照した厳密ラスタ評価です。",
+            "- NMSと追跡結果が方式間で異なるため、方式内IoUだけを意味的なGT精度として比較してはいけません。",
+            "- `interval_metrics.csv` には、共通のscore済みAI生マスクを参照したpixel-weighted Recall/Precision/IoUも収録しています。",
+            "- AI生マスクは人手GTではないため、NMS変更の意味的な正しさは既存の目視監査と併せて判断します。",
+            "- 全SQLiteについてintegrity check、外部キー、スキーマfingerprintを検査しています。",
+            "",
+            "## 成果物",
+            "",
+            "- `comparison.json`: 全指標と差分の正本",
+            "- `interval_metrics.csv`: 6実行の横持ち指標",
+            "- `interval_deltas.csv`: 目標間隔ごとの差分",
+            "- 各行の `result_sqlite` 列: 編集ソフトで開ける最終SQLite",
+            "",
+        ]
+    )
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def collect(
+    root: Path, scored_jsonl: Path, intervals: Iterable[int] = range(1, 7)
+) -> dict[str, Any]:
+    intervals = tuple(int(value) for value in intervals)
+    if not intervals or any(value < 1 for value in intervals):
+        raise ValueError("intervals must contain positive integers")
     rows: list[dict[str, Any]] = []
-    for interval in range(1, 7):
+    for interval in intervals:
         for arm in ("legacy_production", "production_candidate_20260814"):
             exact = _read_exact(_exact_paths(root, arm, interval))
             keyframes = sum(
@@ -378,6 +514,8 @@ def collect(root: Path, scored_jsonl: Path) -> dict[str, Any]:
                 root, arm, interval
             )
             runtime, reported_runtime = _optimizer_runtime(root, arm, interval)
+            full_runtime = _full_runtime(root, arm, interval)
+            external_wall = _external_wall_runtime(root, arm, interval)
             sqlite_path = _software_sqlite(root, arm, interval)
             sqlite_audit = audit_sqlite(sqlite_path)
             if not sqlite_audit.ok:
@@ -390,14 +528,18 @@ def collect(root: Path, scored_jsonl: Path) -> dict[str, Any]:
                 "prediction_rows": prediction_rows,
                 "keyframes": keyframes,
                 "actual_interval": actual,
-                "optimizer_reported_interval": _reported_interval(
-                    root, arm, interval
-                ),
+                "optimizer_reported_interval": _reported_interval(root, arm, interval),
                 "target_error": actual - interval,
                 "target_achievement": min(actual, interval) / max(actual, interval),
                 "optimizer_wall_seconds": runtime,
                 "optimizer_reported_seconds": reported_runtime,
                 "video_fps": 23510.0 / runtime,
+                "full_postprocess_wall_seconds": full_runtime,
+                "full_postprocess_video_fps": 23510.0 / full_runtime,
+                "external_wall_seconds": external_wall,
+                "external_wall_video_fps": (
+                    None if external_wall is None else 23510.0 / external_wall
+                ),
                 "invalid_polygon_rings": sum(invalid.values()),
                 "result_sqlite": str(sqlite_path.resolve()),
                 "result_sqlite_size_bytes": sqlite_path.stat().st_size,
@@ -405,15 +547,15 @@ def collect(root: Path, scored_jsonl: Path) -> dict[str, Any]:
                 "result_schema_sha256": schema_fingerprint(sqlite_path),
                 **exact,
                 **{f"common_raw_{key}": value for key, value in common.items()},
+                **_stage_stats(root, arm, interval),
             }
             rows.append(row)
     by_interval: list[dict[str, Any]] = []
-    for interval in range(1, 7):
+    for interval in intervals:
         legacy = next(
             row
             for row in rows
-            if row["target_interval"] == interval
-            and row["arm"] == "legacy_production"
+            if row["target_interval"] == interval and row["arm"] == "legacy_production"
         )
         candidate = next(
             row
@@ -443,6 +585,10 @@ def collect(root: Path, scored_jsonl: Path) -> dict[str, Any]:
                     candidate["optimizer_wall_seconds"]
                     / legacy["optimizer_wall_seconds"]
                 ),
+                "candidate_vs_legacy_full_runtime_ratio": (
+                    candidate["full_postprocess_wall_seconds"]
+                    / legacy["full_postprocess_wall_seconds"]
+                ),
                 "candidate_minus_legacy_common_raw_iou": (
                     candidate["common_raw_pixel_weighted_iou"]
                     - legacy["common_raw_pixel_weighted_iou"]
@@ -454,7 +600,7 @@ def collect(root: Path, scored_jsonl: Path) -> dict[str, Any]:
         "schema_version": 1,
         "scope": {
             "input": "v3__kpi_2025_12",
-            "target_intervals": list(range(1, 7)),
+            "target_intervals": list(intervals),
             "legacy": "legacy NMS + legacy polygon approximation + legacy v22 DP/pair-vote",
             "candidate": "virtual-component Mask NMS + polygon14 + minimum-Recall DP + constrained pair-vote",
             "recall_floor": 0.97,
@@ -478,17 +624,30 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--scored-jsonl", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--intervals",
+        default="1,2,3,4,5,6",
+        help="comma-separated target intervals (default: 1,2,3,4,5,6)",
+    )
     args = parser.parse_args()
     output = args.output_dir.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
-    payload = collect(args.root.expanduser().resolve(), args.scored_jsonl.resolve())
+    intervals = tuple(
+        int(value.strip()) for value in args.intervals.split(",") if value.strip()
+    )
+    payload = collect(
+        args.root.expanduser().resolve(), args.scored_jsonl.resolve(), intervals
+    )
     (output / "comparison.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
     _write_csv(output / "interval_metrics.csv", payload["rows"])
     _write_csv(output / "interval_deltas.csv", payload["by_interval"])
-    print(json.dumps({"comparison": str(output / "comparison.json")}, ensure_ascii=False))
+    _write_report(output / "REPORT.md", payload)
+    print(
+        json.dumps({"comparison": str(output / "comparison.json")}, ensure_ascii=False)
+    )
     return 0
 
 

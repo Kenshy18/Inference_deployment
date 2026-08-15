@@ -22,15 +22,27 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def paths(root: Path, arm: str, interval: int) -> tuple[list[Path], list[Path], list[Path]]:
+def paths(
+    root: Path, arm: str, interval: int
+) -> tuple[list[Path], list[Path], list[Path]]:
     if arm == "legacy_production":
-        stage = next((root / arm / f"interval_{interval}").glob("*_polygon_optimization"))
+        stage = next(
+            (root / arm / f"interval_{interval}").glob("*_polygon_optimization")
+        )
         return (
             [stage / "vendor_output/exact/keyframe_exact_metrics.csv"],
             [stage / "vendor_output/opt/final_keyframes.json"],
             [stage / "predictions.sqlite"],
         )
-    base = root / arm / f"interval_{interval}/polygon14_keyframe_v1"
+    run_root = root / arm / f"interval_{interval}"
+    base = run_root / "polygon14_keyframe_v1"
+    if not base.is_dir():
+        base = (
+            run_root
+            / "06_polygon_keyframes"
+            / f"interval_{interval}"
+            / "polygon14_keyframe_v1"
+        )
     return (
         [base / label / "runtime/exact/keyframe_exact_metrics.csv" for label in LABELS],
         [base / label / "runtime/opt/final_keyframes.json" for label in LABELS],
@@ -57,7 +69,9 @@ def validate(root: Path, comparison: dict[str, object]) -> dict[str, object]:
         prediction_rows = 0
         for path in predpaths:
             with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as db:
-                prediction_rows += int(db.execute("SELECT COUNT(*) FROM masks").fetchone()[0])
+                prediction_rows += int(
+                    db.execute("SELECT COUNT(*) FROM masks").fetchone()[0]
+                )
         result = Path(str(row["result_sqlite"]))
         with sqlite3.connect(f"file:{result.resolve()}?mode=ro", uri=True) as db:
             integrity = str(db.execute("PRAGMA integrity_check").fetchone()[0])
@@ -98,8 +112,9 @@ def validate(root: Path, comparison: dict[str, object]) -> dict[str, object]:
         "independent_exact_recalculation_passed": True,
         "all_sqlite_integrity_ok": True,
         "all_foreign_keys_ok": True,
-        "single_schema_fingerprint": len({row["result_schema_sha256"] for row in rows}) == 1,
-        "candidate_recall_gate_6_of_6": all(
+        "single_schema_fingerprint": len({row["result_schema_sha256"] for row in rows})
+        == 1,
+        "candidate_recall_gate_all_intervals": all(
             int(row["recall_violations"]) == 0
             for row in rows
             if row["arm"] == "production_candidate_20260814"
@@ -109,7 +124,7 @@ def validate(root: Path, comparison: dict[str, object]) -> dict[str, object]:
             "No human GT; arm-local references differ after NMS/tracking.",
             "Single KPI video.",
             "Common-raw metric uses AI detections as reference.",
-            "Browser QA unavailable; structural HTML QA passed.",
+            "The benchmark covers target intervals 2, 3, and 6 only.",
         ],
         "privacy": "No video frames decoded or uploaded.",
         "cells": checks,
