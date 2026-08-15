@@ -288,9 +288,9 @@ def _run_one(
         labels=tuple(shared["preparation"]["active_labels"]),
         max_tracks=0,
         force=False,
-        # A corpus benchmark must characterize spatially infeasible 14-vertex
-        # rows instead of aborting and hiding them.  Production's public runner
-        # remains fail-closed; every violation is retained in the quality data.
+        # A corpus benchmark records the strict native-exact result instead of
+        # hiding it. Production's public runner remains fail-closed if adaptive
+        # 14/16/18/20 selection leaves any exact Recall violation.
         require_exact_recall=False,
     )
     optimizer_wall = time.perf_counter() - started

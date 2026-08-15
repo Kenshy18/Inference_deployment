@@ -1,4 +1,4 @@
-"""Track-level spatial polygon construction for polygon14_keyframe_v1."""
+"""Track-level spatial polygon construction for one requested vertex count."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def build_spatial_track(
     frame_components: Iterable[Sequence[np.ndarray]],
     config: Polygon14CandidateConfig = CANDIDATE,
 ) -> tuple[np.ndarray, SpatialBuildStats]:
-    """Build fixed-ID 14-point polygons for every persistent component slot.
+    """Build fixed-ID polygons for every persistent component slot.
 
     Component slots must already be aligned by the upstream tracker.  Each
     slot is optimized independently; the temporal DP later evaluates their
@@ -45,7 +45,7 @@ def build_spatial_track(
         )
     component_count = len(frames[0])
     if component_count < 1:
-        raise ValueError("polygon14 candidate requires at least one component slot")
+        raise ValueError("polygon candidate requires at least one component slot")
     if any(len(components) != component_count for components in frames):
         raise ValueError("component-slot count changed inside one track segment")
     output = np.empty(

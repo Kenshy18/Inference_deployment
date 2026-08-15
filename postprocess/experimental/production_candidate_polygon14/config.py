@@ -1,4 +1,4 @@
-"""Frozen semantic contract for the polygon14 Production candidate."""
+"""Semantic contract for the 14/16/18/20-point Production candidate."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ PROFILE_ID = "polygon14_keyframe_v1"
 class Polygon14CandidateConfig:
     profile_id: str = PROFILE_ID
     vertices_per_component: int = 14
+    vertex_fallbacks: tuple[int, ...] = (14, 16, 18, 20)
 
     spatial_recall_floor: float = 0.97
     spatial_iou_floor: float = 0.95
@@ -36,7 +37,9 @@ class Polygon14CandidateConfig:
     output_schema: str = "unchanged"
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["vertex_fallbacks"] = list(self.vertex_fallbacks)
+        return payload
 
 
 CANDIDATE = Polygon14CandidateConfig()

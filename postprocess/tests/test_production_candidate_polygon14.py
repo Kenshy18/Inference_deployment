@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from experimental.production_candidate_polygon14 import CANDIDATE
 from experimental.production_candidate_polygon14.integration import (
@@ -49,9 +50,24 @@ def _two_component_track(frames: int = 6) -> list[list[np.ndarray]]:
     ]
 
 
+class _ExactEvaluator:
+    def __init__(self, minimum_vertices: int = 14) -> None:
+        self.minimum_vertices = int(minimum_vertices)
+        self.calls: list[int] = []
+
+    def exact_frame_metrics(
+        self, _frame: int, _vector, _components: int, vertices: int
+    ) -> tuple[float, ...]:
+        self.calls.append(int(vertices))
+        recall = 0.98 if int(vertices) >= self.minimum_vertices else 0.96
+        iou = 0.96
+        return (100.0, 100.0, 98.0, 102.0, recall, 0.98, iou)
+
+
 def test_candidate_contract_is_explicit_and_schema_preserving() -> None:
     assert CANDIDATE.profile_id == "polygon14_keyframe_v1"
     assert CANDIDATE.vertices_per_component == 14
+    assert CANDIDATE.vertex_fallbacks == (14, 16, 18, 20)
     assert CANDIDATE.spatial_recall_floor == 0.97
     assert CANDIDATE.temporal_recall_floor == 0.97
     assert CANDIDATE.temporal_target_kind == "soft_keyframe_interval"
@@ -88,7 +104,7 @@ def test_integration_replaces_only_anchors_and_preserves_recall_reference() -> N
         run_target_total_points=0,
     )
     profile: dict[str, float | int] = {}
-    apply_spatial_candidate(run, profile)
+    apply_spatial_candidate(run, profile, endpoint_evaluator=_ExactEvaluator())
     assert run.gt_polygons is gt_polygons
     for before, after in zip(reference_copy, run.gt_polygons):
         for expected, actual in zip(before, after):
@@ -97,6 +113,44 @@ def test_integration_replaces_only_anchors_and_preserves_recall_reference() -> N
     assert run.run_target_total_points == 28
     assert profile["polygon14_frames"] == 6
     assert profile["polygon14_components"] == 2
+    assert profile["polygon_vertex_selected_14_runs"] == 1
+
+
+def test_integration_falls_back_track_wide_to_smallest_exact_feasible_count() -> None:
+    gt_polygons = _two_component_track()
+    run = SimpleNamespace(
+        stream_id="synthetic",
+        anchors_per_contour=20,
+        gt_polygons=gt_polygons,
+        anchors=np.zeros((6, 2, 20, 2), dtype=np.float32),
+        run_target_total_points=0,
+    )
+    evaluator = _ExactEvaluator(minimum_vertices=18)
+    profile: dict[str, float | int] = {}
+    apply_spatial_candidate(run, profile, endpoint_evaluator=evaluator)
+    assert run.anchors.shape == (6, 2, 18, 2)
+    assert run.anchors_per_contour == 18
+    assert run.run_target_total_points == 36
+    assert set(evaluator.calls) == {14, 16, 18}
+    assert profile["polygon_vertex_selected_18_runs"] == 1
+    assert profile["polygon_vertex_fallback_runs"] == 1
+
+
+def test_integration_fails_closed_when_twenty_points_cannot_meet_recall() -> None:
+    gt_polygons = _two_component_track(frames=2)
+    run = SimpleNamespace(
+        stream_id="synthetic-infeasible",
+        anchors_per_contour=20,
+        gt_polygons=gt_polygons,
+        anchors=np.zeros((2, 2, 20, 2), dtype=np.float32),
+        run_target_total_points=0,
+    )
+    with pytest.raises(RuntimeError, match="through 20 vertices"):
+        apply_spatial_candidate(
+            run,
+            {},
+            endpoint_evaluator=_ExactEvaluator(minimum_vertices=22),
+        )
 
 
 def test_candidate_temporal_palette_is_exactly_the_frozen_baseline() -> None:
@@ -130,7 +184,7 @@ def test_runner_fixes_polygon_count_and_uses_selected_edge_exact_validation(
     command = build_command(args, 6, tmp_path / "result")
     joined = " ".join(command)
     assert "--profiles polygon14_keyframe_v1" in joined
-    assert "--anchors-per-contour 14" in joined
+    assert "--anchors-per-contour 20" in joined
     assert "--min-anchors-per-contour 14" in joined
     assert "--no-adaptive-anchor-counts" in command
     assert "--cuda-lazy-exact" in command

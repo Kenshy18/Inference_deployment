@@ -26,6 +26,8 @@ def build_runtime_config(config: ProductionConfig):
     runtime = with_interval_evaluation(config.interval_evaluation, runtime)
     if runtime.spatial.vertices_per_component != config.vertices_per_component:
         raise RuntimeError("polygon runtime vertex contract drift")
+    if runtime.spatial.vertex_fallbacks != config.vertex_fallbacks:
+        raise RuntimeError("polygon runtime vertex fallback contract drift")
     if runtime.spatial.recall_floor != config.spatial_recall_floor:
         raise RuntimeError("polygon runtime spatial Recall contract drift")
     if runtime.spatial.iou_floor != config.spatial_iou_floor:

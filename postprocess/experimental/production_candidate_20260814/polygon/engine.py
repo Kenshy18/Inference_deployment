@@ -33,6 +33,7 @@ def assert_runtime_bridge_contract(
     expected = {
         "profile": config.polygon_profile_id,
         "vertices": config.spatial.vertices_per_component,
+        "vertex_fallbacks": config.spatial.vertex_fallbacks,
         "spatial_recall": config.spatial.recall_floor,
         "spatial_iou": config.spatial.iou_floor,
         "temporal_recall": config.temporal.recall_floor,
@@ -41,6 +42,7 @@ def assert_runtime_bridge_contract(
     actual = {
         "profile": approved.profile_id,
         "vertices": approved.vertices_per_component,
+        "vertex_fallbacks": approved.vertex_fallbacks,
         "spatial_recall": approved.spatial_recall_floor,
         "spatial_iou": approved.spatial_iou_floor,
         "temporal_recall": approved.temporal_recall_floor,

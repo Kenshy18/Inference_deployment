@@ -41,6 +41,7 @@ class TrackingConfig:
 @dataclass(frozen=True, slots=True)
 class SpatialConfig:
     vertices_per_component: int = 14
+    vertex_fallbacks: tuple[int, ...] = (14, 16, 18, 20)
     recall_floor: float = 0.97
     iou_floor: float = 0.95
     dense_vertices: int = 64
@@ -119,7 +120,9 @@ class CandidateConfig:
         if self.polygon_profile_id != POLYGON_PROFILE_ID:
             raise ValueError("polygon profile is part of the frozen contract")
         if self.spatial.vertices_per_component != 14:
-            raise ValueError("candidate requires exactly 14 vertices per component")
+            raise ValueError("candidate minimum vertex count must be 14")
+        if self.spatial.vertex_fallbacks != (14, 16, 18, 20):
+            raise ValueError("candidate vertex fallbacks must be 14,16,18,20")
         for name, value in (
             ("spatial recall", self.spatial.recall_floor),
             ("spatial IoU", self.spatial.iou_floor),
@@ -235,7 +238,9 @@ class CandidateConfig:
 
     def to_dict(self) -> dict[str, object]:
         self.validate()
-        return asdict(self)
+        payload = asdict(self)
+        payload["spatial"]["vertex_fallbacks"] = list(self.spatial.vertex_fallbacks)
+        return payload
 
 
 CANDIDATE = CandidateConfig()

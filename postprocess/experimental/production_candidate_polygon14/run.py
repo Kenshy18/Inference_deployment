@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the explicit polygon14 + frozen keyframe Production candidate."""
+"""Run the 14/16/18/20-point + frozen keyframe Production candidate."""
 
 from __future__ import annotations
 
@@ -26,7 +26,8 @@ LABELS = ("女性器", "男性器", "結合部分")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Build persistent 14-point polygons and optimize their temporal "
+            "Build persistent adaptive 14/16/18/20-point polygons and optimize "
+            "their temporal "
             "keyframes under exact per-frame Recall constraints."
         )
     )
@@ -66,8 +67,8 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
         "--labels", args.labels,
         "--target-interval", str(interval),
         "--recall-floor", str(CANDIDATE.temporal_recall_floor),
-        "--anchors-per-contour", str(CANDIDATE.vertices_per_component),
-        "--min-anchors-per-contour", str(CANDIDATE.vertices_per_component),
+        "--anchors-per-contour", str(max(CANDIDATE.vertex_fallbacks)),
+        "--min-anchors-per-contour", str(min(CANDIDATE.vertex_fallbacks)),
         "--no-adaptive-anchor-counts",
         "--num-workers", str(max(1, int(args.num_workers))),
         "--label-workers", str(max(1, int(args.label_workers))),

@@ -25,8 +25,9 @@ The software-facing run performs these stages in order:
    frames. The cleaned mask remains the public output geometry.
 5. Split tracks into 女性器, 男性器, and 結合部分. Apply the approved border
    expansion and five-frame endpoint extension independently to each class.
-6. Build track-consistent 14-point polygons. Spatial Recall is at least 0.97
-   and spatial IoU at least 0.95.
+6. Build track-consistent 14/16/18/20-point polygons. Select the smallest
+   native-exact quality-feasible count for the whole track segment and fail
+   closed if 20 points cannot satisfy Recall 0.97.
 7. Run the multistate CUDA-lazy-exact DP with exact per-frame Recall at least
    0.97 and a soft target interval of 6.
 8. With DP key positions fixed, run two per-key pair-vote coordinate sweeps to
@@ -65,7 +66,7 @@ drifts.
 
 - `config.py`: immutable semantic and runtime contract.
 - `nms/`: policy construction and streaming NMS stage.
-- `polygon/spatial.py`: stable 14-point fitter boundary.
+- `polygon/spatial.py`: stable adaptive 14/16/18/20-point fitter boundary.
 - `polygon/candidate_palette.py`: class-specific DP state roles.
 - `polygon/dp.py`: exact minimum-Recall audit.
 - `polygon/pair_vote.py`: exact pair-vote boundary.

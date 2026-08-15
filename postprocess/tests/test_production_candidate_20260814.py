@@ -41,6 +41,7 @@ class ProductionCandidate20260814Tests(unittest.TestCase):
         CANDIDATE.validate()
         self.assertEqual("production_candidate_20260814_v1", CANDIDATE.profile_id)
         self.assertEqual(14, CANDIDATE.spatial.vertices_per_component)
+        self.assertEqual((14, 16, 18, 20), CANDIDATE.spatial.vertex_fallbacks)
         self.assertEqual(0.97, CANDIDATE.temporal.recall_floor)
         self.assertEqual(6, CANDIDATE.temporal.target_interval)
         self.assertEqual(2, CANDIDATE.temporal.pair_vote_sweeps)

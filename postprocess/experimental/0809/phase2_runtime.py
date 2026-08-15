@@ -365,8 +365,8 @@ CLASS_ROLE_STATE_PROFILES = {
         "結合部分": (),
     },
     # Explicit Production candidate.  Its temporal state palette is frozen to
-    # new_production_v1; the only semantic change is the preceding track-level
-    # 14-point spatial polygon construction.  Keeping a separate profile ID is
+    # new_production_v1; the semantic change is the preceding track-level
+    # 14/16/18/20 spatial polygon selection.  Keeping a separate profile ID is
     # important for auditability and prevents an experimental representation
     # change from being mistaken for the established temporal baseline.
     "polygon14_keyframe_v1": {
@@ -1135,13 +1135,20 @@ def _patch_phase2_candidates(module: ModuleType, profile: str) -> ModuleType:
                 apply_spatial_candidate,
             )
 
-            apply_spatial_candidate(run, pipeline_profile)
-            if bool(getattr(module, "_phase1_native_interval_enabled", False)):
-                run._phase2_endpoint_evaluator = (
-                    module._phase1_get_native_interval_evaluator(
-                        eval_contexts, run.gt_polygons
-                    )
+            if not bool(getattr(module, "_phase1_native_interval_enabled", False)):
+                raise RuntimeError(
+                    "adaptive Production vertices require native exact interval evaluation"
                 )
+            run._phase2_endpoint_evaluator = (
+                module._phase1_get_native_interval_evaluator(
+                    eval_contexts, run.gt_polygons
+                )
+            )
+            apply_spatial_candidate(
+                run,
+                pipeline_profile,
+                endpoint_evaluator=run._phase2_endpoint_evaluator,
+            )
         if (
             profile != "polygon14_keyframe_v1"
             and
@@ -3127,8 +3134,9 @@ def _write_audit(
         "semantic_changes": {
             "candidate_shapes": profile,
             "spatial_polygon_representation": (
-                "persistent 14-point line-fit polygons; tracked source masks "
-                "remain the exact Recall reference"
+                "track-wise 14/16/18/20-point line-fit fallback with native "
+                "exact Recall repair; tracked source masks remain the exact "
+                "Recall reference"
                 if profile == "polygon14_keyframe_v1"
                 else "unchanged"
             ),

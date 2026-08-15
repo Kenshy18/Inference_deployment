@@ -97,6 +97,15 @@ def materialize_outputs(
                 ("interpolation_method", "linear_polygon_index_v1"),
                 ("profile", config.profile_id),
                 ("vertices_per_component", str(config.vertices_per_component)),
+                (
+                    "minimum_vertices_per_component",
+                    str(min(config.vertex_fallbacks)),
+                ),
+                (
+                    "vertex_fallbacks",
+                    ",".join(str(value) for value in config.vertex_fallbacks),
+                ),
+                ("maximum_vertices_per_component", str(max(config.vertex_fallbacks))),
             ),
         )
     return {

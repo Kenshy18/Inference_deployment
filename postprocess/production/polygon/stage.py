@@ -70,7 +70,7 @@ def _dimensions(
 @dataclass(frozen=True)
 class ProductionPolygonStage:
     options: dict[str, Any] = field(default_factory=dict)
-    name: str = "production_polygon14_cpu_exact_v1"
+    name: str = "production_polygon_adaptive14_20_cpu_exact_v1"
     requires: frozenset[str] = frozenset({"tracked_sqlite"})
     provides: frozenset[str] = frozenset(
         {
