@@ -1437,6 +1437,33 @@ def validate_integrated_result(path: Path) -> dict[str, Any]:
             raise ValueError(
                 f"{source}: invalid typed keyframe component " f"{invalid_component[0]}"
             )
+        uncovered_postprocess_frame = connection.execute(
+            """
+            SELECT p.frame, p.track_id
+            FROM mask_postprocess_provenance p
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM mask_track_segments s
+                WHERE s.track_id=p.track_id
+                  AND p.frame BETWEEN s.start_frame AND s.end_frame
+                  AND EXISTS (
+                      SELECT 1 FROM mask_keyframes k0
+                      WHERE k0.segment_id=s.id AND k0.frame<=p.frame
+                  )
+                  AND EXISTS (
+                      SELECT 1 FROM mask_keyframes k1
+                      WHERE k1.segment_id=s.id AND k1.frame>=p.frame
+                  )
+            )
+            LIMIT 1
+            """
+        ).fetchone()
+        if uncovered_postprocess_frame is not None:
+            raise ValueError(
+                f"{source}: postprocess frame {uncovered_postprocess_frame[0]} "
+                f"for track {uncovered_postprocess_frame[1]!r} cannot be "
+                "reconstructed from editable keyframes"
+            )
         dense_tables = {
             "masks",
             "tracked_masks",

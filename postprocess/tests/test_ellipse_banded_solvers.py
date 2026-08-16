@@ -6,9 +6,18 @@ import unittest
 import numpy as np
 
 from keyframes.ellipse.optimizer import kfbase_module as base
+from keyframes.ellipse.trackk_dense_recall import kftrackk_parse_args
 
 
 class EllipseBandedSolverTest(unittest.TestCase):
+    def test_production_keyframe_defaults_preserve_fast_motion(self) -> None:
+        args = kftrackk_parse_args(
+            ["--input-metrics-csv", "input.csv", "--output-dir", "output"]
+        )
+        self.assertEqual(0.0, args.smooth_alpha)
+        self.assertEqual(1, args.min_gap)
+        self.assertEqual("raw", args.keyframe_value_source)
+
     def test_second_difference_solver_matches_dense_reference(self) -> None:
         rng = np.random.default_rng(1042)
         for length in (3, 4, 5, 31):

@@ -6,7 +6,11 @@ import unittest
 from pathlib import Path
 
 from orchestration.contracts import public_result_schema_signature
-from orchestration.rescale_result_sqlite import VideoGeometry, rescale_result_sqlite
+from orchestration.rescale_result_sqlite import (
+    VideoGeometry,
+    rescale_inference_sqlite_for_postprocess,
+    rescale_result_sqlite,
+)
 
 
 COORDINATE_TABLES = {
@@ -129,6 +133,126 @@ class RescaleResultSqliteTests(unittest.TestCase):
                     proxy=VideoGeometry(1920, 1080, 30.0, 10),
                     original=VideoGeometry(4096, 2160, 30.0, 10),
                     original_video=Path("/video/original.mp4"),
+                )
+
+    def test_rescale_restores_720p_source_from_canonical_1080p(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = create_proxy_result(root / "canonical.sqlite")
+            output = root / "result.sqlite"
+
+            summary = rescale_result_sqlite(
+                source,
+                output,
+                proxy=VideoGeometry(1920, 1080, 30.0, 10),
+                original=VideoGeometry(1280, 720, 30.0, 10),
+                original_video=Path("/video/original-720p.mp4"),
+            )
+
+            with sqlite3.connect(output) as connection:
+                self.assertEqual(
+                    (2.0 / 3.0, 4.0 / 3.0, 2.0, 8.0 / 3.0),
+                    connection.execute("SELECT * FROM detections").fetchone(),
+                )
+                self.assertEqual(
+                    (1280, 720),
+                    connection.execute("SELECT * FROM frames").fetchone(),
+                )
+                self.assertEqual(
+                    (1280, 720, 10),
+                    connection.execute("SELECT * FROM video_streams").fetchone(),
+                )
+            self.assertEqual(2.0 / 3.0, summary["scale_x"])
+            self.assertEqual(2.0 / 3.0, summary["scale_y"])
+
+    def test_inference_coordinates_expand_to_1080p_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = create_proxy_result(root / "inference.sqlite")
+            output = root / "canonical.sqlite"
+            with sqlite3.connect(source) as connection:
+                connection.execute("UPDATE frames SET width=1280, height=720")
+                connection.execute(
+                    "UPDATE videos SET width=1280, height=720, path='source.mp4'"
+                )
+                connection.execute(
+                    "UPDATE video_streams SET width=1280, height=720"
+                )
+
+            summary = rescale_inference_sqlite_for_postprocess(
+                source,
+                output,
+                inference=VideoGeometry(1280, 720, 30.0, 10),
+                workspace=VideoGeometry(1920, 1080, 30.0, 10),
+                workspace_video=Path("/video/workspace-1080p.mp4"),
+            )
+
+            with sqlite3.connect(output) as connection:
+                self.assertEqual(
+                    (1.5, 3.0, 4.5, 6.0),
+                    connection.execute("SELECT * FROM detections").fetchone(),
+                )
+                self.assertEqual(
+                    (1920, 1080),
+                    connection.execute("SELECT * FROM frames").fetchone(),
+                )
+                self.assertEqual(
+                    ("1.5",),
+                    connection.execute(
+                        "SELECT value FROM run_metadata WHERE "
+                        "key='postprocess_workspace.scale_x'"
+                    ).fetchone(),
+                )
+                self.assertIsNone(
+                    connection.execute(
+                        "SELECT value FROM run_metadata WHERE "
+                        "key='analysis_proxy.scale_x_to_source'"
+                    ).fetchone()
+                )
+            self.assertEqual(1.5, summary["scale_x"])
+
+    def test_inference_rescale_accepts_schema_without_result_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "legacy-inference.sqlite"
+            output = root / "canonical.sqlite"
+            with sqlite3.connect(source) as connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE frames(width INTEGER, height INTEGER);
+                    INSERT INTO frames VALUES(1280, 720);
+                    CREATE TABLE videos(
+                        path TEXT, reported_frame_count INTEGER, fps REAL,
+                        width INTEGER, height INTEGER
+                    );
+                    INSERT INTO videos VALUES('source.mp4', 10, 30, 1280, 720);
+                    CREATE TABLE detections(
+                        x1 REAL, y1 REAL, x2 REAL, y2 REAL
+                    );
+                    INSERT INTO detections VALUES(10, 20, 30, 40);
+                    CREATE TABLE segmentation_points(x REAL, y REAL);
+                    INSERT INTO segmentation_points VALUES(12, 24);
+                    """
+                )
+
+            rescale_inference_sqlite_for_postprocess(
+                source,
+                output,
+                inference=VideoGeometry(1280, 720, 30.0, 10),
+                workspace=VideoGeometry(1920, 1080, 30.0, 10),
+                workspace_video=Path("/video/workspace.mp4"),
+            )
+
+            with sqlite3.connect(output) as connection:
+                self.assertEqual(
+                    (15.0, 30.0, 45.0, 60.0),
+                    connection.execute("SELECT * FROM detections").fetchone(),
+                )
+                self.assertEqual(
+                    (18.0, 36.0),
+                    connection.execute(
+                        "SELECT * FROM segmentation_points"
+                    ).fetchone(),
                 )
 
 

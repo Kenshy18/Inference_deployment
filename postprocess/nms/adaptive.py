@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .components import (
+    remove_redundant_islands_candidate_v1,
+    remove_small_foreground_components,
+)
+
 
 class NmsPolicy(Protocol):
     """Replaceable detection suppression policy."""
@@ -109,6 +114,13 @@ class AdaptiveNms:
     small_contain_ratio_max: float = 5.0
     tiny_contain_ratio_max: float = 5.0
     contain_margin: float = 2.0
+    island_cleanup_policy: str = "disabled"
+    remove_small_islands: bool = False
+    small_island_ratio_max: float = 0.10
+    fill_all_holes: bool = True
+    island_unconditional_owner_ratio_max: float = 0.01
+    island_other_coverage_min: float = 0.90
+    island_to_other_area_max: float = 0.30
 
     def thresholds_for_area(self, area: float) -> tuple[float, float]:
         if area <= self.tiny_area:
@@ -117,19 +129,80 @@ class AdaptiveNms:
             return self.small_iou_threshold, self.small_contain_ratio_max
         return self.iou_threshold, self.contain_ratio_max
 
+    def pair_suppression_reason(
+        self,
+        first: dict[str, Any],
+        second: dict[str, Any],
+    ) -> str | None:
+        """Return the legacy reason for suppressing ``second`` by ``first``.
+
+        The predicate is deliberately symmetric in geometry; caller ordering
+        supplies the score/stable-index priority.  Exposing the predicate lets
+        component-aware policies reuse the validated Production rule without
+        reimplementing it or changing legacy output.
+        """
+        first_bbox = tuple(map(float, first.get("bbox_xyxy", [0.0, 0.0, 0.0, 0.0])))
+        second_bbox = tuple(map(float, second.get("bbox_xyxy", [0.0, 0.0, 0.0, 0.0])))
+        first_bbox_area = _bbox_area(first)
+        second_bbox_area = _bbox_area(second)
+        first_mask_area = _mask_area(first)
+        second_mask_area = _mask_area(second)
+        first_size = (
+            min(first_bbox_area, first_mask_area)
+            if first_mask_area > 0.0
+            else first_bbox_area
+        )
+        second_size = (
+            min(second_bbox_area, second_mask_area)
+            if second_mask_area > 0.0
+            else second_bbox_area
+        )
+        threshold, contain_limit = self.thresholds_for_area(
+            min(first_size, second_size)
+        )
+        area_min = min(first_bbox_area, second_bbox_area)
+        area_max = max(first_bbox_area, second_bbox_area)
+        if (
+            _contained_pair(
+                first,
+                second,
+                first_bbox,
+                second_bbox,
+                self.contain_margin,
+            )
+            and area_min > 0.0
+            and area_max / area_min <= contain_limit
+        ):
+            return "contained"
+        if _bbox_iou(first_bbox, second_bbox) >= threshold:
+            return "bbox_iou"
+        return None
+
     def apply(self, detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not detections:
             return []
-        bboxes = [
-            tuple(map(float, detection.get("bbox_xyxy", [0.0, 0.0, 0.0, 0.0])))
-            for detection in detections
-        ]
-        bbox_areas = [_bbox_area(detection) for detection in detections]
-        mask_areas = [_mask_area(detection) for detection in detections]
-        size_refs = [
-            min(bbox_area, mask_area) if mask_area > 0.0 else bbox_area
-            for bbox_area, mask_area in zip(bbox_areas, mask_areas, strict=True)
-        ]
+        if self.island_cleanup_policy == "production_candidate_v1":
+            detections = remove_redundant_islands_candidate_v1(
+                detections,
+                fill_all_holes=self.fill_all_holes,
+                unconditional_owner_ratio_max=(
+                    self.island_unconditional_owner_ratio_max
+                ),
+                other_coverage_min=self.island_other_coverage_min,
+                island_to_other_area_max=self.island_to_other_area_max,
+            )
+        elif self.island_cleanup_policy != "disabled":
+            raise ValueError(
+                f"unsupported island cleanup policy: {self.island_cleanup_policy}"
+            )
+        elif self.remove_small_islands:
+            detections = [
+                remove_small_foreground_components(
+                    detection,
+                    ratio_max=self.small_island_ratio_max,
+                )
+                for detection in detections
+            ]
         order = sorted(
             range(len(detections)),
             key=lambda index: (-float(detections[index].get("score") or 0.0), index),
@@ -143,25 +216,10 @@ class AdaptiveNms:
             for other in order[position + 1 :]:
                 if other in suppressed:
                     continue
-                threshold, contain_limit = self.thresholds_for_area(
-                    min(size_refs[index], size_refs[other])
-                )
-                area_min = min(bbox_areas[index], bbox_areas[other])
-                area_max = max(bbox_areas[index], bbox_areas[other])
-                contained = _contained_pair(
-                    detections[index],
-                    detections[other],
-                    bboxes[index],
-                    bboxes[other],
-                    self.contain_margin,
-                )
                 if (
-                    contained
-                    and area_min > 0.0
-                    and area_max / area_min <= contain_limit
+                    self.pair_suppression_reason(detections[index], detections[other])
+                    is not None
                 ):
-                    suppressed.add(other)
-                elif _bbox_iou(bboxes[index], bboxes[other]) >= threshold:
                     suppressed.add(other)
         return [detections[index] for index in retained]
 

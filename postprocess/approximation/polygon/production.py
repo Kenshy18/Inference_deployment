@@ -126,6 +126,11 @@ class ProductionPolygonV22Stage:
     )
 
     def run(self, context: StageContext) -> StageResult:
+        # The vendor optimizer runs with ``ROOT`` as its working directory.
+        # Resolve every artifact before crossing that subprocess boundary so a
+        # caller-provided relative output root cannot silently point at a new,
+        # empty SQLite under ``postprocess/``.
+        stage_dir = Path(context.stage_dir).expanduser().resolve()
         interval = int(self.options.get("interval_frames", 3))
         if interval < 1:
             raise ValueError("interval_frames must be >= 1")
@@ -141,13 +146,15 @@ class ProductionPolygonV22Stage:
                 if not (predictor / filename).is_file():
                     raise FileNotFoundError(predictor / filename)
 
-        original_reference = context.artifacts["tracked_sqlite"]
+        original_reference = (
+            Path(context.artifacts["tracked_sqlite"]).expanduser().resolve()
+        )
         optimizer_input = original_reference
         preparation: dict[str, object] = {}
         if bool(self.options.get("border_expand", True)):
             optimizer_input, border_summary = apply_border_expansion(
                 optimizer_input,
-                context.stage_dir / "border_expanded.sqlite",
+                stage_dir / "border_expanded.sqlite",
                 width=int(self.options.get("border_width", 1920)),
                 height=int(self.options.get("border_height", 1080)),
                 trigger_px=float(self.options.get("border_trigger_px", 10.0)),
@@ -160,7 +167,7 @@ class ProductionPolygonV22Stage:
         if bool(self.options.get("endpoint_extend", True)):
             optimizer_input, endpoint_summary = apply_endpoint_extension(
                 optimizer_input,
-                context.stage_dir / "endpoint_extended.sqlite",
+                stage_dir / "endpoint_extended.sqlite",
                 video=context.artifacts.get("input_video"),
                 extend_frames=int(self.options.get("endpoint_extend_frames", 5)),
                 motion_frames=int(self.options.get("endpoint_motion_frames", 10)),
@@ -168,7 +175,7 @@ class ProductionPolygonV22Stage:
             )
             preparation["endpoint_extension"] = endpoint_summary
 
-        vendor_output = context.stage_dir / "vendor_output"
+        vendor_output = stage_dir / "vendor_output"
         num_workers = int(self.options.get("num_workers", DEFAULT_NUM_WORKERS))
         if num_workers < 1:
             raise ValueError("num_workers must be >= 1")
@@ -227,8 +234,8 @@ class ProductionPolygonV22Stage:
 
         summary_path = vendor_output / "summary.json"
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        predictions = context.stage_dir / "predictions.sqlite"
-        keyframes = context.stage_dir / "keyframes.sqlite"
+        predictions = stage_dir / "predictions.sqlite"
+        keyframes = stage_dir / "keyframes.sqlite"
         _materialize_predictions(
             vendor_output / "pred" / "predictions.sqlite",
             original_reference,

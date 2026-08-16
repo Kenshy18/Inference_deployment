@@ -312,6 +312,31 @@ def _components_at(
         left = keyframes[position - 1]
         right = keyframes[position]
         alpha = (frame - left.frame) / (right.frame - left.frame)
+        if interpolation_method == "linear_polygon_index_v1":
+            # The keyframe-primary editor contract interpolates the stored
+            # point_index values directly.  Superior polygon outputs have a
+            # fixed vertex count and canonical winding/origin, so any further
+            # perimeter resampling or cyclic alignment here would make the
+            # overlay disagree with the geometry opened by the editor.
+            left_by_slot = dict(left.components)
+            right_by_slot = dict(right.components)
+            if left_by_slot.keys() != right_by_slot.keys():
+                return _interpolate_polygon_keyframes(left, right, alpha)
+            output: list[Component] = []
+            for slot in sorted(left_by_slot):
+                left_component = left_by_slot[slot]
+                right_component = right_by_slot[slot]
+                left_points = np.asarray(left_component.values, dtype=np.float64)
+                right_points = np.asarray(right_component.values, dtype=np.float64)
+                if left_points.shape != right_points.shape:
+                    return _interpolate_polygon_keyframes(left, right, alpha)
+                output.append(
+                    Component(
+                        "polygon",
+                        ((1.0 - alpha) * left_points + alpha * right_points).tolist(),
+                    )
+                )
+            return tuple(output)
         return _interpolate_polygon_keyframes(left, right, alpha)
 
     # Ellipse and rectangle components can be absent at individual
@@ -455,6 +480,12 @@ def _polygon_components_for_final_frame(
         right_frame,
         tuple(enumerate(observed_components[right_frame])),
     )
+    if interpolation_method == "linear_polygon_index_v1":
+        return _components_at(
+            [left, right],
+            frame,
+            interpolation_method,
+        )
     return _interpolate_polygon_keyframes(left, right, alpha)
 
 

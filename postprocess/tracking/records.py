@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -57,8 +58,33 @@ def _normalize_polygons(value: object) -> list[list[list[float]]]:
     return polygons
 
 
+def _normalize_association_geometry(output: dict[str, Any]) -> None:
+    bbox_present = "_association_bbox_xyxy" in output
+    area_present = "_association_mask_area" in output
+    if not bbox_present and not area_present:
+        return
+    if bbox_present != area_present:
+        raise ValueError("association geometry requires both bbox and mask area")
+
+    raw_bbox = output["_association_bbox_xyxy"]
+    if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
+        raise ValueError("_association_bbox_xyxy must contain four values")
+    bbox = [float(value) for value in raw_bbox]
+    if not all(math.isfinite(value) for value in bbox):
+        raise ValueError("_association_bbox_xyxy must be finite")
+    if bbox[2] < bbox[0] or bbox[3] < bbox[1]:
+        raise ValueError("_association_bbox_xyxy has inverted bounds")
+
+    area = float(output["_association_mask_area"])
+    if not math.isfinite(area) or area < 0.0:
+        raise ValueError("_association_mask_area must be finite and non-negative")
+    output["_association_bbox_xyxy"] = bbox
+    output["_association_mask_area"] = area
+
+
 def prepare_detection(detection: dict[str, Any]) -> dict[str, Any]:
     output = dict(detection)
+    _normalize_association_geometry(output)
     polygons = _normalize_polygons(output.get("polygons"))
     output["polygons"] = polygons
     output["segmentation"] = polygons

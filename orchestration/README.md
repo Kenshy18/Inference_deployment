@@ -80,6 +80,16 @@ AI生観測を詳細表示するときも、GUIで指定した検出下限を回
 [`configs/profile_3min_optimized_20260728.json`](configs/profile_3min_optimized_20260728.json)と
 [`docs/OPTIMIZATION_3MIN_20260728.md`](docs/OPTIMIZATION_3MIN_20260728.md)にあります。
 
+### 16:9の後処理解像度
+
+16:9動画のNMS、追跡、ポリゴン近似、キーフレーム最適化、顔後処理は、入力が
+720p・1080p・4Kのいずれでも1920×1080の共通座標で実行します。1080p入力は
+無変換です。720p入力は推論動画を拡大せず、推論SQLiteの公開座標だけを1.5倍に
+して後処理するため、モデル入力への再サンプリングは増えません。4K入力は従来
+どおり1080p解析プロキシを使います。完成した統合SQLiteは元動画の解像度へ戻し、
+変換内容を`run_metadata`と実行manifestへ記録します。16:9以外は元解像度のまま
+処理します。
+
 ## 既存SQLiteから開始
 
 推論を行わず、既存のunified inference SQLiteから開始できます。

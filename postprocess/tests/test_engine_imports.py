@@ -18,6 +18,10 @@ RUNTIME_MODULES = (
     "preprocessing.score_policy",
     "preprocessing.stages",
     "nms.adaptive",
+    "nms.component_aware",
+    "nms.component_virtual",
+    "nms.mask_adaptive",
+    "nms.production",
     "nms.stages",
     "cut_detection.detector",
     "cut_detection.stages",
@@ -40,6 +44,10 @@ RUNTIME_MODULES = (
     "artifacts.sqlite",
     "artifacts.stages",
     "visualization.overlay",
+    "production.config",
+    "production.polygon.materialize",
+    "production.polygon.runtime_bridge",
+    "production.polygon.stage",
     "run_pipeline",
 )
 

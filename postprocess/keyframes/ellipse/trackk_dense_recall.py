@@ -44,10 +44,14 @@ def kftrackk_parse_args(
     parser.add_argument("--solver", choices=["dp", "dp_rewarded"], default="dp")
     parser.add_argument("--lambda-all", type=float, default=-1.0)
     parser.add_argument("--lambda-search-iters", type=int, default=16)
-    parser.add_argument("--smooth-alpha", type=float, default=1.0)
+    # Select from the observed trajectory. Pre-selection smoothing aliases
+    # short periodic motion into an apparently static signal.
+    parser.add_argument("--smooth-alpha", type=float, default=0.0)
     parser.add_argument("--confidence-floor", type=float, default=0.18)
     parser.add_argument("--error-scale", type=float, default=4000.0)
-    parser.add_argument("--min-gap", type=int, default=2)
+    # Adjacent keys are necessary at a rapid reversal; the global ratio still
+    # controls ordinary keyframe density.
+    parser.add_argument("--min-gap", type=int, default=1)
     parser.add_argument("--max-gap", type=int, default=30)
     parser.add_argument("--local-search-radius", type=int, default=2)
     parser.add_argument(
@@ -71,7 +75,9 @@ def kftrackk_parse_args(
     parser.add_argument(
         "--keyframe-value-source",
         choices=["smoothed", "raw", "confidence_blend"],
-        default="confidence_blend",
+        # Keep editable anchors on the observed trajectory. Global LS may
+        # subsequently optimize those controls against the same raw target.
+        default="raw",
     )
     parser.add_argument("--k2-slot-center-weight", type=float, default=1.0)
     parser.add_argument("--k2-slot-size-weight", type=float, default=0.65)

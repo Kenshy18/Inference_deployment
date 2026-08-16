@@ -38,12 +38,10 @@ validatorは`contracts.artifacts`へ集約されています。新しい成果�
 | --- | --- | --- | --- |
 | 正規化 | `preprocessing.normalize` | `input_jsonl` | `normalized_jsonl` |
 | スコア方針 | `preprocessing.score_policy` | `normalized_jsonl` | `scored_jsonl` |
-| NMS | `nms.adaptive` | `scored_jsonl` | `nms_jsonl` |
+| NMS | `nms.production_v3`（旧実装・候補も明示指定可能） | `scored_jsonl` | `nms_jsonl` |
 | カット検出 | `cut_detection.video` | `nms_jsonl` | `cuts_json` |
 | tracking | `tracking.greedy` | `nms_jsonl`, `cuts_json` | `tracked_sqlite` |
-| polygon近似 | `approximation.polygon.rdp` | `tracked_sqlite` | `approximated_sqlite` |
-| keyframe | `keyframes.polygon.interval` | `approximated_sqlite` | `keyframes_sqlite` |
-| gap fill | `gap_fill.polygon.linear` | `approximated_sqlite`, `keyframes_sqlite` | `predictions_sqlite` |
+| polygon近似・keyframe・補完 | `production.polygon_v3_cpu` | `tracked_sqlite` | `predictions_sqlite`, `keyframes_sqlite`, `production_polygon_manifest` |
 | 評価 | `evaluation.mask_iou` | `tracked_sqlite`, `predictions_sqlite` | `evaluation_summary` |
 | 出力検証 | `artifacts.validate` | `predictions_sqlite` | `validation_report` |
 
@@ -101,7 +99,37 @@ Face DINO v2の顔後処理を有効にすると、通常の最終出力検証�
 
 正規化後のcanonical JSONLは、`frame_index: int`と`detections: list`を必須と
 します。各detectionは非空の`polygons`、`class_name`、`label`を持ちます。
-score policyとNMSはこの形式を保ったまま検出だけを除外します。
+score policyはこの形式を保ったまま検出だけを除外します。既存の
+`nms.adaptive`も同様です。opt-inの
+`nms.component_aware_mask_candidate_v2`は、検出の除外に加えて穴埋めと
+冗長な前景連結成分の除去を行うため、`polygons`、`segmentation`、bboxを同期して
+更新します。それ以外のID、score、class、由来情報は保持し、JSONL/SQLiteの
+schemaは変更しません。この候補の中間JSONLだけは、島清掃直前の形状を追跡の
+対応付けに使うため、任意のprivate hint（`_association_bbox_xyxy`と
+`_association_mask_area`）を持ちます。tracking後には破棄され、公開マスクや
+SQLiteへは永続化されません。
+
+`nms.virtual_component_candidate_v3`も検出除外とgeometry更新を行うopt-in候補です。
+穴埋めと所有本体比1%以下の島削除後、連結成分を一時的な仮想インスタンスへ分解し、
+本体同士・島同士には既存ProductionのNMS、別所有者の島と本体には80%被覆かつ
+50%面積比の非対称判定を適用します。本体同士の敗者は所有検出全体、島同士または
+島対本体の敗者は島だけを削除します。同一所有者内では比較しません。仮想IDは
+canonical JSONLやSQLiteへ保存せず、生存成分を元の検出へ再構成します。追跡用の
+private association hintの扱いと破棄条件はv2と同じです。
+
+`nms.virtual_component_mask_candidate_v4`はv3と同じcanonical入出力と部分削除規則を
+使用しますが、本体同士・島同士にはMask版Adaptive NMSを適用します。bboxは
+broad-phaseに限定し、抑制はnative画素Mask IoUまたは方向付きMask被覆率で決定します。
+確信度順、面積帯、閾値は既存Productionと同じです。仮成分と追跡用private hintは
+SQLiteへ永続化されないため、最終schemaは不変です。
+
+`nms.production_v3`は、このv4の検証済み閾値を凍結した正式入口です。任意の閾値変更を
+受理せず、bboxはbroad-phase、最終判定はnative画素Maskだけで行います。
+
+`production.polygon_v3_cpu`はクラスごとに独立して14頂点空間近似、複数形状DP、
+pair-vote、topology検査を実行します。区間評価は`native_exact`に固定し、CUDA近似経路を
+Productionから選択できません。最終Recall監査結果は
+`production_polygon_manifest`へ全件記録されます。
 
 ### 未追跡の検出SQLite
 

@@ -343,6 +343,27 @@ def _polygon_key_rows(path: Path) -> dict[str, dict[int, tuple[str, str]]]:
     return by_track
 
 
+def _polygon_interpolation_method(path: Path) -> str:
+    source = Path(path).expanduser().resolve()
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema WHERE type='table'"
+            )
+        }
+        if "polygon_keyframe_metadata" not in tables:
+            return "linear_polygon_aligned_v1"
+        row = connection.execute(
+            "SELECT value FROM polygon_keyframe_metadata "
+            "WHERE key='interpolation_method'"
+        ).fetchone()
+    method = "linear_polygon_aligned_v1" if row is None else str(row[0])
+    if method not in {"linear_polygon_aligned_v1", "linear_polygon_index_v1"}:
+        raise ValueError(f"unsupported polygon interpolation method: {method}")
+    return method
+
+
 def import_polygon_keyframes(
     connection: sqlite3.Connection,
     path: Path,
@@ -352,6 +373,7 @@ def import_polygon_keyframes(
 ) -> dict[str, int]:
     cuts = _cuts(connection)
     keys_by_track = _polygon_key_rows(path)
+    interpolation_method = _polygon_interpolation_method(path)
     represented_tracks = (
         {
             str(row[0])
@@ -417,7 +439,7 @@ def import_polygon_keyframes(
                 start_frame=start,
                 end_frame=end,
                 shape_type="polygon",
-                interpolation_method="linear_polygon_aligned_v1",
+                interpolation_method=interpolation_method,
                 component_count=expected_components,
                 source_run_key=f"{source_prefix}:{track_id}:{run_index}:{start}:{end}",
                 segment_reason="continuous_topology",
@@ -471,6 +493,163 @@ def _ellipse_rows(path: Path) -> list[dict[str, Any]]:
     return [dict(row) for row in payload]
 
 
+def _is_explicit_ellipse_gapfill(
+    connection: sqlite3.Connection,
+    *,
+    track_id: str,
+    left_end: int,
+    right_start: int,
+) -> bool:
+    """Return true only for a gap accepted by the classwise gap-fill stage.
+
+    Ellipse keyframes are selected before gap filling, while
+    ``mask_postprocess_provenance`` describes the final, filled timeline.  The
+    provenance rows are therefore the authority for deciding whether two
+    otherwise disconnected keyframe runs may safely become one editable
+    interpolation segment.  Absence or partial provenance always fails closed.
+    """
+
+    gap_length = int(right_start) - int(left_end) - 1
+    if gap_length <= 0:
+        return False
+    rows = list(
+        connection.execute(
+            """
+            SELECT frame, shape_mode, max_gap, is_gap_filled
+            FROM mask_postprocess_provenance
+            WHERE track_id=? AND frame BETWEEN ? AND ?
+            ORDER BY frame
+            """,
+            (str(track_id), int(left_end), int(right_start)),
+        )
+    )
+    if [int(row[0]) for row in rows] != list(range(left_end, right_start + 1)):
+        return False
+    if any(str(row[1]) != "ellipse" for row in rows):
+        return False
+    if int(rows[0][3]) != 0 or int(rows[-1][3]) != 0:
+        return False
+    interior = rows[1:-1]
+    return bool(interior) and all(
+        int(row[3]) == 1 and gap_length <= int(row[2]) for row in interior
+    )
+
+
+def _merge_explicit_gapfilled_ellipse_segments(
+    connection: sqlite3.Connection,
+    segment_ids: list[int],
+) -> int:
+    """Join imported runs only across explicitly accepted ellipse gap fills."""
+
+    active_ids = {int(segment_id) for segment_id in segment_ids}
+    if len(active_ids) < 2:
+        return 0
+    rows = [
+        row
+        for row in connection.execute(
+            """
+            SELECT id, track_id, scene_id, start_frame, end_frame,
+                   component_count
+            FROM mask_track_segments
+            WHERE shape_type='ellipse'
+            ORDER BY track_id, start_frame, end_frame, id
+            """
+        )
+        if int(row[0]) in active_ids
+    ]
+    merge_count = 0
+    left: tuple[Any, ...] | None = None
+    for right in rows:
+        if left is None:
+            left = right
+            continue
+        left_id, left_track, left_scene, left_start, left_end = left[:5]
+        right_id, right_track, right_scene, right_start, right_end = right[:5]
+        compatible = (
+            str(left_track) == str(right_track)
+            and int(left_scene) == int(right_scene)
+            and int(left[5]) == int(right[5])
+        )
+        if compatible:
+            left_components = list(
+                connection.execute(
+                    """
+                    SELECT c.slot_index, c.geometry_type
+                    FROM mask_keyframes k
+                    JOIN keyframe_components c ON c.keyframe_id=k.id
+                    WHERE k.segment_id=? AND k.frame=?
+                    ORDER BY c.slot_index
+                    """,
+                    (int(left_id), int(left_end)),
+                )
+            )
+            right_components = list(
+                connection.execute(
+                    """
+                    SELECT c.slot_index, c.geometry_type
+                    FROM mask_keyframes k
+                    JOIN keyframe_components c ON c.keyframe_id=k.id
+                    WHERE k.segment_id=? AND k.frame=?
+                    ORDER BY c.slot_index
+                    """,
+                    (int(right_id), int(right_start)),
+                )
+            )
+            compatible = bool(left_components) and (left_components == right_components)
+        if compatible:
+            compatible = _is_explicit_ellipse_gapfill(
+                connection,
+                track_id=str(left_track),
+                left_end=int(left_end),
+                right_start=int(right_start),
+            )
+        if not compatible:
+            left = right
+            continue
+
+        next_index = int(
+            connection.execute(
+                """
+                SELECT COALESCE(MAX(keyframe_index), -1) + 1
+                FROM mask_keyframes WHERE segment_id=?
+                """,
+                (int(left_id),),
+            ).fetchone()[0]
+        )
+        connection.execute(
+            """
+            UPDATE mask_keyframes
+            SET segment_id=?, keyframe_index=keyframe_index+?
+            WHERE segment_id=?
+            """,
+            (int(left_id), next_index, int(right_id)),
+        )
+        connection.execute(
+            """
+            UPDATE mask_track_segments
+            SET end_frame=?,
+                source_run_key=source_run_key || ':gapfill:' || ? || ':' || ?,
+                segment_reason='ellipse_gapfill_connected_runs'
+            WHERE id=?
+            """,
+            (int(right_end), int(right_id), int(right_end), int(left_id)),
+        )
+        connection.execute(
+            "DELETE FROM mask_track_segments WHERE id=?",
+            (int(right_id),),
+        )
+        merge_count += 1
+        left = (
+            left_id,
+            left_track,
+            left_scene,
+            left_start,
+            right_end,
+            left[5],
+        )
+    return merge_count
+
+
 def import_ellipse_keyframes(
     connection: sqlite3.Connection,
     path: Path,
@@ -497,6 +676,7 @@ def import_ellipse_keyframes(
     segment_count = 0
     keyframe_count = 0
     component_count = 0
+    imported_segment_ids: list[int] = []
     for (track_id, mode, run_id), frames in sorted(
         grouped.items(),
         key=lambda item: (_track_sort_key(item[0][0]), item[0][2], item[0][1]),
@@ -535,6 +715,7 @@ def import_ellipse_keyframes(
             ),
             segment_reason=f"ellipse_{mode or 'unknown'}_run",
         )
+        imported_segment_ids.append(segment_id)
         segment_count += 1
         for keyframe_index, frame in enumerate(ordered_frames):
             keyframe_id = _insert_keyframe(
@@ -590,6 +771,10 @@ def import_ellipse_keyframes(
                 ),
             )
             keyframe_count += 1
+    segment_count -= _merge_explicit_gapfilled_ellipse_segments(
+        connection,
+        imported_segment_ids,
+    )
     return {
         "segments": segment_count,
         "keyframes": keyframe_count,

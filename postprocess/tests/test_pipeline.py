@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -285,10 +286,36 @@ class PipelineTests(unittest.TestCase):
             )
             self.assertEqual("polygon_modular", manifest["pipeline"])
             self.assertEqual(
-                "approximation.polygon.production_v22",
+                "production.polygon_v3_cpu",
                 manifest["stages"][0]["implementation"],
             )
             self.assertIn("keyframes_sqlite", manifest["artifacts"])
+
+    def test_polygon_pipeline_accepts_relative_output_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_sample_sqlite(root / "source.sqlite", frames=6)
+            args = build_parser().parse_args(
+                [
+                    "--input-sqlite",
+                    str(source),
+                    "--output-dir",
+                    "relative-output",
+                    "--shape-mode",
+                    "polygon",
+                    "--keyframe-interval",
+                    "2",
+                ]
+            )
+            previous = Path.cwd()
+            try:
+                os.chdir(root)
+                manifest = run_pipeline(args)
+            finally:
+                os.chdir(previous)
+            result = Path(str(manifest["artifacts"]["predictions_sqlite"]))
+            self.assertTrue(result.is_absolute())
+            self.assertTrue(result.is_file())
 
     def test_default_ellipse_pipeline_runs_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

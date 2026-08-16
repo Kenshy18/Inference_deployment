@@ -238,4 +238,144 @@ def rescale_result_sqlite(
     }
 
 
-__all__ = ["VideoGeometry", "rescale_result_sqlite"]
+def rescale_inference_sqlite_for_postprocess(
+    source: Path,
+    destination: Path,
+    *,
+    inference: VideoGeometry,
+    workspace: VideoGeometry,
+    workspace_video: Path,
+) -> dict[str, object]:
+    """Copy unified inference data into the canonical postprocess pixel space.
+
+    The inference itself is not rerun and its model input is not resampled.  Only
+    public coordinates and video geometry in the copied SQLite are transformed.
+    """
+
+    if inference.frame_count != workspace.frame_count:
+        raise ValueError(
+            "inference frame count differs from postprocess workspace: "
+            f"inference={inference.frame_count}, workspace={workspace.frame_count}"
+        )
+    if not math.isclose(inference.fps, workspace.fps, rel_tol=0.0, abs_tol=1e-3):
+        raise ValueError(
+            "inference fps differs from postprocess workspace: "
+            f"inference={inference.fps}, workspace={workspace.fps}"
+        )
+    scale_x = workspace.width / inference.width
+    scale_y = workspace.height / inference.height
+    if not math.isclose(scale_x, scale_y, rel_tol=0.0, abs_tol=1e-9):
+        raise ValueError(
+            "postprocess workspace must use a uniform scale: "
+            f"scale_x={scale_x}, scale_y={scale_y}"
+        )
+
+    source = source.expanduser().resolve()
+    destination = destination.expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    shutil.copy2(source, temporary)
+    try:
+        with sqlite3.connect(temporary) as connection:
+            tables = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            missing_core = sorted({"frames", "videos"} - tables)
+            if missing_core:
+                raise ValueError(
+                    "inference SQLite cannot be rescaled; "
+                    f"missing tables={missing_core}"
+                )
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            for table, columns in _COORDINATE_COLUMNS.items():
+                if table not in tables:
+                    continue
+                available = _table_columns(connection, table)
+                present = tuple(
+                    (column, axis)
+                    for column, axis in columns
+                    if column in available
+                )
+                if not present:
+                    continue
+                assignments = []
+                parameters: list[float] = []
+                for column, axis in present:
+                    factor = scale_x if axis in {"x", "uniform"} else scale_y
+                    assignments.append(f'"{column}" = "{column}" * ?')
+                    parameters.append(factor)
+                connection.execute(
+                    f'UPDATE "{table}" SET {", ".join(assignments)}',
+                    parameters,
+                )
+            connection.execute(
+                "UPDATE frames SET width=?, height=?",
+                (workspace.width, workspace.height),
+            )
+            connection.execute(
+                "UPDATE videos SET path=?, reported_frame_count=?, fps=?, "
+                "width=?, height=?",
+                (
+                    str(workspace_video),
+                    workspace.frame_count,
+                    workspace.fps,
+                    workspace.width,
+                    workspace.height,
+                ),
+            )
+            if "video_streams" in tables:
+                connection.execute(
+                    "UPDATE video_streams SET width=?, height=?, frame_count=?",
+                    (workspace.width, workspace.height, workspace.frame_count),
+                )
+            _update_model_metadata(
+                connection,
+                original_video=workspace_video,
+                original=workspace,
+            )
+            if "run_metadata" in tables:
+                connection.execute(
+                    "DELETE FROM run_metadata WHERE key LIKE 'analysis_proxy.%'"
+                )
+            values = {
+                "postprocess_workspace.source_width": (inference.width, "int"),
+                "postprocess_workspace.source_height": (inference.height, "int"),
+                "postprocess_workspace.width": (workspace.width, "int"),
+                "postprocess_workspace.height": (workspace.height, "int"),
+                "postprocess_workspace.scale_x": (scale_x, "float"),
+                "postprocess_workspace.scale_y": (scale_y, "float"),
+            }
+            if "run_metadata" in tables:
+                connection.executemany(
+                    "INSERT OR REPLACE INTO run_metadata(key, value, value_type) "
+                    "VALUES (?, ?, ?)",
+                    (
+                        (key, str(value), value_type)
+                        for key, (value, value_type) in values.items()
+                    ),
+                )
+            connection.commit()
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {
+        "source_width": inference.width,
+        "source_height": inference.height,
+        "workspace_width": workspace.width,
+        "workspace_height": workspace.height,
+        "scale_x": scale_x,
+        "scale_y": scale_y,
+        "frame_count": workspace.frame_count,
+        "fps": workspace.fps,
+    }
+
+
+__all__ = [
+    "VideoGeometry",
+    "rescale_inference_sqlite_for_postprocess",
+    "rescale_result_sqlite",
+]
