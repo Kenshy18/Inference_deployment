@@ -61,6 +61,7 @@ class ClasswisePostprocessStage:
 
     def run(self, context: StageContext) -> StageResult:
         started = time.perf_counter()
+        context.report_progress("classwise:preparing", 0.01)
         fallback = ClassPostprocessSettings(
             shape_mode="polygon",
             keyframe_interval=int(
@@ -94,6 +95,7 @@ class ClasswisePostprocessStage:
                 value[0],
             ),
         )
+        group_count = max(1, len(ordered_groups))
         for index, (label, settings) in enumerate(ordered_groups):
             group_started = time.perf_counter()
             group_id = f"{index:02d}_polygon_k{settings.keyframe_interval}"
@@ -119,6 +121,18 @@ class ClasswisePostprocessStage:
                     polygon_options=polygon_options,
                 ),
                 nested_root,
+                progress_callback=(
+                    lambda detail, fraction, fps, *, index=index, label=label: (
+                        context.report_progress(
+                            f"classwise:{label}:{detail}",
+                            0.02
+                            + 0.94
+                            * (index + (0.0 if fraction is None else fraction))
+                            / group_count,
+                            fps,
+                        )
+                    )
+                ),
             ).run(nested_inputs)
             predictions = (
                 Path(str(manifest["artifacts"]["predictions_sqlite"]))
@@ -152,8 +166,13 @@ class ClasswisePostprocessStage:
                     "elapsed_seconds": time.perf_counter() - group_started,
                 }
             )
+            context.report_progress(
+                f"classwise:{label}:complete",
+                0.02 + 0.94 * (index + 1) / group_count,
+            )
 
         output = context.stage_dir / "predictions.sqlite"
+        context.report_progress("classwise:merging", 0.97)
         merge_summary = merge_routed_outputs(
             tracked,
             tuple(routed),
@@ -177,6 +196,7 @@ class ClasswisePostprocessStage:
             json.dumps(manifest_value, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        context.report_progress("classwise:validating", 0.99)
         return StageResult(
             {
                 "predictions_sqlite": output,

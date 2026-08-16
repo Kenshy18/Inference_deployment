@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -14,6 +15,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -195,21 +197,125 @@ class OrchestrationRunner:
         self._sqlite_frame_bounds_cache: dict[Path, tuple[int, int]] = {}
 
     @staticmethod
-    def _probe_video(path: Path) -> VideoGeometry:
-        import cv2
+    def _probe_video(ffprobe: Path, path: Path) -> VideoGeometry:
+        """Read display geometry and the exact decodable frame count.
 
-        capture = cv2.VideoCapture(str(path))
-        if not capture.isOpened():
-            raise OrchestrationError(f"failed to probe video: {path}")
-        try:
-            geometry = VideoGeometry(
-                width=int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                height=int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-                fps=float(capture.get(cv2.CAP_PROP_FPS) or 0.0),
-                frame_count=int(capture.get(cv2.CAP_PROP_FRAME_COUNT)),
+        OpenCV derives ``CAP_PROP_FRAME_COUNT`` from container duration.  MKV
+        files whose audio starts slightly before video can therefore report
+        one phantom frame.  Container ``nb_frames`` and packet counts can also
+        include undecodable samples.  FFprobe's counted decoded frames are
+        authoritative for the frame-preserving proxy/deinterlace contract.
+        """
+
+        def run_probe(*extra: str) -> dict[str, Any]:
+            completed = subprocess.run(
+                [
+                    str(ffprobe),
+                    "-v",
+                    "error",
+                    *extra,
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    (
+                        "stream=width,height,avg_frame_rate,r_frame_rate,"
+                        "start_time,duration,nb_frames,nb_read_frames:"
+                        "format=start_time,duration"
+                    ),
+                    "-of",
+                    "json",
+                    str(path),
+                ],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
             )
-        finally:
-            capture.release()
+            if completed.returncode != 0:
+                detail = completed.stderr.strip() or "unknown FFprobe error"
+                raise OrchestrationError(f"failed to probe video: {path}: {detail}")
+            try:
+                return json.loads(completed.stdout)
+            except json.JSONDecodeError as exc:
+                raise OrchestrationError(
+                    f"FFprobe returned invalid JSON for {path}: {completed.stdout.strip()}"
+                ) from exc
+
+        def positive_float(value: Any) -> float | None:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                return None
+            return parsed if math.isfinite(parsed) and parsed > 0.0 else None
+
+        def positive_int(value: Any) -> int | None:
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                return None
+            return parsed if parsed > 0 else None
+
+        payload = run_probe()
+        try:
+            stream = payload["streams"][0]
+            rate_text = str(
+                stream.get("avg_frame_rate") or stream.get("r_frame_rate") or "0/1"
+            )
+            rate = float(Fraction(rate_text))
+            declared_count = positive_int(stream.get("nb_frames"))
+            stream_duration = positive_float(stream.get("duration"))
+            if stream_duration is None:
+                format_data = payload.get("format") or {}
+                format_start = float(format_data.get("start_time") or 0.0)
+                format_duration = positive_float(format_data.get("duration"))
+                stream_start = float(stream.get("start_time") or format_start)
+                if format_duration is not None:
+                    stream_duration = max(
+                        0.0,
+                        format_start + format_duration - stream_start,
+                    )
+            estimated_count = (
+                None if stream_duration is None else stream_duration * rate
+            )
+
+            # Most MP4/MOV files expose a trustworthy nb_frames value.  Avoid
+            # decoding a multi-hour source merely to repeat that metadata.  A
+            # large disagreement with stream timing is the signature of the
+            # malformed edit lists that produced phantom frames in practice.
+            tolerance = (
+                None if estimated_count is None else max(1.5, estimated_count * 0.001)
+            )
+            if declared_count is not None and (
+                estimated_count is None
+                or abs(declared_count - estimated_count) <= tolerance
+            ):
+                frame_count = declared_count
+            elif (
+                declared_count is None
+                and estimated_count is not None
+                and abs(estimated_count - round(estimated_count)) <= 0.1
+            ):
+                # Matroska commonly omits nb_frames.  Its format duration may
+                # begin at a negative audio timestamp, hence the stream-start
+                # correction above before accepting this exact integer.
+                frame_count = int(round(estimated_count))
+            else:
+                counted_payload = run_probe("-count_frames")
+                counted_stream = counted_payload["streams"][0]
+                frame_count = positive_int(counted_stream.get("nb_read_frames"))
+                if frame_count is None:
+                    raise ValueError("FFprobe did not return nb_read_frames")
+            geometry = VideoGeometry(
+                width=int(stream["width"]),
+                height=int(stream["height"]),
+                fps=rate,
+                frame_count=frame_count,
+            )
+        except (IndexError, KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+            raise OrchestrationError(
+                f"video has invalid FFprobe geometry: {path}: {payload!r}"
+            ) from exc
         if (
             min(geometry.width, geometry.height, geometry.frame_count) <= 0
             or geometry.fps <= 0
@@ -234,8 +340,13 @@ class OrchestrationRunner:
     def _prepare_analysis_video(self) -> None:
         """Use one 1080p analysis/postprocess space for non-1080p 16:9 video."""
 
-        self.original_geometry = self._probe_video(self.config.input_video)
-        self.analysis_geometry = self._probe_video(self.processing_video)
+        _ffmpeg, ffprobe = self._ffmpeg_tools()
+        self.original_geometry = self._probe_video(ffprobe, self.config.input_video)
+        self.analysis_geometry = (
+            self.original_geometry
+            if self.processing_video == self.config.input_video
+            else self._probe_video(ffprobe, self.processing_video)
+        )
         self.inference_video = self.processing_video
         needs_proxy = self._uses_1080p_proxy(self.original_geometry) and (
             self.config.postprocess.enabled
@@ -280,7 +391,7 @@ class OrchestrationRunner:
                 str(self.proxy_video_path),
             ]
             self._execute("analysis_proxy", command, cpu_only=True)
-        self.analysis_geometry = self._probe_video(self.proxy_video_path)
+        self.analysis_geometry = self._probe_video(ffprobe, self.proxy_video_path)
         if (
             self.analysis_geometry.width != 1920
             or self.analysis_geometry.height != 1080

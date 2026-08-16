@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import io
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
 
 from classwise.policy import (
     ClassPostprocessSettings,
@@ -154,7 +156,22 @@ class ClassPostprocessTests(unittest.TestCase):
                     str(policy),
                 ]
             )
-            manifest = run_pipeline(args)
+            progress_output = io.StringIO()
+            with redirect_stdout(progress_output):
+                manifest = run_pipeline(args)
+            progress_events = [
+                json.loads(line.split(" ", 1)[1])
+                for line in progress_output.getvalue().splitlines()
+                if line.startswith("[phase-progress] ")
+            ]
+            self.assertTrue(
+                any(
+                    str(event["detail"]).startswith("classwise:男性器:polygon:")
+                    and event["stage_progress"] is not None
+                    and not event["estimated"]
+                    for event in progress_events
+                )
+            )
             final = Path(manifest["artifacts"]["predictions_sqlite"])
             with sqlite3.connect(final) as connection:
                 self.assertEqual(

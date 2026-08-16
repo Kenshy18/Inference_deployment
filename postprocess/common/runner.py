@@ -11,7 +11,7 @@ from .config import PipelineConfig
 from .live_preview import active_postprocess_preview
 from .progress import StageGraphProgress
 from contracts.artifacts import validate_artifact
-from contracts.stages import StageContext
+from contracts.stages import ProgressCallback, StageContext
 from .registry import create_stage
 
 
@@ -33,10 +33,12 @@ class PipelineRunner:
         output_dir: Path,
         *,
         emit_progress: bool = False,
+        progress_callback: ProgressCallback | None = None,
     ) -> None:
         self.config = config
         self.output_dir = Path(output_dir)
         self.emit_progress = bool(emit_progress)
+        self.progress_callback = progress_callback
         self._validated_artifacts: set[tuple[str, Path, int, int]] = set()
 
     def _validate_once(self, name: str, path: Path) -> None:
@@ -104,15 +106,7 @@ class PipelineRunner:
                     output_dir=self.output_dir,
                     stage_dir=stage_dir,
                     artifacts=dict(artifacts),
-                    progress_callback=(
-                        None
-                        if progress is None
-                        else lambda detail, fraction, fps: progress.activity(
-                            detail,
-                            fraction,
-                            fps,
-                        )
-                    ),
+                    progress_callback=self._stage_progress_callback(progress),
                 )
                 started = time.perf_counter()
                 result = stage.run(context)
@@ -215,3 +209,31 @@ class PipelineRunner:
             encoding="utf-8",
         )
         return manifest
+
+    def _stage_progress_callback(
+        self,
+        progress: StageGraphProgress | None,
+    ) -> ProgressCallback | None:
+        callbacks: list[ProgressCallback] = []
+        if progress is not None:
+            callbacks.append(
+                lambda detail, fraction, fps: progress.activity(
+                    detail,
+                    fraction,
+                    fps,
+                )
+            )
+        if self.progress_callback is not None:
+            callbacks.append(self.progress_callback)
+        if not callbacks:
+            return None
+
+        def publish(
+            detail: str,
+            fraction: float | None,
+            fps: float | None,
+        ) -> None:
+            for callback in callbacks:
+                callback(detail, fraction, fps)
+
+        return publish

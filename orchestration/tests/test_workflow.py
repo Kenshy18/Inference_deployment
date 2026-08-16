@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 
@@ -25,6 +26,112 @@ from helpers import (
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_video_probe_uses_decoded_frames_not_packets_or_container_duration(
+        self,
+    ) -> None:
+        with patch("orchestration.runner.subprocess.run") as run:
+            first = unittest.mock.Mock(
+                returncode=0,
+                stderr="",
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "width": 1280,
+                                "height": 720,
+                                "avg_frame_rate": "24/1",
+                                "duration": "20.229",
+                                "nb_frames": "506",
+                            }
+                        ],
+                        "format": {"start_time": "0", "duration": "20.229"},
+                    }
+                ),
+            )
+            counted = unittest.mock.Mock(
+                returncode=0,
+                stderr="",
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "width": 1280,
+                                "height": 720,
+                                "avg_frame_rate": "24/1",
+                                "nb_read_frames": "482",
+                            }
+                        ]
+                    }
+                ),
+            )
+            run.side_effect = [first, counted]
+            geometry = OrchestrationRunner._probe_video(
+                Path("/tools/ffprobe"), Path("input.mkv")
+            )
+
+        self.assertEqual(VideoGeometry(1280, 720, 24.0, 482), geometry)
+        self.assertEqual(2, run.call_count)
+        self.assertNotIn("-count_frames", run.call_args_list[0].args[0])
+        self.assertIn("-count_frames", run.call_args_list[1].args[0])
+
+    def test_video_probe_uses_consistent_metadata_without_decoding(self) -> None:
+        with patch("orchestration.runner.subprocess.run") as run:
+            run.return_value = unittest.mock.Mock(
+                returncode=0,
+                stderr="",
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "width": 1280,
+                                "height": 720,
+                                "avg_frame_rate": "129600000/5400071",
+                                "duration": "7200.094667",
+                                "nb_frames": "172800",
+                            }
+                        ],
+                        "format": {"start_time": "0", "duration": "7200.115667"},
+                    }
+                ),
+            )
+            geometry = OrchestrationRunner._probe_video(
+                Path("/tools/ffprobe"), Path("two-hours.mp4")
+            )
+
+        self.assertEqual(
+            (1280, 720, 172800), (geometry.width, geometry.height, geometry.frame_count)
+        )
+        self.assertAlmostEqual(23.99968444859336, geometry.fps)
+        self.assertEqual(1, run.call_count)
+        self.assertNotIn("-count_frames", run.call_args.args[0])
+
+    def test_video_probe_corrects_negative_audio_start_for_matroska(self) -> None:
+        with patch("orchestration.runner.subprocess.run") as run:
+            run.return_value = unittest.mock.Mock(
+                returncode=0,
+                stderr="",
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "width": 1280,
+                                "height": 720,
+                                "avg_frame_rate": "24/1",
+                                "start_time": "0",
+                            }
+                        ],
+                        "format": {"start_time": "-0.021", "duration": "30.021"},
+                    }
+                ),
+            )
+            geometry = OrchestrationRunner._probe_video(
+                Path("/tools/ffprobe"), Path("input.mkv")
+            )
+
+        self.assertEqual(VideoGeometry(1280, 720, 24.0, 720), geometry)
+        self.assertEqual(1, run.call_count)
+        self.assertNotIn("-count_frames", run.call_args.args[0])
+
     def test_16_by_9_analysis_workspace_is_always_1080p(self) -> None:
         uses_proxy = OrchestrationRunner._uses_1080p_proxy
 
