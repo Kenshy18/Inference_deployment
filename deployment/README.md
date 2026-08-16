@@ -92,8 +92,12 @@ distributionは一意な一時名を使い、成功・失敗にかかわらず�
 - production Python環境
 - production環境の`.pth`が固定参照する21MBのruntime source tree
 - 構築・検証済みnative overlay runtime
-- SHA-256固定の高速overlay用FFmpeg/FFprobe runtime
+- asset packに同梱したSHA-256固定のFFmpeg、FFprobe、Zig、SQLite build archive
 - 非センシティブな8秒のsynthetic E2E fixture
+
+overlay runtimeの構築は`latest` URLの可用性に依存しません。asset packに含まれる
+固定archiveを検証して展開するため、GitHubのautobuildが削除・更新されても、同じcommit
+から同じ配布イメージを再構築できます。
 
 `.codex`、SSH鍵、shell履歴、入力動画、過去出力、開発用cacheは含めません。
 `phase3/prepare_image.sh`は配布用distribution内でrootとして実行し、assetのfull hash、

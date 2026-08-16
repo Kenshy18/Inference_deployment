@@ -220,8 +220,9 @@ try {
   Restore-WslInterop $SourceDistribution $RepositoryRoot
   if (-not $KeepWork -and (Test-Path -LiteralPath $workDirectory)) {
     $workWsl = Convert-ToWslPath $SourceDistribution $workDirectory
+    $workRootWsl = Convert-ToWslPath $SourceDistribution $WorkRoot
     & wsl.exe -d $SourceDistribution -u kenshin --cd / -- `
-      "$RepositoryRoot/deployment/cleanup_release_work.sh" $workWsl
+      "$RepositoryRoot/deployment/cleanup_release_work.sh" $workWsl $workRootWsl
     if ($LASTEXITCODE -ne 0) { Write-Warning "Could not clean release work: $workDirectory" }
   }
 }

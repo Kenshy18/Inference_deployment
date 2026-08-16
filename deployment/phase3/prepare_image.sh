@@ -62,10 +62,11 @@ runuser -u kenshin -- \
 runuser -u kenshin -- git -C "$repository_root" checkout --detach "$release_commit"
 install -m 0644 "$repository_root/deployment/phase3/wsl.conf" /etc/wsl.conf
 
-# bootstrap_runtime.sh downloads fixed FFmpeg and the Ubuntu sqlite development
-# package into the repository-local native runtime. A freshly minimized rootfs
-# has no APT index, so refresh it for image construction and remove it again at
-# the end. The deployed runtime itself remains offline-capable.
+# The commit-bound asset pack supplies the pinned FFmpeg, Zig and SQLite build
+# archives.  bootstrap_runtime.sh verifies and expands them into the
+# repository-local native runtime.  A freshly minimized rootfs still needs an
+# APT index for the small set of OS libraries, so refresh it for construction
+# and remove it again at the end.  The deployed runtime remains offline-capable.
 apt-get update
 cd "$repository_root"
 runuser -u kenshin -- env \

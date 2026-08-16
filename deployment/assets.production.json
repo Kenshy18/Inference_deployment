@@ -100,6 +100,38 @@
       "sha256": "9e135ba759b3ea3ccf0faa2258eb91a8697071eec5d8b9a22ac5fe78afecf28f"
     },
     {
+      "id": "overlay-fast-ffmpeg-archive",
+      "profiles": ["core", "all"],
+      "stage": "runtime",
+      "path": "overlay/.runtime/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz",
+      "size": 125510608,
+      "sha256": "62e3c66d647801c115756a824af490296a4c4b866658fc339be137921d20958b"
+    },
+    {
+      "id": "overlay-native-ffmpeg-archive",
+      "profiles": ["core", "all"],
+      "stage": "runtime",
+      "path": "overlay/native/.runtime/downloads/ffmpeg-shared.tar.xz",
+      "size": 62561800,
+      "sha256": "069d8d27c96c9a86a6b2a074fe52cbbd71ce5d7e5a687230d5ae56c2288c8630"
+    },
+    {
+      "id": "overlay-native-zig-archive",
+      "profiles": ["core", "all"],
+      "stage": "runtime",
+      "path": "overlay/native/.runtime/downloads/zig.tar.xz",
+      "size": 53734456,
+      "sha256": "c61c5da6edeea14ca51ecd5e4520c6f4189ef5250383db33d01848293bfafe05"
+    },
+    {
+      "id": "overlay-native-sqlite-dev-package",
+      "profiles": ["core", "all"],
+      "stage": "runtime",
+      "path": "overlay/native/.runtime/downloads/sqlite/libsqlite3-dev_3.45.1-1ubuntu2.7_amd64.deb",
+      "size": 910690,
+      "sha256": "6b8dfabce91ae021ff957f81dc4a4377c1bfa6eb9332cbf6d38e3e66b5198abb"
+    },
+    {
       "id": "face-v1-detector",
       "profiles": ["all"],
       "stage": "source",
