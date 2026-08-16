@@ -19,6 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
+from production.polygon.runtime.algorithm_ids import PHASE1_RAW_ALGORITHM_ID
+
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
@@ -559,7 +561,7 @@ def main() -> int:
         "schema_version": 1,
         "production_support": True,
         "privacy": "SQLite geometry only; no video frame was opened.",
-        "algorithm": "production_v22_raw_only_hard_min_recall_no_pair_vote",
+        "algorithm": PHASE1_RAW_ALGORITHM_ID,
         "recall_floor": args.recall_floor,
         "intervals": intervals,
         "labels": labels,

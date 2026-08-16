@@ -44,6 +44,18 @@ class MalformedCutStage:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_cli_defaults_to_promoted_production_polygon(self) -> None:
+        args = build_parser().parse_args(
+            ["--input-jsonl", "input.jsonl", "--output-dir", "output"]
+        )
+        self.assertEqual("polygon", args.shape_mode)
+        config = _configured_pipeline(args)
+        implementations = [stage.implementation for stage in config.stages]
+        self.assertIn("nms.production_v3", implementations)
+        self.assertIn("production.polygon_v3_cpu", implementations)
+        self.assertNotIn("nms.adaptive", implementations)
+        self.assertNotIn("approximation.polygon.production_v22", implementations)
+
     def test_artifact_validation_is_cached_until_file_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "artifact.bin"

@@ -116,6 +116,31 @@ def main() -> int:
             )
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         failures.append(f"Python/GPU probe failed: {exc}")
+    try:
+        postprocess_probe = run(
+            [
+                str(runtime_python),
+                "-c",
+                (
+                    "import json,sys;"
+                    f"sys.path.insert(0,{str(root / 'postprocess')!r});"
+                    "import run_pipeline,nms.production,production.polygon;"
+                    "forbidden={'nms.adaptive','nms.component_aware','nms.stages'};"
+                    "loaded=sorted(forbidden.intersection(sys.modules));"
+                    "assert not loaded,loaded;"
+                    "print(json.dumps({'default_shape':"
+                    "run_pipeline.build_parser().parse_args(["
+                    "'--input-jsonl','input.jsonl','--output-dir','output'"
+                    "]).shape_mode,'loaded_forbidden':loaded}))"
+                ),
+            ],
+            cwd=root,
+        )
+        report["postprocess_runtime"] = json.loads(postprocess_probe)
+        if report["postprocess_runtime"].get("default_shape") != "polygon":
+            failures.append("postprocess CLI does not default to Production polygon")
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        failures.append(f"Production postprocess import probe failed: {exc}")
     native_build = root / "postprocess/production/polygon/runtime/native_interval/build"
     try:
         native_probe = run(

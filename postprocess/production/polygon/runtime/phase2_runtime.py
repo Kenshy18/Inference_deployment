@@ -25,6 +25,13 @@ from types import ModuleType
 
 import numpy as np
 
+from production.polygon.runtime.algorithm_ids import (
+    PHASE2_CONSTRAINED_PAIR_VOTE_ALGORITHM_ID,
+    PHASE2_NO_PAIR_VOTE_ALGORITHM_ID,
+    PHASE2_PER_KEY_PAIR_VOTE_ALGORITHM_ID,
+    PHASE2_POST_DP_PAIR_VOTE_ALGORITHM_ID,
+)
+
 from production.polygon.runtime.geometry import (
     axis_scale as _axis_scale,
     principal_basis as _principal_basis,
@@ -3582,15 +3589,15 @@ def _write_audit(
     audit = {
         "schema_version": 1,
         "algorithm": (
-            "production_v22_multishape_hard_min_recall_per_key_pair_vote"
+            PHASE2_PER_KEY_PAIR_VOTE_ALGORITHM_ID
             if per_key_pair_vote
             else (
-                "production_v22_multishape_hard_min_recall_constrained_pair_vote"
+                PHASE2_CONSTRAINED_PAIR_VOTE_ALGORITHM_ID
                 if constrained_pair_vote
                 else (
-                    "production_v22_multishape_hard_min_recall_post_dp_pair_vote"
+                    PHASE2_POST_DP_PAIR_VOTE_ALGORITHM_ID
                     if pair_vote_requested
-                    else "production_v22_multishape_hard_min_recall_no_pair_vote"
+                    else PHASE2_NO_PAIR_VOTE_ALGORITHM_ID
                 )
             )
         ),

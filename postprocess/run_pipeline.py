@@ -49,7 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="resolved orchestrator configuration embedded into result.sqlite",
     )
     parser.add_argument(
-        "--shape-mode", choices=("ellipse", "polygon"), default="ellipse"
+        "--shape-mode",
+        choices=("ellipse", "polygon"),
+        default="polygon",
+        help="postprocess geometry (default: promoted Production polygon)",
     )
     parser.add_argument("--pipeline-config", type=Path)
     parser.add_argument("--class-policy-json", type=Path)

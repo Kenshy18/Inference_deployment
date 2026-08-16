@@ -12,6 +12,7 @@ from contracts.mask_sqlite import MaskRow, read_mask_rows, write_mask_sqlite
 from production.config import PRODUCTION
 from production.polygon.materialize import materialize_outputs
 from production.polygon.runtime_bridge import build_runtime_config
+from production.polygon.runtime import algorithm_ids
 from production.polygon.stage import ProductionPolygonStage
 
 
@@ -67,11 +68,24 @@ class PromotedProductionProfileTests(unittest.TestCase):
         package_config = (root / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('"production",', package_config)
         self.assertIn('"vendor" = "vendor"', package_config)
+        self.assertIn('"approximation/polygon/production.py",', package_config)
         coordinator = (root / "production/polygon/runtime/run_phase2.py").read_text(
             encoding="utf-8"
         )
         self.assertNotIn("MASK_PIPELINE_CUDA_EXPERIMENT_SITE", coordinator)
         self.assertNotIn("mask-pipeline-cuda-experiment", coordinator)
+
+    def test_release_algorithm_ids_do_not_emit_historical_profile_names(self) -> None:
+        identifiers = {
+            value
+            for name, value in vars(algorithm_ids).items()
+            if name.endswith("_ALGORITHM_ID")
+        }
+        self.assertEqual(5, len(identifiers))
+        self.assertTrue(
+            all(value.startswith("production_polygon_v3_") for value in identifiers)
+        )
+        self.assertTrue(all("v22" not in value for value in identifiers))
 
     def test_public_contract_forces_native_exact_cpu(self) -> None:
         PRODUCTION.validate()

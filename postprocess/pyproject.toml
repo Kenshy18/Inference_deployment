@@ -45,6 +45,7 @@ packages = [
 ]
 
 exclude = [
+  "approximation/polygon/production.py",
   "nms/adaptive.py",
   "nms/component_aware.py",
   "nms/stages.py",

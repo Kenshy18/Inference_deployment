@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production-v22 penalty DP core with a hard per-frame Recall floor.
+"""Production polygon penalty-DP core with a hard per-frame Recall floor.
 
 This private Production runtime loads the parity-frozen
 Production implementation and changes only the semantics required by Phase 1:
@@ -31,10 +31,12 @@ import time
 from pathlib import Path
 from types import ModuleType
 
+from production.polygon.runtime.algorithm_ids import PHASE1_RAW_ALGORITHM_ID
+
 
 HERE = Path(__file__).resolve().parent
 POSTPROCESS_ROOT = HERE.parents[2]
-PRODUCTION_RUNTIME = (
+COMPATIBILITY_ENGINE_SOURCE = (
     POSTPROCESS_ROOT / "vendor" / "original_polygon" / "original_run_standalone.py"
 )
 _EPSILON = 1e-10
@@ -48,9 +50,14 @@ def _load_production_runtime() -> ModuleType:
     existing = sys.modules.get(module_name)
     if existing is not None:
         return existing
-    spec = importlib.util.spec_from_file_location(module_name, PRODUCTION_RUNTIME)
+    spec = importlib.util.spec_from_file_location(
+        module_name, COMPATIBILITY_ENGINE_SOURCE
+    )
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load Production runtime: {PRODUCTION_RUNTIME}")
+        raise RuntimeError(
+            "cannot load the parity-frozen compatibility engine: "
+            f"{COMPATIBILITY_ENGINE_SOURCE}"
+        )
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
@@ -736,8 +743,8 @@ def _write_audit(
     optimizer = summary["optimizer_summary"]
     audit = {
         "schema_version": 1,
-        "algorithm": "production_v22_raw_only_hard_min_recall_no_pair_vote",
-        "production_source": str(PRODUCTION_RUNTIME),
+        "algorithm": PHASE1_RAW_ALGORITHM_ID,
+        "compatibility_engine_source": str(COMPATIBILITY_ENGINE_SOURCE),
         "recall_floor": float(recall_floor),
         "evaluated_rows": len(recalls),
         "minimum_recall": min(recalls, default=1.0),

@@ -57,7 +57,7 @@ runuser -u kenshin -- "$runtime_root/bin/python3.10" \
   "$repository_root/deployment/preflight.py" \
   --root "$repository_root" --profile "$profile" \
   --runtime-python "$runtime_root/bin/python3.10" --full-hash \
-  > "$report_root/preflight.json"
+  > "$report_root/preflight-build.json"
 
 # The build clone is also the runtime source tree.  Keep comparison notebooks,
 # test suites and retired policy modules out of the deployed distribution after
@@ -69,6 +69,7 @@ pruned_paths=(
   "$repository_root/postprocess/tests"
   "$repository_root/orchestration/tests"
   "$repository_root/overlay/native/tests"
+  "$repository_root/postprocess/approximation/polygon/production.py"
   "$repository_root/postprocess/nms/adaptive.py"
   "$repository_root/postprocess/nms/component_aware.py"
   "$repository_root/postprocess/nms/stages.py"
@@ -93,6 +94,16 @@ find "$repository_root" -type d \
     done
   ' sh {} +
 chown kenshin:kenshin "$pruned_manifest"
+
+# Test the tree that users actually receive.  The construction-time preflight
+# above proves assets and native dependencies before pruning; this second gate
+# proves that the runtime-only source tree remains importable and contains no
+# retired Production implementation.
+runuser -u kenshin -- "$runtime_root/bin/python3.10" \
+  "$repository_root/deployment/preflight.py" \
+  --root "$repository_root" --profile "$profile" \
+  --runtime-python "$runtime_root/bin/python3.10" --full-hash \
+  > "$report_root/preflight.json"
 
 for forbidden in /home/kenshin/.codex; do
   [[ ! -e "$forbidden" ]] || {
