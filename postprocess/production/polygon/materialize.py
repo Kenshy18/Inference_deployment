@@ -53,8 +53,10 @@ def materialize_outputs(
                     shape_type="polygon",
                 )
             )
-        payload = [] if not keyframes.is_file() else json.loads(
-            keyframes.read_text(encoding="utf-8")
+        payload = (
+            []
+            if not keyframes.is_file()
+            else json.loads(keyframes.read_text(encoding="utf-8"))
         )
         for value in payload:
             frame = int(value["frame"])
@@ -96,9 +98,25 @@ def materialize_outputs(
             (
                 ("interpolation_method", "linear_polygon_index_v1"),
                 ("profile", config.profile_id),
-                ("vertices_per_component", str(config.vertices_per_component)),
-                ("minimum_vertices_per_component", "14"),
-                ("maximum_vertices_per_component", "14"),
+                ("vertices_per_component", "adaptive_by_track"),
+                (
+                    "allowed_vertices_per_component",
+                    json.dumps(config.allowed_vertices_per_component),
+                ),
+                (
+                    "minimum_vertices_per_component",
+                    str(min(config.allowed_vertices_per_component)),
+                ),
+                (
+                    "maximum_vertices_per_component",
+                    str(max(config.allowed_vertices_per_component)),
+                ),
+                ("track_area_quantile", str(config.track_area_quantile)),
+                (
+                    "screen_occupancy_thresholds",
+                    json.dumps(config.screen_occupancy_thresholds),
+                ),
+                ("vertex_selection_source", config.vertex_selection_source),
                 (
                     "exact_recall_policy",
                     "best_of_persistent_or_direct_rdp_then_uniform_scale_and_audit",

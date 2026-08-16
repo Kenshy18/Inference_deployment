@@ -1,21 +1,28 @@
 # Production post-processing
 
-The default polygon pipeline uses the promoted 2026-08 profile:
+The default polygon pipeline uses the promoted adaptive CPU-exact profile:
 
-- `nms.production_v3`: hole filling, <=1% island cleanup, virtual-component
-  NMS, and adaptive exact-mask comparisons. Bounding boxes are broad-phase
-  only.
-- `production.polygon_v3_cpu`: track-wise 14/16/18/20-point spatial fallback,
-  multi-state DP with a soft keyframe interval, exact CPU interval evaluation,
-  per-key pair-vote, and topology guards.
+- `nms.production_v3`: fills true holes, removes owner-relative islands of at
+  most 1%, and runs virtual-component adaptive Mask NMS. Bounding boxes are a
+  broad phase only; native-pixel masks make every suppression decision.
+- `production.polygon_v3_cpu`: selects one point count per track from the
+  q99.9 pre-border mask area divided by the real frame area. Counts are 14,
+  16, 18, or 20 at strict 3%, 10%, and 25% crossings.
+- Edge preparation caps both the influence band and outward displacement at
+  16 px. A mask supported by two perpendicular screen edges keeps explicit
+  two-axis corner support.
+- Spatial fitting, multistate DP, and per-key pair-vote all use the selected
+  track point count. Exact Recall is at least 0.97, the keyframe interval is a
+  soft target, and the final topology guard rejects invalid optimization
+  trials without stopping the complete video.
+- Interval evaluation uses the native CPU-exact implementation by default.
 
 The prior `nms.adaptive` and `approximation.polygon.production_v22` stage IDs
-remain registered as rollback paths. The parity-frozen optimizer is reached
-only through `production/polygon/runtime_bridge.py`; no other Production module
-may import dated experimental runtime modules.
+remain registered as explicit rollback paths. The parity-frozen optimizer is
+reached only through `production/polygon/runtime_bridge.py`; no other
+Production module imports dated experimental runtime modules.
 
-Final exact Recall is always audited and Production is fail-closed: one
-observed frame below 0.97 rejects the artifact.  Each continuous track segment
-first tries 14 points per component, then 16, 18, and 20.  The smallest
-native-exact quality-feasible count is retained; no frame may bypass the final
-Recall gate.
+Final exact Recall violations, rejected pair-vote trials, selected vertex
+counts, border settings, and SQLite integrity are recorded in manifests. A
+rejected local trial falls back to the last valid geometry; it is not a final
+output violation. The public SQLite schema remains V3/revision 5.

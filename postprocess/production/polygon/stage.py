@@ -1,4 +1,4 @@
-"""Pipeline stage for the promoted CPU-exact polygon implementation."""
+"""Pipeline stage for the promoted adaptive-vertex CPU-exact implementation."""
 
 from __future__ import annotations
 
@@ -19,9 +19,7 @@ def _labels(path: Path) -> tuple[str, ...]:
     with sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True) as db:
         tables = {
             str(row[0])
-            for row in db.execute(
-                "SELECT name FROM sqlite_schema WHERE type='table'"
-            )
+            for row in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")
         }
         if "tracks" not in tables:
             return ()
@@ -45,9 +43,7 @@ def _dimensions(
     with sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True) as db:
         tables = {
             str(row[0])
-            for row in db.execute(
-                "SELECT name FROM sqlite_schema WHERE type='table'"
-            )
+            for row in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")
         }
         if "frames" not in tables:
             if fallback_width <= 0 or fallback_height <= 0:
@@ -70,7 +66,7 @@ def _dimensions(
 @dataclass(frozen=True)
 class ProductionPolygonStage:
     options: dict[str, Any] = field(default_factory=dict)
-    name: str = "production_polygon14_recall_repair_cpu_exact_v2"
+    name: str = "production_polygon_adaptive_recall_cpu_exact_v3"
     requires: frozenset[str] = frozenset({"tracked_sqlite"})
     provides: frozenset[str] = frozenset(
         {
@@ -102,7 +98,9 @@ class ProductionPolygonStage:
         stage_dir = Path(context.stage_dir).expanduser().resolve()
         tracked = Path(context.artifacts["tracked_sqlite"]).resolve()
         input_labels = _labels(tracked)
-        unsupported = tuple(label for label in input_labels if label not in config.labels)
+        unsupported = tuple(
+            label for label in input_labels if label not in config.labels
+        )
         if unsupported:
             # The promoted optimizer has class-specific state palettes.  Never
             # silently discard another domain: preserve the previous exact
@@ -157,6 +155,18 @@ class ProductionPolygonStage:
             input_video=None if video is None else Path(video),
             config=config,
         )
+        policy = preparation.get("vertex_policy")
+        if not isinstance(policy, dict) or not isinstance(policy.get("tracks"), dict):
+            raise RuntimeError("Production adaptive vertex policy is missing")
+        assigned = {
+            int(value["vertices_per_component"]) for value in policy["tracks"].values()
+        }
+        unsupported_counts = assigned - set(config.allowed_vertices_per_component)
+        if unsupported_counts:
+            raise RuntimeError(
+                "Production vertex policy selected unsupported counts: "
+                f"{sorted(unsupported_counts)}"
+            )
         optimizer = optimize(
             source_root,
             stage_dir / "optimizer",
@@ -186,6 +196,17 @@ class ProductionPolygonStage:
             "profile": config.profile_id,
             "target_interval": config.target_interval,
             "interval_evaluation": config.interval_evaluation,
+            "vertex_policy": {
+                "method": "track_q99.9_pre_border_screen_occupancy_v1",
+                "allowed_vertices": list(config.allowed_vertices_per_component),
+                "thresholds": list(config.screen_occupancy_thresholds),
+                "summary": policy.get("summary", {}),
+            },
+            "border_policy": {
+                "maximum_expansion_px": config.border_max_expand_px,
+                "influence_px": config.border_influence_px,
+                "two_axis_corner_support": config.border_corner_support,
+            },
             "exact_recall_policy": (
                 "best_of_persistent_or_direct_rdp_then_uniform_scale_and_audit"
             ),
@@ -193,7 +214,7 @@ class ProductionPolygonStage:
             "preparation": preparation,
             "optimizer": optimizer,
             "materialization": materialization,
-            "runtime_bridge": "experimental_0809_parity_frozen",
+            "runtime_bridge": "experimental_0809_parity_frozen_adaptive_v2",
         }
         manifest = stage_dir / "production_polygon_manifest.json"
         manifest.write_text(

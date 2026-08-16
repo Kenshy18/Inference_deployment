@@ -26,9 +26,7 @@ def _reference(path: Path) -> Path:
     ]
     output = write_mask_sqlite(path, rows)
     with sqlite3.connect(output) as connection:
-        connection.execute(
-            "CREATE TABLE cuts(frame INTEGER PRIMARY KEY)"
-        )
+        connection.execute("CREATE TABLE cuts(frame INTEGER PRIMARY KEY)")
     return output
 
 
@@ -56,7 +54,19 @@ class PromotedProductionProfileTests(unittest.TestCase):
         PRODUCTION.validate()
         runtime = build_runtime_config(PRODUCTION)
         self.assertEqual("native_exact", runtime.runtime.interval_evaluation)
-        self.assertEqual(14, runtime.spatial.vertices_per_component)
+        self.assertTrue(runtime.spatial.adaptive_vertex_policy)
+        self.assertEqual(
+            (14, 16, 18, 20),
+            runtime.spatial.allowed_vertices_per_component,
+        )
+        self.assertEqual(0.999, runtime.spatial.track_area_quantile)
+        self.assertEqual(
+            (0.03, 0.10, 0.25),
+            runtime.spatial.screen_occupancy_thresholds,
+        )
+        self.assertEqual(16.0, runtime.preparation.border_max_expand_px)
+        self.assertEqual(16.0, runtime.preparation.border_influence_px)
+        self.assertTrue(runtime.preparation.border_corner_support)
         self.assertFalse(hasattr(runtime.spatial, "vertex_fallbacks"))
         self.assertEqual(1.05, runtime.spatial.recall_repair_max_scale)
         self.assertEqual(0.97, runtime.temporal.recall_floor)
@@ -65,7 +75,9 @@ class PromotedProductionProfileTests(unittest.TestCase):
         nms = create_stage("nms.production_v3", {})
         polygon = create_stage("production.polygon_v3_cpu", {})
         self.assertEqual("production_virtual_component_mask_nms_v1", nms.name)
-        self.assertEqual("production_polygon14_recall_repair_cpu_exact_v2", polygon.name)
+        self.assertEqual(
+            "production_polygon_adaptive_recall_cpu_exact_v3", polygon.name
+        )
 
     def test_nms_thresholds_cannot_be_changed_from_pipeline_json(self) -> None:
         stage = create_stage("nms.production_v3", {"mask_iou_threshold": 0.99})
@@ -88,9 +100,7 @@ class PromotedProductionProfileTests(unittest.TestCase):
 
     def test_polygon_stage_rejects_cuda_evaluator(self) -> None:
         with self.assertRaisesRegex(ValueError, "CPU native_exact"):
-            ProductionPolygonStage(
-                {"interval_evaluation": "cuda_lazy_exact"}
-            )._config()
+            ProductionPolygonStage({"interval_evaluation": "cuda_lazy_exact"})._config()
 
     def test_materialized_keyframes_declare_index_interpolation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -117,9 +127,7 @@ class PromotedProductionProfileTests(unittest.TestCase):
                         {
                             "frame": 0,
                             "track_id": "7",
-                            "polygons": [
-                                [[0, 0], [10, 0], [10, 10], [0, 10]]
-                            ],
+                            "polygons": [[[0, 0], [10, 0], [10, 10], [0, 10]]],
                         }
                     ]
                 ),
@@ -150,9 +158,19 @@ class PromotedProductionProfileTests(unittest.TestCase):
                     "SELECT value FROM polygon_keyframe_metadata "
                     "WHERE key='maximum_vertices_per_component'"
                 ).fetchone()
+                allowed = connection.execute(
+                    "SELECT value FROM polygon_keyframe_metadata "
+                    "WHERE key='allowed_vertices_per_component'"
+                ).fetchone()
+                policy = connection.execute(
+                    "SELECT value FROM polygon_keyframe_metadata "
+                    "WHERE key='vertices_per_component'"
+                ).fetchone()
             self.assertEqual(("linear_polygon_index_v1",), value)
             self.assertIsNone(fallbacks)
-            self.assertEqual(("14",), maximum)
+            self.assertEqual(("20",), maximum)
+            self.assertEqual(("[14, 16, 18, 20]",), allowed)
+            self.assertEqual(("adaptive_by_track",), policy)
 
 
 if __name__ == "__main__":
