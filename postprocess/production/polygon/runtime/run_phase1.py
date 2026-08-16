@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from production.polygon.runtime.algorithm_ids import PHASE1_RAW_ALGORITHM_ID
+from production.polygon.runtime.diagnostics import classify_streams
 
 
 HERE = Path(__file__).resolve().parent
@@ -169,14 +170,12 @@ def _metrics(
         encoding="utf-8", newline=""
     ) as handle:
         stream_rows.extend(csv.DictReader(handle))
-    infeasible_keys = {
-        (str(row["track_id"]), int(row["run_id"]))
-        for row in stream_rows
-        if (
-            not math.isfinite(float(row["objective"]))
-            or float(row["recall_budget_violation"]) > 1e-10
-        )
-    }
+    audit = json.loads((output / audit_name).read_text(encoding="utf-8"))
+    recall_floor = float(audit["recall_floor"])
+    diagnostics = classify_streams(rows, stream_rows, recall_floor=recall_floor)
+    optimizer_fallback_keys = diagnostics.optimizer_fallback
+    legacy_budget_diagnostic_keys = diagnostics.legacy_budget_diagnostic
+    infeasible_keys = diagnostics.final_exact_infeasible
     feasible_rows = [
         row
         for row in rows
@@ -206,7 +205,6 @@ def _metrics(
         max(len(values) - 1, 0) for values in feasible_grouped.values()
     )
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    audit = json.loads((output / audit_name).read_text(encoding="utf-8"))
     pred_sqlite = output / "pred/predictions.sqlite"
     with sqlite3.connect(
         f"file:{pred_sqlite.resolve()}?mode=ro", uri=True
@@ -236,6 +234,8 @@ def _metrics(
         "segment_count": len(grouped),
         "stream_count": len(stream_rows),
         "infeasible_streams": int(infeasible_streams),
+        "optimizer_fallback_streams": len(optimizer_fallback_keys),
+        "legacy_budget_diagnostic_streams": len(legacy_budget_diagnostic_keys),
         "hard_recall_feasible": int(infeasible_streams) == 0,
         "feasible_observation_rows": len(feasible_rows),
         "feasible_target_keyframes": sum(
@@ -372,6 +372,12 @@ def _aggregate(rows: list[dict[str, object]], interval: int) -> dict[str, object
         "recall_min": min(float(row["recall_min"]) for row in selected),
         "recall_violations": sum(int(row["recall_violations"]) for row in selected),
         "infeasible_streams": sum(int(row["infeasible_streams"]) for row in selected),
+        "optimizer_fallback_streams": sum(
+            int(row["optimizer_fallback_streams"]) for row in selected
+        ),
+        "legacy_budget_diagnostic_streams": sum(
+            int(row["legacy_budget_diagnostic_streams"]) for row in selected
+        ),
         "hard_recall_feasible": all(
             bool(row["hard_recall_feasible"]) for row in selected
         ),

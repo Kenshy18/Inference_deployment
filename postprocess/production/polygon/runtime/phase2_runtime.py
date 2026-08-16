@@ -38,16 +38,14 @@ from production.polygon.runtime.geometry import (
     rigid_align as _rigid_align,
     temporal_shapes as _temporal_shapes,
 )
+from production.polygon.runtime.diagnostics import classify_streams
 
 from production.polygon.runtime.phase1_runtime import (
     _EPSILON,
     _load_production_runtime,
     _patch_embedded_optimizer,
 )
-from production.polygon.runtime.role_candidate_pool import (
-    ROLE_IDS,
-    build_role_candidate,
-)
+from production.polygon.runtime.role_candidate_pool import build_role_candidate
 
 
 HERE = Path(__file__).resolve().parent
@@ -123,766 +121,15 @@ PAIR_VOTE_SWEEPS_ENV = "MASK_PIPELINE_PHASE2_PAIR_VOTE_SWEEPS"
 NEW_PRODUCTION_FAST_PAIR_VOTE_ENV = "MASK_PIPELINE_NEW_PRODUCTION_FAST_PAIR_VOTE"
 PERSISTENT_LINE_FIT_BASE_ENV = "MASK_PIPELINE_PERSISTENT_LINE_FIT_BASE"
 PERSISTENT_LINE_FIT_VERTICES_ENV = "MASK_PIPELINE_PERSISTENT_LINE_FIT_VERTICES"
-SCALE_STATE_PROFILES = {
-    "scale_quad_104_108_112_116": (1.04, 1.08, 1.12, 1.16),
-    "scale_sextet_102_104_106_108_112_116": (
-        1.02,
-        1.04,
-        1.06,
-        1.08,
-        1.12,
-        1.16,
-    ),
-    # Nested state-count benchmark profiles. Each higher profile contains all
-    # factors from the preceding profile so scaling measurements do not change
-    # the already available state family.
-    "scale_states_08": (1.02, 1.04, 1.06, 1.08, 1.10, 1.12, 1.16),
-    "scale_states_09": (1.02, 1.04, 1.06, 1.08, 1.10, 1.12, 1.14, 1.16),
-    "scale_states_11": (
-        1.01,
-        1.02,
-        1.03,
-        1.04,
-        1.06,
-        1.08,
-        1.10,
-        1.12,
-        1.14,
-        1.16,
-    ),
-    "scale_states_13": (
-        1.01,
-        1.02,
-        1.03,
-        1.04,
-        1.05,
-        1.06,
-        1.07,
-        1.08,
-        1.10,
-        1.12,
-        1.14,
-        1.16,
-    ),
-    "scale_states_15": (
-        1.01,
-        1.02,
-        1.03,
-        1.04,
-        1.05,
-        1.06,
-        1.07,
-        1.08,
-        1.09,
-        1.10,
-        1.11,
-        1.12,
-        1.14,
-        1.16,
-    ),
-}
-PRODUCTION_CANDIDATE_BASELINE_V1 = (
-    "C02_125",
-    "G02",
-    "G04",
-    "A06",
-    "F3_P1",
-    "D6_P1",
+PRODUCTION_ROLE_PROFILES = frozenset(
+    {"polygon14_keyframe_v1", "polygon_adaptive_keyframe_v2"}
 )
-
-
-ROLE_STATE_PROFILES = {
-    # Two-state profiles are used for candidate-specific rescue/quality audits.
-    **{f"role_{role.lower()}": (role,) for role in ROLE_IDS},
-    # The fixed six roles proposed for the first joint experiment.
-    "role_initial_six": ("A2", "D6", "B3", "C1", "E2", "F3"),
-    "role_initial_six_border": ("A2", "D6", "B3", "C1", "E2", "G3"),
-    # Two screening batches cover all ten priority candidates while retaining
-    # the already profiled raw + six-state CUDA topology.
-    "role_priority_batch1": ("A2", "A4", "D6", "B3", "C1", "C6"),
-    "role_priority_batch2": ("E2", "F3", "G3", "Z1", "A2", "C1"),
-    "orthogonal_initial_six": ("A07", "A06", "G02", "G04", "C02", "E02"),
-    "orthogonal_c02_consensus": (
-        "C02",
-        "A2_P1",
-        "A4_P1",
-        "D6_P1",
-        "B3_P1",
-        "E2_P1",
-    ),
-    "orthogonal_c02_local": (
-        "C02",
-        "C1_P1",
-        "C6_P1",
-        "E2_P1",
-        "F3_P1",
-        "G3_P1",
-    ),
-    "orthogonal_c02_endpoints": (
-        "C02",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "orthogonal_c02_115_endpoints": (
-        "C02_115",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    # Frozen candidate-shape baseline.  Keep the historical profile alias so
-    # old experiment commands and artifacts remain reproducible.
-    "orthogonal_c02_125_endpoints": PRODUCTION_CANDIDATE_BASELINE_V1,
-    "production_candidate_baseline_v1": PRODUCTION_CANDIDATE_BASELINE_V1,
-    "search_c02_120": (
-        "C02_120",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_c02_130": (
-        "C02_130",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_a06_k3": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06_K3",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_a06_k4": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06_K4",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_g_h3": (
-        "C02_125",
-        "G02_H3",
-        "G04_H3",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_g_h8": (
-        "C02_125",
-        "G02_H8",
-        "G04_H8",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_f3_q65": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_Q65_P1",
-        "D6_P1",
-    ),
-    "search_f3_q75": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_Q75_P1",
-        "D6_P1",
-    ),
-    "search_d6_r5": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_R5_P1",
-    ),
-    "search_female_combo1": (
-        "C02_125",
-        "G02_H3",
-        "G04_H3",
-        "A06",
-        "F3_Q75_P1",
-        "D6_R5_P1",
-    ),
-    "search_male_combo1": (
-        "C02_120",
-        "G02",
-        "G04",
-        "A06_K4",
-        "F3_Q75_P1",
-        "D6_R5_P1",
-    ),
-    "search_tail_combo1": (
-        "C02_125",
-        "G02_H3",
-        "G04_H3",
-        "A06_K3",
-        "F3_Q75_P1",
-        "D6_R5_P1",
-    ),
-    "search_m_tail_d6base": (
-        "C02_125",
-        "G02_H3",
-        "G04_H3",
-        "A06_K3",
-        "F3_Q75_P1",
-        "D6_P1",
-    ),
-    "search_m_tail_a06base": (
-        "C02_125",
-        "G02_H3",
-        "G04_H3",
-        "A06",
-        "F3_Q75_P1",
-        "D6_R5_P1",
-    ),
-    "search_m_tail_gbase": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06_K3",
-        "F3_Q75_P1",
-        "D6_R5_P1",
-    ),
-    "search_m_tail_fbase": (
-        "C02_125",
-        "G02_H3",
-        "G04_H3",
-        "A06_K3",
-        "F3_P1",
-        "D6_R5_P1",
-    ),
-    "search_f_f75_g3": (
-        "C02_125",
-        "G02_H3",
-        "G04_H3",
-        "A06",
-        "F3_Q75_P1",
-        "D6_P1",
-    ),
-    "search_f_f75_d6r5": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_Q75_P1",
-        "D6_R5_P1",
-    ),
-    "search_j_dual130_no_d6": (
-        "C02_125",
-        "C02_130",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-    ),
-    "search_j_dual130_no_f3": (
-        "C02_125",
-        "C02_130",
-        "G02",
-        "G04",
-        "A06",
-        "D6_P1",
-    ),
-    "search_j_dual135_no_d6": (
-        "C02_125",
-        "C02",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-    ),
-    "search_j_triple_caps": (
-        "C02_120",
-        "C02_125",
-        "C02_130",
-        "G02",
-        "G04",
-        "A06",
-    ),
-    "search_j_cap_ladder": (
-        "C02_115",
-        "C02_120",
-        "C02_125",
-        "C02_130",
-        "C02",
-        "A06",
-    ),
-    "search_j_support8_k2_135_greplace": (
-        "C02_125",
-        "GF8_K2_135",
-        "GB8_K2_135",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support8_k2_150_greplace": (
-        "C02_125",
-        "GF8_K2_150",
-        "GB8_K2_150",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support8_k3_150_greplace": (
-        "C02_125",
-        "GF8_K3_150",
-        "GB8_K3_150",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support12_k2_150_greplace": (
-        "C02_125",
-        "GF12_K2_150",
-        "GB12_K2_150",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support8_k2_135_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "GF8_K2_135",
-        "GB8_K2_135",
-    ),
-    "search_j_support8_k2_150_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "GF8_K2_150",
-        "GB8_K2_150",
-    ),
-    "search_j_baseline_plus130": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-        "C02_130",
-    ),
-    "search_j_baseline_plus130_135": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-        "C02_130",
-        "C02",
-    ),
-    "search_j_baseline_plus_support8": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-        "GF8_K2_135",
-        "GB8_K2_135",
-    ),
-    "search_j_c02_150": (
-        "C02_150",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_c02_175": (
-        "C02_175",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support8_s200_greplace": (
-        "C02_125",
-        "GF8_K2_200",
-        "GB8_K2_200",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support8_t200_greplace": (
-        "C02_125",
-        "GFT8_K2_200",
-        "GBT8_K2_200",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support8_s200_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "GF8_K2_200",
-        "GB8_K2_200",
-    ),
-    "search_j_support8_t200_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "GFT8_K2_200",
-        "GBT8_K2_200",
-    ),
-    "search_j_support8_k1_200_greplace": (
-        "C02_125",
-        "GF8_K1_200",
-        "GB8_K1_200",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support8_k1_300_greplace": (
-        "C02_125",
-        "GF8_K1_300",
-        "GB8_K1_300",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_support8_k1_200_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "GF8_K1_200",
-        "GB8_K1_200",
-    ),
-    "search_j_baseline_plus_support1": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-        "GF8_K1_200",
-        "GB8_K1_200",
-    ),
-    "search_j_ctr4_125_creplace": (
-        "CTR4_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_ctr4_150_creplace": (
-        "CTR4_150",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_ctr8_150_creplace": (
-        "CTR8_150",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_c125_ctr4_no_d6": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "CTR4_150",
-    ),
-    "search_j_c125_ctr4_no_f3": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "CTR4_150",
-        "D6_P1",
-    ),
-    "search_j_vfit8_greplace": (
-        "C02_125",
-        "VF8_P1",
-        "VB8_P1",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_vfit12_greplace": (
-        "C02_125",
-        "VF12_P1",
-        "VB12_P1",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-    ),
-    "search_j_vfit8_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "VF8_P1",
-        "VB8_P1",
-    ),
-    "search_j_vfit12_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "VF12_P1",
-        "VB12_P1",
-    ),
-    "search_j_vfit6_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "VF6_P1",
-        "VB6_P1",
-    ),
-    "search_j_vfit10_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "VF10_P1",
-        "VB10_P1",
-    ),
-    "search_j_vfit8_robust_localreplace": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "VFR8_P1",
-        "VBR8_P1",
-    ),
-    "search_f_baseline_plus_f75": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-        "F3_Q75_P1",
-    ),
-    "search_j_baseline_plus_vfit8": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-        "VF8_P1",
-        "VB8_P1",
-    ),
-    "search_j_baseline_plus_vf8": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-        "VF8_P1",
-    ),
-    "search_j_baseline_plus_vb8": (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
-        "VB8_P1",
-    ),
-    "support30_three_windows_two_areas": (
-        "S30_R2_A105",
-        "S30_R2_A125",
-        "S30_R5_A105",
-        "S30_R5_A125",
-        "S30_R10_A105",
-        "S30_R10_A125",
-    ),
-}
 CLASS_ROLE_STATE_PROFILES = {
-    "production_candidate_superior_v2": {
-        "女性器": (
-            "C02_125",
-            "G02",
-            "G04",
-            "A06",
-            "F3_P1",
-            "D6_P1",
-            "F3_Q75_P1",
-        ),
-        "男性器": (
-            "C02_125",
-            "G02_H3",
-            "G04_H3",
-            "A06_K3",
-            "F3_P1",
-            "D6_R5_P1",
-        ),
-        "結合部分": (
-            "C02_125",
-            "G02",
-            "G04",
-            "A06",
-            "F3_P1",
-            "D6_P1",
-            "VF8_P1",
-        ),
-    },
-    # Target-aware successor to v2.  Very short target intervals do not need
-    # the additional temporal states, while the joint-region forward-only
-    # superset caused one extra CUDA/exact recall disagreement.  For intervals
-    # 5+ the paired VF8 replacement gives the useful long-edge coverage without
-    # increasing the known infeasible-stream count on the screening set.
-    "production_candidate_superior_v3": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    # Selected research handoff.  It follows the quality-oriented forward VF8
-    # superset around interval 5 and changes to the reach-oriented paired VF8
-    # replacement around interval 8.  The other two classes keep their
-    # independently screened palettes.
-    "production_candidate_best_v4": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    # Frozen pre-temporal baseline.  Keep this profile stable even if later
-    # candidate-search aliases are revised.
-    "new_production_v1": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    # Explicit Production candidate.  Its temporal state palette is frozen to
-    # new_production_v1; the semantic change is the preceding track-level
-    # 14/16/18/20 spatial polygon selection.  Keeping a separate profile ID is
-    # important for auditability and prevents an unapproved representation
-    # change from being mistaken for the established temporal baseline.
-    "polygon14_keyframe_v1": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "polygon_adaptive_keyframe_v2": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_ls110": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_ls115": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_inverse115": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_inverse120": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_vf_inverse115": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_v4_ivf115": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_v4_ivb115": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_ivb_drop_g02": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_ivb_drop_g04": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_interval8_ivb_drop_vb": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    # Interval-8 bounded candidate selected after the 2026-08-11 ablation.
-    # Female keeps v4 (already near the requested interval), male replaces the
-    # weaker tail roles with bounded inverse endpoints, and joint adds only
-    # the backward inverse endpoint whose contribution remained unique.
-    "production_candidate_bounded_v5": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "production_candidate_bounded_v5_110": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "production_candidate_bounded_safe_v6": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_male_ivb_drop_f3": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_male_ivb_drop_d6": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "search_male_ivb_drop_g04": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
-    "production_candidate_interval8_safe_v7": {
-        "女性器": (),
-        "男性器": (),
-        "結合部分": (),
-    },
+    profile: {"女性器": (), "男性器": (), "結合部分": ()} for profile in PRODUCTION_ROLE_PROFILES
 }
+SCALE_STATE_PROFILES: dict[str, tuple[float, ...]] = {}
+ROLE_STATE_PROFILES: dict[str, tuple[str, ...]] = {}
+MIXED_STATE_PROFILES: dict[str, tuple[str, ...]] = {}
 
 
 def _class_role_state_profile(
@@ -890,350 +137,20 @@ def _class_role_state_profile(
     label: str,
     target_interval: float,
 ) -> tuple[str, ...]:
-    if profile not in {
-        "production_candidate_superior_v3",
-        "production_candidate_best_v4",
-        "new_production_v1",
-        "polygon14_keyframe_v1",
-        "polygon_adaptive_keyframe_v2",
-        "search_interval8_ls110",
-        "search_interval8_ls115",
-        "search_interval8_inverse115",
-        "search_interval8_inverse120",
-        "search_interval8_vf_inverse115",
-        "search_interval8_v4_ivf115",
-        "search_interval8_v4_ivb115",
-        "search_interval8_ivb_drop_g02",
-        "search_interval8_ivb_drop_g04",
-        "search_interval8_ivb_drop_vb",
-        "production_candidate_bounded_v5",
-        "production_candidate_bounded_v5_110",
-        "production_candidate_bounded_safe_v6",
-        "search_male_ivb_drop_f3",
-        "search_male_ivb_drop_d6",
-        "search_male_ivb_drop_g04",
-        "production_candidate_interval8_safe_v7",
-    }:
-        return tuple(CLASS_ROLE_STATE_PROFILES[profile][label])
-
-    baseline = (
-        "C02_125",
-        "G02",
-        "G04",
-        "A06",
-        "F3_P1",
-        "D6_P1",
+    """Return the only palettes shipped by the promoted runtime."""
+    if profile not in PRODUCTION_ROLE_PROFILES:
+        raise ValueError(f"unsupported Production profile: {profile!r}")
+    from production.polygon.runtime.candidate_config import (
+        CANDIDATE,
+        with_target_interval,
     )
-    if profile in POLYGON_CONSTRAINED_PROFILES:
-        return _class_role_state_profile("new_production_v1", label, target_interval)
-    if profile == "new_production_v1":
-        if label == "女性器":
-            return baseline if target_interval < 2.0 else baseline + ("F3_Q75_P1",)
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                "F3_P1",
-                "D6_R5_P1",
-            )
-        if label == "結合部分":
-            if target_interval < 4.0:
-                return baseline
-            if target_interval < 7.0:
-                return baseline + ("VF8_P1",)
-            return (
-                "C02_125",
-                "G02",
-                "G04",
-                "A06",
-                "VF8_P1",
-                "VB8_P1",
-            )
-        raise ValueError(f"unsupported Phase-2 class label: {label!r}")
-    if profile in {"search_interval8_ls110", "search_interval8_ls115"}:
-        suffix = "110" if profile.endswith("110") else "115"
-        # Keep the strongest four baseline roles and dedicate the final two
-        # states to bounded forward/backward interval-8 endpoint fits.
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                f"LSF8_{suffix}",
-                f"LSB8_{suffix}",
-            )
-        return (
-            "C02_125",
-            "G02",
-            "G04",
-            "A06",
-            f"LSF8_{suffix}",
-            f"LSB8_{suffix}",
-        )
-    if profile in {"search_interval8_inverse115", "search_interval8_inverse120"}:
-        suffix = "115" if profile.endswith("115") else "120"
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                f"IVF8_{suffix}",
-                f"IVB8_{suffix}",
-            )
-        return (
-            "C02_125",
-            "G02",
-            "G04",
-            "A06",
-            f"IVF8_{suffix}",
-            f"IVB8_{suffix}",
-        )
-    if profile == "search_interval8_vf_inverse115":
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                "F3_P1",
-                "D6_R5_P1",
-                "IVF8_115",
-                "IVB8_115",
-            )
-        if label == "結合部分":
-            return (
-                "C02_125",
-                "G02",
-                "G04",
-                "A06",
-                "VF8_P1",
-                "VB8_P1",
-                "IVF8_115",
-                "IVB8_115",
-            )
-        return baseline + ("F3_Q75_P1", "IVF8_115", "IVB8_115")
-    if profile in {"search_interval8_v4_ivf115", "search_interval8_v4_ivb115"}:
-        inverse = "IVF8_115" if profile.endswith("ivf115") else "IVB8_115"
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                "F3_P1",
-                "D6_R5_P1",
-                inverse,
-            )
-        if label == "結合部分":
-            return (
-                "C02_125",
-                "G02",
-                "G04",
-                "A06",
-                "VF8_P1",
-                "VB8_P1",
-                inverse,
-            )
-        return baseline + ("F3_Q75_P1", inverse)
-    if profile in {
-        "search_interval8_ivb_drop_g02",
-        "search_interval8_ivb_drop_g04",
-        "search_interval8_ivb_drop_vb",
-    }:
-        if label != "結合部分":
-            return _class_role_state_profile(
-                "production_candidate_best_v4", label, target_interval
-            )
-        roles = ["C02_125", "G02", "G04", "A06", "VF8_P1", "VB8_P1"]
-        removed = {
-            "search_interval8_ivb_drop_g02": "G02",
-            "search_interval8_ivb_drop_g04": "G04",
-            "search_interval8_ivb_drop_vb": "VB8_P1",
-        }[profile]
-        roles.remove(removed)
-        roles.append("IVB8_115")
-        return tuple(roles)
-    if profile == "production_candidate_bounded_v5":
-        if label == "女性器":
-            return baseline + ("F3_Q75_P1",)
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                "IVF8_115",
-                "IVB8_115",
-            )
-        if label == "結合部分":
-            return (
-                "C02_125",
-                "G02",
-                "G04",
-                "A06",
-                "VF8_P1",
-                "VB8_P1",
-                "IVB8_115",
-            )
-    if profile == "production_candidate_bounded_v5_110":
-        if label == "女性器":
-            return baseline + ("F3_Q75_P1",)
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                "IVF8_110",
-                "IVB8_110",
-            )
-        if label == "結合部分":
-            return (
-                "C02_125",
-                "G02",
-                "G04",
-                "A06",
-                "VF8_P1",
-                "VB8_P1",
-                "IVB8_110",
-            )
-    if profile == "production_candidate_bounded_safe_v6":
-        if label == "女性器":
-            return baseline + ("F3_Q75_P1",)
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                "IVF8_115",
-                "IVB8_115",
-            )
-        if label == "結合部分":
-            return (
-                "C02_125",
-                "G02",
-                "G04",
-                "A06",
-                "VF8_P1",
-                "VB8_P1",
-            )
-    if profile in {"search_male_ivb_drop_f3", "search_male_ivb_drop_d6"}:
-        if label != "男性器":
-            return _class_role_state_profile(
-                "production_candidate_best_v4", label, target_interval
-            )
-        if profile.endswith("drop_f3"):
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                "D6_R5_P1",
-                "IVB8_115",
-            )
-        return (
-            "C02_125",
-            "G02_H3",
-            "G04_H3",
-            "A06_K3",
-            "F3_P1",
-            "IVB8_115",
-        )
-    if profile == "search_male_ivb_drop_g04":
-        if label != "男性器":
-            return _class_role_state_profile(
-                "production_candidate_best_v4", label, target_interval
-            )
-        return (
-            "C02_125",
-            "G02_H3",
-            "A06_K3",
-            "F3_P1",
-            "D6_R5_P1",
-            "IVB8_115",
-        )
-    if profile == "production_candidate_interval8_safe_v7":
-        if label == "女性器":
-            return baseline + ("F3_Q75_P1",)
-        if label == "男性器":
-            return (
-                "C02_125",
-                "G02_H3",
-                "G04_H3",
-                "A06_K3",
-                "D6_R5_P1",
-                "IVB8_115",
-            )
-        if label == "結合部分":
-            return (
-                "C02_125",
-                "G02",
-                "G04",
-                "A06",
-                "VF8_P1",
-                "VB8_P1",
-            )
-    if label == "女性器":
-        if target_interval < 2.0:
-            return baseline
-        return baseline + ("F3_Q75_P1",)
-    if label == "男性器":
-        return (
-            "C02_125",
-            "G02_H3",
-            "G04_H3",
-            "A06_K3",
-            "F3_P1",
-            "D6_R5_P1",
-        )
-    if label == "結合部分":
-        if target_interval < 4.0:
-            return baseline
-        if profile == "production_candidate_best_v4" and target_interval < 7.0:
-            return baseline + ("VF8_P1",)
-        return (
-            "C02_125",
-            "G02",
-            "G04",
-            "A06",
-            "VF8_P1",
-            "VB8_P1",
-        )
-    raise ValueError(f"unsupported Production label: {label}")
+    from production.polygon.runtime.candidate_palette import role_ids
+
+    interval = max(1, int(round(float(target_interval))))
+    return role_ids(label, interval, with_target_interval(interval, CANDIDATE))
 
 
-MIXED_STATE_PROFILES = {
-    # Small isotropic coverage controls are retained in these ablations so the
-    # role candidates are asked to improve quality, not to mask CUDA/raster
-    # endpoint deficits by themselves.
-    "role_hybrid_six_102": ("S102", "F3", "E2", "B3", "C1", "D6"),
-    "role_hybrid_six_102_104": ("S102", "S104", "F3", "E2", "B3", "C1"),
-}
-VALID_PROFILES = (
-    {
-        "raw_baseline",
-        "scale_best",
-        "temporal_central_best",
-        "temporal_recall_best",
-        "axis_best",
-        "broad_top2",
-        "scale_104",
-        "scale_108",
-        "scale_112",
-        "scale_116",
-        "scale_pair_104_112",
-        "scale_pair_108_112",
-    }
-    | set(SCALE_STATE_PROFILES)
-    | set(ROLE_STATE_PROFILES)
-    | set(MIXED_STATE_PROFILES)
-    | set(CLASS_ROLE_STATE_PROFILES)
-)
+VALID_PROFILES = PRODUCTION_ROLE_PROFILES
 
 
 def _build_dense_edge_array(
@@ -3512,9 +2429,18 @@ def _write_audit(
         if profile == "polygon_adaptive_keyframe_v2":
             from production.polygon.runtime.candidate_config import (
                 CANDIDATE as ADAPTIVE_CANDIDATE,
+                with_target_interval,
             )
 
-            candidate_contract = ADAPTIVE_CANDIDATE.to_dict()
+            requested_interval = int(
+                os.environ.get(
+                    "MASK_PIPELINE_PHASE2_TARGET_INTERVAL",
+                    str(ADAPTIVE_CANDIDATE.temporal.target_interval),
+                )
+            )
+            candidate_contract = with_target_interval(
+                requested_interval, ADAPTIVE_CANDIDATE
+            ).to_dict()
         else:
             candidate_contract = CANDIDATE.to_dict()
     metrics_path = output_dir / "exact/keyframe_exact_metrics.csv"
@@ -3525,18 +2451,16 @@ def _write_audit(
         encoding="utf-8", newline=""
     ) as handle:
         stream_rows.extend(csv.DictReader(handle))
-    infeasible = {
-        (str(row["track_id"]), int(row["run_id"]))
-        for row in stream_rows
-        if (
-            not math.isfinite(float(row["objective"]))
-            or float(row["recall_budget_violation"]) > _EPSILON
-        )
-    }
+    diagnostics = classify_streams(
+        metric_rows, stream_rows, recall_floor=recall_floor, epsilon=_EPSILON
+    )
+    optimizer_fallback = diagnostics.optimizer_fallback
+    legacy_budget_diagnostic = diagnostics.legacy_budget_diagnostic
+    final_exact_infeasible = diagnostics.final_exact_infeasible
     feasible_recalls = [
         float(row["recall"])
         for row in metric_rows
-        if (str(row["track_id"]), int(row["run_id"])) not in infeasible
+        if (str(row["track_id"]), int(row["run_id"])) not in final_exact_infeasible
     ]
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     optimizer = summary["optimizer_summary"]
@@ -3610,7 +2534,12 @@ def _write_audit(
         ),
         "mean_iou": sum(float(row["iou"]) for row in metric_rows)
         / max(len(metric_rows), 1),
-        "infeasible_streams": len(infeasible),
+        "infeasible_streams": len(final_exact_infeasible),
+        "optimizer_fallback_streams": len(optimizer_fallback),
+        "legacy_budget_diagnostic_streams": len(legacy_budget_diagnostic),
+        "exact_recall_violations": sum(
+            float(row["recall"]) + 1e-12 < float(recall_floor) for row in metric_rows
+        ),
         "feasible_exact_minimum_recall": min(feasible_recalls, default=1.0),
         "feasible_exact_violations": sum(
             value + 1e-12 < float(recall_floor) for value in feasible_recalls
@@ -3728,11 +2657,10 @@ def main() -> int:
     if profile not in VALID_PROFILES:
         raise ValueError(f"{PROFILE_ENV} must be one of {sorted(VALID_PROFILES)}")
     source = _load_production_runtime()
-    original_builder = source._build_embedded_polygon_v22_module
     patched_holder: list[ModuleType] = []
 
     def build_patched_module() -> ModuleType:
-        patched = _patch_embedded_optimizer(original_builder())
+        patched = _patch_embedded_optimizer(source)
         patched._phase1_exact_repair_disabled = True
         patched = _patch_phase2_candidates(patched, profile)
         pair_vote_enabled = os.environ.get(PAIR_VOTE_ENV, "0").strip() == "1"
@@ -4247,7 +3175,7 @@ def main() -> int:
         patched_holder.append(patched)
         return patched
 
-    source._build_embedded_polygon_v22_module = build_patched_module
+    patched = build_patched_module()
     os.environ["ATOSYORI_POLYGON_DISABLE_REPAIR_DELTA"] = "1"
     gc_interval = max(1, int(os.environ.get(GC_INTERVAL_ENV, "1") or "1"))
     real_gc_collect = gc.collect
@@ -4275,7 +3203,17 @@ def main() -> int:
     if gc_interval > 1:
         gc.collect = throttled_gc_collect
     try:
-        source.dispatch_main()
+        optimizer_argv = (
+            sys.argv[2:]
+            if (len(sys.argv) >= 2 and sys.argv[1] == "__onefile_polygon_optimize")
+            else sys.argv[1:]
+        )
+        previous_argv = sys.argv[:]
+        try:
+            sys.argv = [previous_argv[0], *optimizer_argv]
+            patched.main()
+        finally:
+            sys.argv = previous_argv
     finally:
         if gc_interval > 1:
             gc.collect = real_gc_collect

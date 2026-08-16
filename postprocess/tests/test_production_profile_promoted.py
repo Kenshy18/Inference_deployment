@@ -13,6 +13,8 @@ from production.config import PRODUCTION
 from production.polygon.materialize import materialize_outputs
 from production.polygon.runtime_bridge import build_runtime_config
 from production.polygon.runtime import algorithm_ids
+from production.polygon.runtime.diagnostics import classify_streams
+from production.polygon.runtime.run import _candidate_contract
 from production.polygon.stage import ProductionPolygonStage
 
 
@@ -67,7 +69,7 @@ class PromotedProductionProfileTests(unittest.TestCase):
         )
         package_config = (root / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('"production",', package_config)
-        self.assertIn('"vendor" = "vendor"', package_config)
+        self.assertNotIn('"vendor" = "vendor"', package_config)
         self.assertNotIn('"approximation",', package_config)
         self.assertNotIn('"keyframes",', package_config)
         self.assertNotIn('"gap_fill",', package_config)
@@ -76,6 +78,15 @@ class PromotedProductionProfileTests(unittest.TestCase):
         )
         self.assertNotIn("MASK_PIPELINE_CUDA_EXPERIMENT_SITE", coordinator)
         self.assertNotIn("mask-pipeline-cuda-experiment", coordinator)
+
+    def test_production_runtime_does_not_load_the_historical_vendor(self) -> None:
+        runtime = Path(__file__).resolve().parents[1] / "production/polygon/runtime"
+        offenders = []
+        for path in runtime.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if "vendor/original_polygon" in text or "original_run_standalone" in text:
+                offenders.append(str(path.relative_to(runtime)))
+        self.assertEqual([], offenders)
 
     def test_release_algorithm_ids_do_not_emit_historical_profile_names(self) -> None:
         identifiers = {
@@ -109,6 +120,28 @@ class PromotedProductionProfileTests(unittest.TestCase):
         self.assertFalse(hasattr(runtime.spatial, "vertex_fallbacks"))
         self.assertEqual(1.05, runtime.spatial.recall_repair_max_scale)
         self.assertEqual(0.97, runtime.temporal.recall_floor)
+
+    def test_manifest_contract_uses_the_requested_soft_interval(self) -> None:
+        for interval in (1, 3, 6):
+            contract = _candidate_contract("polygon_adaptive_keyframe_v2", interval)
+            self.assertEqual(interval, contract["temporal"]["target_interval"])
+
+    def test_final_recall_is_not_confused_with_legacy_dp_diagnostics(self) -> None:
+        stream = {
+            "track_id": "7",
+            "run_id": "0",
+            "objective": "inf",
+            "recall_budget_violation": "0.02",
+        }
+        valid = {"track_id": "7", "run_id": "0", "recall": "0.98"}
+        diagnostics = classify_streams([valid], [stream], recall_floor=0.97)
+        self.assertEqual(frozenset(), diagnostics.final_exact_infeasible)
+        self.assertEqual({("7", 0)}, diagnostics.optimizer_fallback)
+        self.assertEqual({("7", 0)}, diagnostics.legacy_budget_diagnostic)
+
+        invalid = {"track_id": "7", "run_id": "0", "recall": "0.96"}
+        diagnostics = classify_streams([invalid], [stream], recall_floor=0.97)
+        self.assertEqual({("7", 0)}, diagnostics.final_exact_infeasible)
 
     def test_registered_stages_use_stable_names(self) -> None:
         nms = create_stage("nms.production_v3", {})

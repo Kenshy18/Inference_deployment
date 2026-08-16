@@ -21,7 +21,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import csv
-import importlib.util
+import importlib
 import json
 import math
 import os
@@ -32,13 +32,10 @@ from pathlib import Path
 from types import ModuleType
 
 from production.polygon.runtime.algorithm_ids import PHASE1_RAW_ALGORITHM_ID
+from production.polygon.runtime.diagnostics import classify_streams
+from production.polygon.runtime.optimizer_factory import build_optimizer_module
 
 
-HERE = Path(__file__).resolve().parent
-POSTPROCESS_ROOT = HERE.parents[2]
-COMPATIBILITY_ENGINE_SOURCE = (
-    POSTPROCESS_ROOT / "vendor" / "original_polygon" / "original_run_standalone.py"
-)
 _EPSILON = 1e-10
 NATIVE_EXACT_ENV = "MASK_PIPELINE_PHASE1_NATIVE_EXACT"
 NATIVE_INTERVAL_ENV = "MASK_PIPELINE_PHASE1_NATIVE_INTERVAL"
@@ -46,22 +43,8 @@ NATIVE_INTERVAL_VERIFY_ENV = "MASK_PIPELINE_PHASE1_NATIVE_INTERVAL_VERIFY"
 
 
 def _load_production_runtime() -> ModuleType:
-    module_name = "production_polygon_embedded_source"
-    existing = sys.modules.get(module_name)
-    if existing is not None:
-        return existing
-    spec = importlib.util.spec_from_file_location(
-        module_name, COMPATIBILITY_ENGINE_SOURCE
-    )
-    if spec is None or spec.loader is None:
-        raise RuntimeError(
-            "cannot load the parity-frozen compatibility engine: "
-            f"{COMPATIBILITY_ENGINE_SOURCE}"
-        )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
+    """Return the isolated Production numerical kernel."""
+    return build_optimizer_module()
 
 
 def _minimum_recall_deficit(recall: float, floor: float) -> float:
@@ -726,25 +709,23 @@ def _write_audit(
         encoding="utf-8", newline=""
     ) as handle:
         stream_rows.extend(csv.DictReader(handle))
-    infeasible_keys = {
-        (str(row["track_id"]), int(row["run_id"]))
-        for row in stream_rows
-        if (
-            not math.isfinite(float(row["objective"]))
-            or float(row["recall_budget_violation"]) > _EPSILON
-        )
-    }
+    diagnostics = classify_streams(
+        metric_rows, stream_rows, recall_floor=recall_floor, epsilon=_EPSILON
+    )
+    optimizer_fallback_keys = diagnostics.optimizer_fallback
+    legacy_budget_diagnostic_keys = diagnostics.legacy_budget_diagnostic
+    final_exact_infeasible_keys = diagnostics.final_exact_infeasible
     feasible_exact_recalls = [
         float(row["recall"])
         for row in metric_rows
-        if (str(row["track_id"]), int(row["run_id"])) not in infeasible_keys
+        if (str(row["track_id"]), int(row["run_id"])) not in final_exact_infeasible_keys
     ]
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     optimizer = summary["optimizer_summary"]
     audit = {
         "schema_version": 1,
         "algorithm": PHASE1_RAW_ALGORITHM_ID,
-        "compatibility_engine_source": str(COMPATIBILITY_ENGINE_SOURCE),
+        "optimizer_kernel": "production.polygon.runtime.optimizer_kernel",
         "recall_floor": float(recall_floor),
         "evaluated_rows": len(recalls),
         "minimum_recall": min(recalls, default=1.0),
@@ -766,7 +747,9 @@ def _write_audit(
         "post_decode_shape_repair_call_seconds": float(
             optimizer["stage_seconds_total"]["exact_recall_repair_seconds"]
         ),
-        "infeasible_streams": len(infeasible_keys),
+        "infeasible_streams": len(final_exact_infeasible_keys),
+        "optimizer_fallback_streams": len(optimizer_fallback_keys),
+        "legacy_budget_diagnostic_streams": len(legacy_budget_diagnostic_keys),
         "feasible_exact_minimum_recall": min(feasible_exact_recalls, default=1.0),
         "feasible_exact_violations": sum(
             value + 1e-12 < recall_floor for value in feasible_exact_recalls
@@ -801,19 +784,20 @@ def _write_audit(
 
 
 def main() -> int:
-    source = _load_production_runtime()
-    original_builder = source._build_embedded_polygon_v22_module
-    patched_holder: list[ModuleType] = []
-
-    def build_patched_module() -> ModuleType:
-        patched = _patch_embedded_optimizer(original_builder())
-        patched._phase1_exact_repair_disabled = True
-        patched_holder.append(patched)
-        return patched
-
-    source._build_embedded_polygon_v22_module = build_patched_module
+    patched = _patch_embedded_optimizer(_load_production_runtime())
+    patched._phase1_exact_repair_disabled = True
     os.environ["ATOSYORI_POLYGON_DISABLE_REPAIR_DELTA"] = "1"
-    source.dispatch_main()
+    optimizer_argv = (
+        sys.argv[2:]
+        if (len(sys.argv) >= 2 and sys.argv[1] == "__onefile_polygon_optimize")
+        else sys.argv[1:]
+    )
+    previous_argv = sys.argv[:]
+    try:
+        sys.argv = [previous_argv[0], *optimizer_argv]
+        patched.main()
+    finally:
+        sys.argv = previous_argv
 
     if len(sys.argv) >= 2 and sys.argv[1] == "__onefile_polygon_optimize":
         parser = argparse.ArgumentParser(add_help=False)
@@ -823,7 +807,7 @@ def main() -> int:
         audit = _write_audit(
             known.output_dir,
             known.recall_min,
-            patched_holder[-1] if patched_holder else None,
+            patched,
         )
         print(json.dumps({"phase1_audit": audit}, ensure_ascii=False), flush=True)
     return 0

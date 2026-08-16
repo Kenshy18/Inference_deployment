@@ -23,11 +23,14 @@ DEFAULT_OUTPUT = ROOT / "output/production_polygon_optimizer"
 LABELS = ("女性器", "男性器", "結合部分")
 
 
-def _candidate_contract(profile: str) -> dict[str, object]:
+def _candidate_contract(profile: str, target_interval: int) -> dict[str, object]:
     if profile == ADAPTIVE_PROFILE_ID:
-        from .candidate_config import CANDIDATE as ADAPTIVE_CANDIDATE
+        from .candidate_config import (
+            CANDIDATE as ADAPTIVE_CANDIDATE,
+            with_target_interval,
+        )
 
-        value = ADAPTIVE_CANDIDATE.to_dict()
+        value = with_target_interval(int(target_interval), ADAPTIVE_CANDIDATE).to_dict()
     else:
         value = CANDIDATE.to_dict()
     return json.loads(json.dumps(value, ensure_ascii=False))
@@ -117,6 +120,7 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
 def _exact_quality(
     interval_root: Path,
     labels: list[str],
+    target_interval: int,
     profile: str = PROFILE_ID,
 ) -> dict[str, object]:
     minimum_recall = 1.0
@@ -128,7 +132,7 @@ def _exact_quality(
         audit_path = runtime / "phase2_audit.json"
         metrics_path = runtime / "exact/keyframe_exact_metrics.csv"
         audit = json.loads(audit_path.read_text(encoding="utf-8"))
-        expected_contract = _candidate_contract(profile)
+        expected_contract = _candidate_contract(profile, target_interval)
         if audit.get("production_candidate_contract") != expected_contract:
             raise RuntimeError(f"candidate contract mismatch: {audit_path}")
         with metrics_path.open(encoding="utf-8", newline="") as handle:
@@ -192,10 +196,11 @@ def main() -> int:
         matrix_path = interval_root / "phase2_matrix.json"
         matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
         aggregate = matrix["completed_profiles"][-1]
-        quality = _exact_quality(interval_root, labels, args.profile)
+        quality = _exact_quality(interval_root, labels, interval, args.profile)
         runs.append(
             {
                 "target_interval": interval,
+                "candidate": _candidate_contract(args.profile, interval),
                 "wall_seconds": wall,
                 "actual_mean_interval": aggregate["actual_mean_interval"],
                 "mean_iou": aggregate["iou_mean"],
@@ -207,7 +212,10 @@ def main() -> int:
     manifest = {
         "schema_version": 1,
         "status": "production",
-        "candidate": _candidate_contract(args.profile),
+        "candidate_contracts_by_target_interval": {
+            str(interval): _candidate_contract(args.profile, interval)
+            for interval in intervals
+        },
         "polygon_profile": args.profile,
         "vertex_policy": None if vertex_policy is None else str(vertex_policy),
         "privacy": "SQLite mask geometry only; no video frames were opened.",

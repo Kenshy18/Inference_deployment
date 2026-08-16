@@ -56,7 +56,6 @@ exclude = [
 "README.md" = "mask_postprocess_docs/README.md"
 "configs" = "mask_postprocess_docs/configs"
 "docs" = "mask_postprocess_docs/docs"
-"vendor" = "vendor"
 
 [tool.black]
 line-length = 88
