@@ -17,11 +17,13 @@ import { availableOutputRoot } from "./output-root";
 import { emptyTelemetry, parseTelemetryLine } from "./telemetry";
 import {
   isWslPathInside,
+  ensureWslDriveMounts,
   launchPidPath,
   runtimePathToHost,
   terminateWslJob,
   terminateWslJobSync,
   validateWslBackend,
+  validateWslJobPaths,
   WSL_RUNNER_SOURCE,
   wslStagingOutputRoot,
   windowsToWslPath,
@@ -179,11 +181,13 @@ export class JobManager extends EventEmitter {
     runToken: symbol,
   ): Promise<JobSnapshot> {
     await validateWslBackend(settings);
+    const mountedDrives = await ensureWslDriveMounts(settings, draft);
 
     const outputRoot = availableOutputRoot(
       draft.outputRoot,
       draft.execution.resume,
     );
+    await validateWslJobPaths(settings, draft.inputVideo, outputRoot);
     const id = new Date().toISOString().replaceAll(/[:.]/g, "-");
     const finalWslOutputRoot =
       settings.backendMode === "wsl" ? windowsToWslPath(outputRoot) : null;
@@ -245,6 +249,11 @@ export class JobManager extends EventEmitter {
       outputRoot,
       telemetry: emptyTelemetry(draft.inference.maxFrames),
     };
+    if (mountedDrives.length > 0) {
+      this.appendLog(
+        `[gui] WSLへドライブをマウントしました: ${mountedDrives.join(", ")}`,
+      );
+    }
     this.syncPreviewControl();
     this.stdoutBuffer = "";
     this.stderrBuffer = "";

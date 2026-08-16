@@ -80,8 +80,9 @@ if ((Get-Distros) -contains $BuildDistribution) {
 
 $commit = (& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $commit) { throw "Could not resolve source commit" }
-$status = @(& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot status --porcelain)
-if ($status.Count -gt 0) { throw "Release builds require a clean source worktree" }
+& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot diff-index --quiet HEAD --
+if ($LASTEXITCODE -eq 1) { throw "Release builds require committed tracked files" }
+if ($LASTEXITCODE -gt 1) { throw "Could not verify the source worktree" }
 
 $workDirectory = Join-Path $WorkRoot $releaseId
 $stageDirectory = Join-Path $workDirectory "stage"

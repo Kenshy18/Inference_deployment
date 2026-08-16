@@ -42,7 +42,7 @@ $commit = (& wsl.exe -d $Distribution -- git -C $RepositoryRoot rev-parse HEAD).
 if ($LASTEXITCODE -ne 0 -or -not $commit) {
   throw "Could not resolve the canonical WSL Git commit."
 }
-$statusLines = @(& wsl.exe -d $Distribution -- git -C $RepositoryRoot status --porcelain)
+$statusLines = @(& wsl.exe -d $Distribution -- git -C $RepositoryRoot status --porcelain --untracked-files=no)
 $isDirty = $statusLines.Count -gt 0
 if ($isDirty -and -not $AllowDirty) {
   throw "The canonical repository has uncommitted changes. Commit first, or use -AllowDirty for a non-release build."

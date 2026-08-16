@@ -6,8 +6,10 @@ import { describe, expect, it } from "vitest";
 import type { AppSettings } from "../shared/types";
 import {
   isWslPathInside,
+  ensureWslDriveMounts,
   WSL_RUNNER_SOURCE,
   windowsToWslPath,
+  windowsDriveLetters,
   wslLaunchWrapper,
   wslToWindowsPath,
 } from "./wsl-bridge";
@@ -30,6 +32,67 @@ describe("Windows/WSL bridge", () => {
         "\\\\wsl.localhost\\Ubuntu-24.04\\home\\kenshin\\movie.mp4",
       ),
     ).toBe("/home/kenshin/movie.mp4");
+  });
+
+  it("collects distinct drive-letter paths recursively", () => {
+    expect(
+      windowsDriveLetters({
+        input: "O:\\video\\source.mp4",
+        output: "D:/results",
+        nested: ["o:/models/file.engine", "/home/kenshin/local"],
+      }),
+    ).toEqual(["D", "O"]);
+  });
+
+  it("mounts only missing drives using argv-safe commands", async () => {
+    const calls: Array<{ args: string[]; user?: string }> = [];
+    const runner = async (
+      _settings: AppSettings,
+      args: string[],
+      _cwd?: string,
+      user?: string,
+    ): Promise<{ stdout: string; stderr: string }> => {
+      calls.push({ args, user });
+      if (args[0] === "/usr/bin/mountpoint" && args[2] === "/mnt/o") {
+        const oChecks = calls.filter(
+          (call) =>
+            call.args[0] === "/usr/bin/mountpoint" &&
+            call.args[2] === "/mnt/o",
+        ).length;
+        if (oChecks === 1) {
+          throw new Error("not mounted");
+        }
+      }
+      return { stdout: "", stderr: "" };
+    };
+    await expect(
+      ensureWslDriveMounts(
+        settings,
+        ["C:\\local\\input.mp4", "O:\\network\\input.mp4"],
+        "win32",
+        runner,
+      ),
+    ).resolves.toEqual(["O"]);
+    expect(calls).toContainEqual({
+      args: ["/usr/bin/mkdir", "-p", "/mnt/o"],
+      user: "root",
+    });
+    expect(calls).toContainEqual({
+      args: ["/usr/bin/mount", "-t", "drvfs", "O:", "/mnt/o"],
+      user: "root",
+    });
+    expect(calls.every((call) => !call.args.includes("/bin/sh"))).toBe(true);
+  });
+
+  it("rejects raw network UNC paths with an actionable message", async () => {
+    await expect(
+      ensureWslDriveMounts(
+        settings,
+        { input: "\\\\server\\share\\movie.mp4" },
+        "win32",
+        async () => ({ stdout: "", stderr: "" }),
+      ),
+    ).rejects.toThrow("ドライブ文字へ割り当て");
   });
 
   it("maps WSL paths back to Windows without a subprocess", () => {

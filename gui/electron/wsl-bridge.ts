@@ -316,15 +316,72 @@ function distroArgs(settings: AppSettings): string[] {
     : [];
 }
 
+type WslCommandRunner = (
+  settings: AppSettings,
+  args: string[],
+  cwd?: string,
+  user?: string,
+) => Promise<{ stdout: string; stderr: string }>;
+
+function collectWindowsDriveLetters(value: unknown, result: Set<string>): void {
+  if (typeof value === "string") {
+    const match = /^([a-zA-Z]):[\\/]/.exec(value.trim());
+    if (match) {
+      result.add(match[1].toUpperCase());
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectWindowsDriveLetters(item, result));
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    Object.values(value).forEach((item) =>
+      collectWindowsDriveLetters(item, result),
+    );
+  }
+}
+
+function collectUnsupportedUncPaths(value: unknown, result: Set<string>): void {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (
+      /^\\\\[^\\]/.test(trimmed) &&
+      !/^\\\\wsl(?:\.localhost)?\\/i.test(trimmed)
+    ) {
+      result.add(trimmed);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectUnsupportedUncPaths(item, result));
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    Object.values(value).forEach((item) =>
+      collectUnsupportedUncPaths(item, result),
+    );
+  }
+}
+
+/** Return the distinct mapped/local Windows drives referenced by a job. */
+export function windowsDriveLetters(value: unknown): string[] {
+  const result = new Set<string>();
+  collectWindowsDriveLetters(value, result);
+  return [...result].sort();
+}
+
 async function runWsl(
   settings: AppSettings,
   args: string[],
   cwd?: string,
+  user?: string,
 ): Promise<{ stdout: string; stderr: string }> {
   const result = await execFileAsync(
     "wsl.exe",
     [
       ...distroArgs(settings),
+      ...(user ? ["-u", user] : []),
       ...(cwd ? ["--cd", cwd] : []),
       "--",
       ...args,
@@ -337,6 +394,105 @@ async function runWsl(
     },
   );
   return { stdout: result.stdout, stderr: result.stderr };
+}
+
+/**
+ * Ensure every drive-letter path used by a GUI job is visible in WSL.
+ *
+ * Local drives are normally mounted by WSL itself.  Mapped network drives are
+ * not, so this performs an idempotent drvfs mount before each job.  Commands
+ * are passed as argv (never through a shell) and drive names are restricted to
+ * a single ASCII letter.
+ */
+export async function ensureWslDriveMounts(
+  settings: AppSettings,
+  jobValues: unknown,
+  runtimePlatform = process.platform,
+  commandRunner: WslCommandRunner = runWsl,
+): Promise<string[]> {
+  if (settings.backendMode !== "wsl" || runtimePlatform !== "win32") {
+    return [];
+  }
+  const uncPaths = new Set<string>();
+  collectUnsupportedUncPaths(jobValues, uncPaths);
+  if (uncPaths.size > 0) {
+    throw new Error(
+      "ネットワーク共有のUNCパスはWSLへ直接変換できません。" +
+        "Windowsでドライブ文字へ割り当て、そのドライブを選択してください。" +
+        `\n${[...uncPaths].join("\n")}`,
+    );
+  }
+  const mounted: string[] = [];
+  for (const drive of windowsDriveLetters(jobValues)) {
+    const mountpoint = `/mnt/${drive.toLowerCase()}`;
+    try {
+      await commandRunner(settings, ["/usr/bin/mountpoint", "-q", mountpoint]);
+      continue;
+    } catch {
+      // The check is intentionally followed by an idempotent root mount.
+    }
+    try {
+      await commandRunner(
+        settings,
+        ["/usr/bin/mkdir", "-p", mountpoint],
+        undefined,
+        "root",
+      );
+      try {
+        await commandRunner(
+          settings,
+          ["/usr/bin/mount", "-t", "drvfs", `${drive}:`, mountpoint],
+          undefined,
+          "root",
+        );
+      } catch {
+        // Another process may have mounted the same drive after our check.
+      }
+      await commandRunner(settings, ["/usr/bin/mountpoint", "-q", mountpoint]);
+      mounted.push(drive);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `${drive}: ドライブをWSLの${mountpoint}へマウントできません。` +
+          "Windows側でドライブが接続され、現在のユーザーから読めることを確認してください。" +
+          `\n${detail}`,
+      );
+    }
+  }
+  return mounted;
+}
+
+export async function validateWslJobPaths(
+  settings: AppSettings,
+  inputVideo: string,
+  outputRoot: string,
+  runtimePlatform = process.platform,
+  commandRunner: WslCommandRunner = runWsl,
+): Promise<void> {
+  if (settings.backendMode !== "wsl" || runtimePlatform !== "win32") {
+    return;
+  }
+  const input = windowsToWslPath(inputVideo);
+  const output = windowsToWslPath(outputRoot);
+  const runtimePython = windowsToWslPath(settings.runtimePython);
+  const script = [
+    "import os, pathlib, sys",
+    "source = pathlib.Path(sys.argv[1])",
+    "target = pathlib.Path(sys.argv[2])",
+    "if not source.is_file() or not os.access(source, os.R_OK): raise SystemExit('INPUT_NOT_READABLE:' + str(source))",
+    "parent = target.parent",
+    "while not parent.exists() and parent != parent.parent: parent = parent.parent",
+    "if not parent.is_dir() or not os.access(parent, os.W_OK): raise SystemExit('OUTPUT_NOT_WRITABLE:' + str(parent))",
+  ].join("; ");
+  try {
+    await commandRunner(settings, [runtimePython, "-c", script, input, output]);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      "WSLから入力動画または出力先へアクセスできません。ドライブの接続状態と権限を確認してください。" +
+        `\n${detail}`,
+    );
+  }
 }
 
 export async function validateWslBackend(settings: AppSettings): Promise<void> {

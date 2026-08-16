@@ -26,8 +26,8 @@ if [[ -e "$stage_root" ]]; then
   echo "refusing to replace existing stage root: $stage_root" >&2
   exit 1
 fi
-if [[ -n $(git -C "$repository_root" status --porcelain) ]]; then
-  echo "release staging requires a clean Git worktree" >&2
+if ! git -C "$repository_root" diff-index --quiet HEAD --; then
+  echo "release staging requires committed tracked files" >&2
   exit 1
 fi
 
