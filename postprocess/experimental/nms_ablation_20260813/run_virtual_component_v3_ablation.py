@@ -25,9 +25,9 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 
 import run_four_arm_v3 as base  # noqa: E402
 from contracts.detections import dumps_json_line, iter_detection_records  # noqa: E402
-from nms import (  # noqa: E402
-    AdaptiveNms,
-    ComponentAwareMaskNms,
+from nms.adaptive import AdaptiveNms  # noqa: E402
+from nms.component_aware import ComponentAwareMaskNms  # noqa: E402
+from nms.component_virtual import (  # noqa: E402
     VirtualComponentMaskNms,
     VirtualComponentNms,
 )

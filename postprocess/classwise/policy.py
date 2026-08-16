@@ -58,6 +58,8 @@ def _resolve_settings(
     shape_mode = str(values.get("shape_mode", fallback.shape_mode))
     keyframe_interval = int(values.get("keyframe_interval", fallback.keyframe_interval))
     max_gap = int(values.get("max_gap", fallback.max_gap))
+    if shape_mode == "polygon":
+        max_gap = PRODUCTION_POLYGON_MAX_GAP
     return ClassPostprocessSettings(
         shape_mode=shape_mode,
         keyframe_interval=keyframe_interval,

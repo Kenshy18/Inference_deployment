@@ -62,6 +62,30 @@ def _tracked_sqlite(path: Path) -> Path:
 
 
 class ClassPostprocessTests(unittest.TestCase):
+    def test_old_polygon_max_gap_is_migrated_to_production_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "old-policy.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default": {
+                            "shape_mode": "polygon",
+                            "keyframe_interval": 6,
+                            "max_gap": 0,
+                        },
+                        "classes": {"男性器": {"max_gap": 30}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            policy = load_class_postprocess_policy(
+                path,
+                fallback=ClassPostprocessSettings("polygon", 6, 15),
+            )
+            self.assertEqual(15, policy.default.max_gap)
+            self.assertEqual(15, policy.resolve("男性器").max_gap)
+
     def test_policy_resolves_each_field_by_class_then_default(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "policy.json"

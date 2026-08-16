@@ -24,7 +24,7 @@ for value in (POSTPROCESS, HERE):
 
 import run_four_arm_v3 as base  # noqa: E402
 from contracts.detections import iter_detection_records  # noqa: E402
-from nms import AdaptiveNms  # noqa: E402
+from nms.adaptive import AdaptiveNms  # noqa: E402
 from nms.component_aware import _raster_mask  # noqa: E402
 from nms.components import _geometry  # noqa: E402
 

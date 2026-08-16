@@ -18,8 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .adaptive import AdaptiveNms
-from .component_aware import _association_geometry
+from .mask_geometry import association_geometry
 from .mask_adaptive import AdaptiveMaskNms
 from .components import (
     _component_coverage,
@@ -174,6 +173,10 @@ class VirtualComponentNms:
     mask_tiny_contain_ratio_max: float = 5.0
 
     def _legacy(self) -> AdaptiveNms:
+        # Historical comparison support is loaded only by archived experiments;
+        # the Production path has no dependency on the bbox policy.
+        from .adaptive import AdaptiveNms
+
         return AdaptiveNms(
             iou_threshold=self.legacy_iou_threshold,
             small_iou_threshold=self.legacy_small_iou_threshold,
@@ -413,7 +416,7 @@ class VirtualComponentNms:
                 # can flip one greedy match and propagate to hundreds of DP
                 # frames.  Track with the immutable raw AI geometry while
                 # exposing only the cleaned public geometry downstream.
-                after = {**after, **_association_geometry(original)}
+                after = {**after, **association_geometry(original)}
             retained.append(after)
 
         diagnostics = VirtualComponentNmsDiagnostics(
@@ -445,3 +448,14 @@ class VirtualComponentMaskNms(VirtualComponentNms):
 
 
 DEFAULT_VIRTUAL_COMPONENT_MASK_NMS = VirtualComponentMaskNms()
+
+
+@dataclass(frozen=True)
+class ProductionVirtualComponentNms(VirtualComponentNms):
+    """Promoted exact-mask/virtual-component implementation."""
+
+    name: str = "production_virtual_component_mask_nms_v1"
+    comparison_policy: str = "adaptive_mask"
+
+
+DEFAULT_PRODUCTION_NMS = ProductionVirtualComponentNms()

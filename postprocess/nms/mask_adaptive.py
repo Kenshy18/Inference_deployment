@@ -1,22 +1,17 @@
-"""Mask-geometry equivalent of the validated Production adaptive NMS.
-
-The legacy policy remains untouched in :mod:`nms.adaptive`.  This opt-in
-policy preserves its deterministic score ordering and size-aware thresholds,
-but uses bboxes only as a broad phase.  Suppression is decided from exact
-native-pixel mask IoU or directed containment coverage.
-"""
+"""Size-aware exact-mask suppression policy used by Production NMS."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from .adaptive import _bbox_area, _mask_area
-from .component_aware import (
+from .mask_geometry import (
     MaskOverlapMetrics,
-    _overlap_slices,
-    _raster_mask,
+    bbox_area,
     exact_mask_overlap,
+    mask_area,
+    overlap_slices,
+    raster_mask,
 )
 
 
@@ -85,9 +80,9 @@ class AdaptiveMaskNms:
         geometry.  Using raster area for those bands can move a half-pixel
         contour across a band boundary and create an isolated NMS decision.
         """
-        bbox_area = _bbox_area(detection)
-        mask_area = _mask_area(detection)
-        return min(bbox_area, mask_area) if mask_area > 0.0 else bbox_area
+        box_area = bbox_area(detection)
+        polygon_area = mask_area(detection)
+        return min(box_area, polygon_area) if polygon_area > 0.0 else box_area
 
     def pair_threshold_area(
         self, first: dict[str, Any], second: dict[str, Any]
@@ -100,7 +95,7 @@ class AdaptiveMaskNms:
     def pair_metrics(
         self, first: dict[str, Any], second: dict[str, Any]
     ) -> MaskOverlapMetrics:
-        return exact_mask_overlap(_raster_mask(first), _raster_mask(second))
+        return exact_mask_overlap(raster_mask(first), raster_mask(second))
 
     def pair_suppression_reason(
         self, first: dict[str, Any], second: dict[str, Any]
@@ -113,7 +108,7 @@ class AdaptiveMaskNms:
     def apply(self, detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not detections:
             return []
-        rasters = [_raster_mask(detection) for detection in detections]
+        rasters = [raster_mask(detection) for detection in detections]
         threshold_areas = [
             self.detection_threshold_area(detection) for detection in detections
         ]
@@ -136,7 +131,7 @@ class AdaptiveMaskNms:
                 second = rasters[other]
                 if second is None or second.area <= 0:
                     continue
-                if _overlap_slices(first, second) is None:
+                if overlap_slices(first, second) is None:
                     continue
                 metrics = exact_mask_overlap(first, second)
                 if (

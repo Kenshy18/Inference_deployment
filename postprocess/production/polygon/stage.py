@@ -91,13 +91,6 @@ class ProductionPolygonStage:
         evaluator = str(self.options.get("interval_evaluation", "native_exact"))
         if evaluator != "native_exact":
             raise ValueError("Production supports only CPU native_exact evaluation")
-        if self.options.get("max_gap") is not None:
-            maximum_gap = int(self.options["max_gap"])
-            if maximum_gap != config.gapfill_max_gap:
-                raise ValueError(
-                    "Production polygon gap filling is fixed at "
-                    f"{config.gapfill_max_gap} frames; got {maximum_gap}"
-                )
         return config
 
     def run(self, context: StageContext) -> StageResult:
@@ -105,14 +98,9 @@ class ProductionPolygonStage:
         stage_dir = Path(context.stage_dir).expanduser().resolve()
         tracked = Path(context.artifacts["tracked_sqlite"]).resolve()
         input_labels = _labels(tracked)
-        unsupported_labels = tuple(
+        passthrough_labels = tuple(
             label for label in input_labels if label not in config.labels
         )
-        if unsupported_labels:
-            raise ValueError(
-                "Production polygon postprocess supports only "
-                f"{config.labels}; found unsupported labels {unsupported_labels}"
-            )
         width, height = _dimensions(
             tracked,
             fallback_width=int(self.options.get("frame_width", 1920)),
@@ -168,6 +156,7 @@ class ProductionPolygonStage:
             "profile": config.profile_id,
             "target_interval": config.target_interval,
             "gapfill_max_gap": config.gapfill_max_gap,
+            "requested_max_gap": self.options.get("max_gap"),
             "interval_evaluation": config.interval_evaluation,
             "vertex_policy": {
                 "method": "track_q99.9_pre_border_screen_occupancy_v1",
@@ -187,6 +176,7 @@ class ProductionPolygonStage:
             "preparation": preparation,
             "optimizer": optimizer,
             "materialization": materialization,
+            "passthrough_labels": list(passthrough_labels),
             "runtime_bridge": "production_internal_parity_frozen_adaptive_v3",
         }
         manifest = stage_dir / "production_polygon_manifest.json"

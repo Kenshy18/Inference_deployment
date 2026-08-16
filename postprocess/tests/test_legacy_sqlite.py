@@ -13,8 +13,8 @@ from artifacts.legacy_sqlite import (
     LEGACY_SCHEMA_NAME,
     export_legacy_sqlite,
 )
+from artifacts.export_legacy_cli import main as export_main
 from run_pipeline import build_parser, run_pipeline
-from tentative.export_legacy_sqlite import main as export_main
 from tests.helpers import write_raw_detector_sqlite, write_sample_sqlite
 
 
@@ -148,7 +148,7 @@ class LegacySqliteTests(unittest.TestCase):
             self.assertEqual({"masks", "tracks", "cuts"}, legacy_tables)
             self.assertEqual(current_masks, legacy_masks)
 
-    def test_tentative_cli_exports_and_reports_json(self) -> None:
+    def test_legacy_adapter_cli_exports_and_reports_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = write_sample_sqlite(root / "current.sqlite", frames=2)

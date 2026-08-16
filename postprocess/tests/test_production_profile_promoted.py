@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from common.registry import create_stage
-from contracts.mask_sqlite import MaskRow, write_mask_sqlite
+from contracts.mask_sqlite import MaskRow, read_mask_rows, write_mask_sqlite
 from production.config import PRODUCTION
 from production.polygon.materialize import materialize_outputs
 from production.polygon.runtime_bridge import build_runtime_config
@@ -194,6 +194,31 @@ class PromotedProductionProfileTests(unittest.TestCase):
             self.assertEqual(("20",), maximum)
             self.assertEqual(("[14, 16, 18, 20]",), allowed)
             self.assertEqual(("adaptive_by_track",), policy)
+
+    def test_unknown_labels_are_preserved_exactly_as_passthrough(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            unknown = MaskRow(
+                frame=4,
+                track_id="99",
+                polygons="[[[1,2],[7,2],[7,8],[1,8]]]",
+                label="target",
+                shape_type="polygon",
+            )
+            tracked = write_mask_sqlite(root / "tracked.sqlite", [unknown])
+            phase2 = root / "empty-phase2"
+            summary = materialize_outputs(
+                phase2,
+                tracked,
+                root / "predictions.sqlite",
+                root / "keyframes.sqlite",
+                config=PRODUCTION,
+                runtime_profile=build_runtime_config(PRODUCTION).polygon_profile_id,
+            )
+            self.assertEqual(1, summary["passthrough_rows"])
+            self.assertEqual(["target"], summary["passthrough_labels"])
+            self.assertEqual([unknown], read_mask_rows(root / "predictions.sqlite"))
+            self.assertEqual([unknown], read_mask_rows(root / "keyframes.sqlite"))
 
 
 if __name__ == "__main__":

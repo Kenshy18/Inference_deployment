@@ -14,6 +14,7 @@ from contracts.stages import StageContext, StageResult
 
 from .policy import (
     ClassPostprocessSettings,
+    PRODUCTION_POLYGON_MAX_GAP,
     load_class_postprocess_policy,
 )
 from .sqlite import (
@@ -101,11 +102,11 @@ class ClasswisePostprocessStage:
                 )
             ),
             max_gap=(
-                int(fallback_gap_value)
+                PRODUCTION_POLYGON_MAX_GAP
+                if fallback_shape == "polygon"
+                else int(fallback_gap_value)
                 if fallback_gap_value is not None
                 else 30
-                if fallback_shape == "ellipse"
-                else 15
             ),
         )
         policy = load_class_postprocess_policy(

@@ -369,7 +369,7 @@ cuts(frame INTEGER PRIMARY KEY)
 ```
 
 現行固有の`raw_tracked_masks`、`raw_tracks`、`cut_detection_metadata`は意図的に
-除外します。互換出力はtentativeな境界アダプターであり、内部処理および新規
+除外します。互換出力は境界アダプターであり、内部処理および新規
 連携では監査情報を保持する`predictions_sqlite`を使用します。
 
 ## 6. 新実装の条件

@@ -50,6 +50,21 @@ def main() -> int:
         "profile": args.profile,
         "runtime_python": str(runtime_python),
     }
+    pruned_manifest = Path("/opt/mask-pipeline/release/pruned-development-paths.txt")
+    if pruned_manifest.is_file():
+        expected_absent = [
+            root / line.strip()
+            for line in pruned_manifest.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        remaining = [str(path) for path in expected_absent if path.exists()]
+        report["runtime_only_tree"] = {
+            "manifest": str(pruned_manifest),
+            "pruned_paths": len(expected_absent),
+            "remaining": remaining,
+        }
+        if remaining:
+            failures.append(f"development-only paths remain: {remaining}")
     if not (root / ".git").exists():
         failures.append(f"not a Git worktree root: {root}")
     if not runtime_python.is_file() or not os.access(runtime_python, os.X_OK):

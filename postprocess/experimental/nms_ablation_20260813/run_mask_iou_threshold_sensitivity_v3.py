@@ -37,7 +37,7 @@ if str(POSTPROCESS_ROOT) not in sys.path:
     sys.path.insert(0, str(POSTPROCESS_ROOT))
 
 from contracts.detections import iter_detection_records  # noqa: E402
-from nms import (  # noqa: E402
+from nms.components import (  # noqa: E402
     fill_holes_and_remove_tiny_islands,
     remove_redundant_surviving_islands,
 )

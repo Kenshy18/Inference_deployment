@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib
 import pickle
+import subprocess
+import sys
 import unittest
 
 from approximation.ellipse import runtime_fst
@@ -17,12 +19,11 @@ RUNTIME_MODULES = (
     "preprocessing.raw_sqlite",
     "preprocessing.score_policy",
     "preprocessing.stages",
-    "nms.adaptive",
-    "nms.component_aware",
+    "nms.components",
     "nms.component_virtual",
+    "nms.mask_geometry",
     "nms.mask_adaptive",
     "nms.production",
-    "nms.stages",
     "cut_detection.detector",
     "cut_detection.stages",
     "tracking.association",
@@ -72,6 +73,15 @@ class EngineImportTests(unittest.TestCase):
         ):
             with self.subTest(worker=worker.__name__):
                 self.assertIs(pickle.loads(pickle.dumps(worker)), worker)
+
+    def test_production_nms_does_not_load_historical_policies(self) -> None:
+        script = (
+            "import sys; import nms.production; "
+            "forbidden={'nms.adaptive','nms.component_aware','nms.stages'}; "
+            "loaded=forbidden.intersection(sys.modules); "
+            "assert not loaded, sorted(loaded)"
+        )
+        subprocess.run([sys.executable, "-c", script], check=True)
 
 
 if __name__ == "__main__":

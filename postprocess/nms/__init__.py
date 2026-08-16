@@ -1,48 +1,26 @@
-"""Adaptive non-maximum suppression."""
+"""Production exact-mask non-maximum suppression.
 
-from .adaptive import AdaptiveNms, NmsPolicy, apply_nms, thresholds_for_area
-from .components import (
-    ComponentCleanupStats,
-    fill_holes_and_remove_tiny_islands,
-    remove_redundant_islands_candidate_v1,
-    remove_redundant_surviving_islands,
-    remove_small_foreground_components,
-)
-from .component_aware import (
-    ComponentAwareMaskNms,
-    ComponentAwareNmsDiagnostics,
-    MaskOverlapMetrics,
-    exact_mask_iou,
-    exact_mask_overlap,
-)
+Historical comparison policies live in explicitly imported modules and are
+not part of this package's public runtime surface.
+"""
+
 from .component_virtual import (
-    DEFAULT_VIRTUAL_COMPONENT_MASK_NMS,
-    DEFAULT_VIRTUAL_COMPONENT_NMS,
-    VirtualComponentMaskNms,
-    VirtualComponentNms,
+    DEFAULT_PRODUCTION_NMS,
+    ProductionVirtualComponentNms,
     VirtualComponentNmsDiagnostics,
 )
 from .mask_adaptive import AdaptiveMaskNms
+from .mask_geometry import MaskOverlapMetrics, exact_mask_iou, exact_mask_overlap
+from .production import PRODUCTION_OPTIONS, ProductionMaskNmsStage
 
-__all__ = [
-    "AdaptiveNms",
+__all__ = (
     "AdaptiveMaskNms",
-    "ComponentAwareMaskNms",
-    "ComponentAwareNmsDiagnostics",
-    "ComponentCleanupStats",
+    "DEFAULT_PRODUCTION_NMS",
     "MaskOverlapMetrics",
-    "NmsPolicy",
-    "apply_nms",
+    "PRODUCTION_OPTIONS",
+    "ProductionMaskNmsStage",
+    "ProductionVirtualComponentNms",
+    "VirtualComponentNmsDiagnostics",
     "exact_mask_iou",
     "exact_mask_overlap",
-    "fill_holes_and_remove_tiny_islands",
-    "remove_redundant_islands_candidate_v1",
-    "remove_redundant_surviving_islands",
-    "DEFAULT_VIRTUAL_COMPONENT_MASK_NMS",
-    "DEFAULT_VIRTUAL_COMPONENT_NMS",
-    "VirtualComponentMaskNms",
-    "VirtualComponentNms",
-    "VirtualComponentNmsDiagnostics",
-    "remove_small_foreground_components",
-    "thresholds_for_area",
-]
+)

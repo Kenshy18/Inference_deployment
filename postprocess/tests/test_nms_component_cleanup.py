@@ -11,12 +11,11 @@ from tracking.association import detection_features
 from tracking.builder import build_tracked_sqlite
 from tracking.records import prepare_detection
 
-from nms import (
-    AdaptiveMaskNms,
-    AdaptiveNms,
-    ComponentAwareMaskNms,
-    VirtualComponentMaskNms,
-    VirtualComponentNms,
+from nms.adaptive import AdaptiveNms
+from nms.component_aware import ComponentAwareMaskNms
+from nms.component_virtual import VirtualComponentMaskNms, VirtualComponentNms
+from nms.mask_adaptive import AdaptiveMaskNms
+from nms.components import (
     fill_holes_and_remove_tiny_islands,
     remove_redundant_islands_candidate_v1,
     remove_redundant_surviving_islands,

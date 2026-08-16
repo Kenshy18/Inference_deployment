@@ -47,16 +47,14 @@ from contracts.detections import (  # noqa: E402
     dumps_json_line,
     iter_detection_records,
 )
-from nms import (  # noqa: E402
-    AdaptiveNms,
-    ComponentAwareMaskNms,
-    fill_holes_and_remove_tiny_islands,
-)
+from nms.adaptive import AdaptiveNms  # noqa: E402
 from nms.component_aware import (  # noqa: E402
+    ComponentAwareMaskNms,
     _overlap_slices,
     _raster_mask,
     exact_mask_iou,
 )
+from nms.components import fill_holes_and_remove_tiny_islands  # noqa: E402
 from preprocessing.raw_sqlite import normalize_raw_detection_sqlite  # noqa: E402
 from preprocessing.score_policy import (  # noqa: E402
     ScorePolicy,

@@ -293,10 +293,10 @@ python run_pipeline.py \
 `tracking_assignments`、`raw_tracks`、`cut_detection_metadata`は含めません。現行
 `predictions_sqlite`が正本であり、互換版は追加成果物です。
 
-変換だけを行うtentative CLIもあります。
+変換だけを行う境界アダプターCLIもあります。
 
 ```bash
-python -m tentative.export_legacy_sqlite \
+python -m artifacts.export_legacy_cli \
   --input-sqlite output/postprocess/current.sqlite \
   --output-sqlite output/postprocess/legacy.sqlite
 ```

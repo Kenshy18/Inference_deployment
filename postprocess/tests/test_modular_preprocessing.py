@@ -11,7 +11,7 @@ from contracts.detections import (
     transform_detection_jsonl,
     write_cut_list,
 )
-from nms import AdaptiveNms
+from nms.adaptive import AdaptiveNms
 from preprocessing.score_policy import ScorePolicy, apply_score_policy_jsonl
 from tracking import build_tracked_sqlite
 

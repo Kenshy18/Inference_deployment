@@ -59,6 +59,41 @@ runuser -u kenshin -- "$runtime_root/bin/python3.10" \
   --runtime-python "$runtime_root/bin/python3.10" --full-hash \
   > "$report_root/preflight.json"
 
+# The build clone is also the runtime source tree.  Keep comparison notebooks,
+# test suites and retired policy modules out of the deployed distribution after
+# all image-construction tests have passed.  Production imports are guarded by
+# postprocess/tests/test_engine_imports.py before this point.
+pruned_paths=(
+  "$repository_root/postprocess/experimental"
+  "$repository_root/postprocess/tentative"
+  "$repository_root/postprocess/tests"
+  "$repository_root/orchestration/tests"
+  "$repository_root/overlay/native/tests"
+  "$repository_root/postprocess/nms/adaptive.py"
+  "$repository_root/postprocess/nms/component_aware.py"
+  "$repository_root/postprocess/nms/stages.py"
+)
+pruned_manifest="$report_root/pruned-development-paths.txt"
+: > "$pruned_manifest"
+for target in "${pruned_paths[@]}"; do
+  if [[ -d "$target" ]]; then
+    printf '%s\n' "${target#"$repository_root/"}" >> "$pruned_manifest"
+    find "$target" -mindepth 1 -depth -delete
+    rmdir "$target"
+  elif [[ -f "$target" ]]; then
+    printf '%s\n' "${target#"$repository_root/"}" >> "$pruned_manifest"
+    find "$target" -maxdepth 0 -type f -delete
+  fi
+done
+find "$repository_root" -type d \
+  \( -name __pycache__ -o -name .pytest_cache \) -prune -exec sh -c '
+    for directory do
+      find "$directory" -mindepth 1 -depth -delete
+      rmdir "$directory"
+    done
+  ' sh {} +
+chown kenshin:kenshin "$pruned_manifest"
+
 for forbidden in /home/kenshin/.codex; do
   [[ ! -e "$forbidden" ]] || {
     echo "forbidden developer state found in image: $forbidden" >&2

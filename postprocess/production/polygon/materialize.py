@@ -80,6 +80,15 @@ def materialize_outputs(
             "prediction_rows": len(label_dense),
             "keyframes": len(payload),
         }
+    passthrough_rows = [
+        row for row in read_mask_rows(tracked_sqlite) if row.label not in config.labels
+    ]
+    # Production's learned/optimized candidate palette is deliberately frozen
+    # to the three genital labels.  Additional detector labels must not abort
+    # the whole job or disappear: preserve their tracked polygons exactly and
+    # expose each observed row as an editable keyframe.
+    dense_rows.extend(passthrough_rows)
+    key_rows.extend(passthrough_rows)
     dense_rows.sort(key=lambda row: (int(row.frame), str(row.track_id)))
     key_rows.sort(key=lambda row: (int(row.frame), str(row.track_id)))
     write_mask_sqlite(predictions_sqlite, dense_rows, reference_sqlite=tracked_sqlite)
@@ -131,6 +140,8 @@ def materialize_outputs(
         "prediction_rows": len(dense_rows),
         "keyframes": len(key_rows),
         "classes": class_counts,
+        "passthrough_rows": len(passthrough_rows),
+        "passthrough_labels": sorted({row.label for row in passthrough_rows}),
     }
 
 
