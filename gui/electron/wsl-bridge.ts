@@ -479,11 +479,14 @@ export async function validateWslJobPaths(
     "import os, pathlib, sys",
     "source = pathlib.Path(sys.argv[1])",
     "target = pathlib.Path(sys.argv[2])",
-    "if not source.is_file() or not os.access(source, os.R_OK): raise SystemExit('INPUT_NOT_READABLE:' + str(source))",
+    "if not source.is_file() or not os.access(source, os.R_OK):",
+    "    raise SystemExit('INPUT_NOT_READABLE:' + str(source))",
     "parent = target.parent",
-    "while not parent.exists() and parent != parent.parent: parent = parent.parent",
-    "if not parent.is_dir() or not os.access(parent, os.W_OK): raise SystemExit('OUTPUT_NOT_WRITABLE:' + str(parent))",
-  ].join("; ");
+    "while not parent.exists() and parent != parent.parent:",
+    "    parent = parent.parent",
+    "if not parent.is_dir() or not os.access(parent, os.W_OK):",
+    "    raise SystemExit('OUTPUT_NOT_WRITABLE:' + str(parent))",
+  ].join("\n");
   try {
     await commandRunner(settings, [runtimePython, "-c", script, input, output]);
   } catch (error) {

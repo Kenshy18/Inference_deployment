@@ -7,6 +7,7 @@ import type { AppSettings } from "../shared/types";
 import {
   isWslPathInside,
   ensureWslDriveMounts,
+  validateWslJobPaths,
   WSL_RUNNER_SOURCE,
   windowsToWslPath,
   windowsDriveLetters,
@@ -94,6 +95,39 @@ describe("Windows/WSL bridge", () => {
       ),
     ).rejects.toThrow("ドライブ文字へ割り当て");
   });
+
+  it.skipIf(process.platform === "win32")(
+    "executes the generated WSL path-validation program",
+    async () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "mask-studio-wsl-path-validation-"),
+      );
+      const input = path.join(root, "input.mp4");
+      const output = path.join(root, "new", "nested", "output");
+      fs.writeFileSync(input, "fixture\n", "utf8");
+      try {
+        await expect(
+          validateWslJobPaths(
+            settings,
+            input,
+            output,
+            "win32",
+            async (_settings, args) => {
+              const result = spawnSync(args[0], args.slice(1), {
+                encoding: "utf8",
+              });
+              if (result.status !== 0) {
+                throw new Error(result.stderr || result.stdout);
+              }
+              return { stdout: result.stdout, stderr: result.stderr };
+            },
+          ),
+        ).resolves.toBeUndefined();
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("maps WSL paths back to Windows without a subprocess", () => {
     expect(wslToWindowsPath("/mnt/d/jobs/out.mp4", "Ubuntu-24.04")).toBe(
