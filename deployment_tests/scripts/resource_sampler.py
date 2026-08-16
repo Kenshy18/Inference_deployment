@@ -14,11 +14,32 @@ PIPELINE_MARKERS = (
     "-m orchestration",
     "InstanceSegmentation/inference/",
     "postprocess/run_pipeline.py",
-    "postprocess/vendor/original_polygon/",
+    "production.polygon.runtime",
+    "postprocess/production/polygon/runtime/",
     "-m overlay_renderer",
     "overlay/native/build/overlay_native",
     "wsl-runner.py",
 )
+
+
+def select_pipeline_processes(
+    processes: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Return marker-matched roots and their complete descendant closure."""
+    included = {
+        int(process["pid"])
+        for process in processes
+        if any(marker in str(process["command"]) for marker in PIPELINE_MARKERS)
+    }
+    changed = True
+    while changed:
+        changed = False
+        for process in processes:
+            pid = int(process["pid"])
+            if pid not in included and int(process["ppid"]) in included:
+                included.add(pid)
+                changed = True
+    return [process for process in processes if int(process["pid"]) in included]
 
 
 def process_snapshot() -> list[dict[str, object]]:
@@ -28,17 +49,36 @@ def process_snapshot() -> list[dict[str, object]]:
         capture_output=True,
         text=True,
     )
-    rows = []
+    processes: list[dict[str, object]] = []
     for line in result.stdout.splitlines():
         values = line.strip().split(None, 5)
-        if len(values) != 6 or not any(marker in values[5] for marker in PIPELINE_MARKERS):
+        if len(values) != 6:
             continue
-        pid = int(values[0])
+        processes.append(
+            {
+                "pid": int(values[0]),
+                "ppid": int(values[1]),
+                "rss_kib": int(values[2]),
+                "vsz_kib": int(values[3]),
+                "elapsed_seconds": int(values[4]),
+                "command": values[5],
+            }
+        )
+
+    # Select known pipeline roots, then every descendant.  Filtering each
+    # command independently missed helper processes whose argv contains only a
+    # private runtime filename.  Descendant closure also covers future native
+    # workers without adding another fragile string marker.
+    rows = []
+    for process in select_pipeline_processes(processes):
+        pid = int(process["pid"])
         pss_kib = None
         try:
-            for smaps_line in Path(f"/proc/{pid}/smaps_rollup").read_text(
-                encoding="ascii"
-            ).splitlines():
+            for smaps_line in (
+                Path(f"/proc/{pid}/smaps_rollup")
+                .read_text(encoding="ascii")
+                .splitlines()
+            ):
                 if smaps_line.startswith("Pss:"):
                     pss_kib = int(smaps_line.split()[1])
                     break
@@ -50,14 +90,9 @@ def process_snapshot() -> list[dict[str, object]]:
             fd_count = None
         rows.append(
             {
-                "pid": pid,
-                "ppid": int(values[1]),
-                "rss_kib": int(values[2]),
+                **process,
                 "pss_kib": pss_kib,
                 "fd_count": fd_count,
-                "vsz_kib": int(values[3]),
-                "elapsed_seconds": int(values[4]),
-                "command": values[5],
             }
         )
     return rows
@@ -104,7 +139,10 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with args.output.open("a", encoding="utf-8", buffering=1) as handle:
-        while not args.stop_file.exists() and time.monotonic() - started < args.max_seconds:
+        while (
+            not args.stop_file.exists()
+            and time.monotonic() - started < args.max_seconds
+        ):
             processes = process_snapshot()
             memory = memory_snapshot()
             row = {
