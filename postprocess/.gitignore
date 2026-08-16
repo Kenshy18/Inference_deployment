@@ -24,7 +24,5 @@ output/*
 *.pth
 *.ckpt
 
-# Model configuration and implementation remain tracked. Weight files are
-# ignored by the repository-level .gitignore.
-!models/k2_v5/*.json
-!models/k2_v5/*.py
+# Model configuration remains tracked. Weight files are supplied by the
+# deployment asset manifest and ignored by the repository-level rules.

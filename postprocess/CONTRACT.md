@@ -174,7 +174,7 @@ segmentation_points(polygon_id, point_index, x, y)
 | `track_id` | TEXT | 空でない追跡ID |
 | `polygons` | TEXT | JSON list |
 | `label` | TEXT | 任意のクラス名 |
-| `shape_type` | TEXT | `polygon`または`ellipse`等 |
+| `shape_type` | TEXT | 性器は`polygon`。顔派生マスクでは`ellipse`等も利用可能 |
 
 `tracks`テーブルは保持可能ですが、最終検証の必須条件ではありません。
 共通の読み書きには`contracts.read_mask_rows`と
@@ -187,7 +187,7 @@ segmentation_points(polygon_id, point_index, x, y)
 class_postprocess_policies(
   label TEXT PRIMARY KEY,
   policy_source TEXT,          -- class / default
-  shape_mode TEXT,             -- polygon / ellipse
+  shape_mode TEXT,             -- Productionでは常にpolygon
   keyframe_interval INTEGER,
   max_gap INTEGER
 )
@@ -294,13 +294,13 @@ result_capabilities(
 - `ellipse`: `keyframe_ellipses`
 - `rectangle`: `keyframe_rectangles`
 
-性器楕円は内部の`final_keyframes.json`から直接取り込み、96点へ展開した
-`masks.polygons`から再fitしません。角度は顔と性器の両方でradianへ統一します。
-ポリゴンは内部`keyframes.sqlite`の選択頂点を保持します。クラス別pipelineでも
+顔の楕円・長方形はscalar geometryを直接保持し、96点へ展開した
+`masks.polygons`から再fitしません。角度はradianへ統一します。性器ポリゴンは
+内部`keyframes.sqlite`の選択頂点を保持します。クラス別pipelineでも
 各groupの内部manifestをたどり、同じ公開表へ統合します。
 
 `mask_track_segments`はscene、連続frame、shape、component topologyごとに
-分割され、補間方式を`interpolation_method`へ保存します。楕円K1/K2の各shapeは
+分割され、補間方式を`interpolation_method`へ保存します。複数componentは
 `slot_index`で識別します。展開済み`masks`は公開SQLiteへ保持せず、overlay実行時
 だけ破棄可能な一時cacheとして必要範囲を復元します。
 

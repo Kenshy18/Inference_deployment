@@ -41,9 +41,7 @@ POSTPROCESS_CLI = REPOSITORY_ROOT / "postprocess" / "run_pipeline.py"
 PRECOMPUTE_CUTS_CLI = REPOSITORY_ROOT / "postprocess" / "precompute_cuts.py"
 PACKAGE_RESULT_CLI = REPOSITORY_ROOT / "postprocess" / "package_result.py"
 OVERLAY_ROOT = REPOSITORY_ROOT / "overlay"
-BUNDLED_FFMPEG = (
-    OVERLAY_ROOT / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
-)
+BUNDLED_FFMPEG = OVERLAY_ROOT / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
 INTERLACED_FIELD_ORDERS = {"tt", "bb", "tb", "bt"}
 
 
@@ -228,10 +226,10 @@ class OrchestrationRunner:
         stage.  Results are rescaled back to the source geometry at publication.
         """
 
-        return (
-            geometry.width * 9 == geometry.height * 16
-            and (geometry.width, geometry.height) != (1920, 1080)
-        )
+        return geometry.width * 9 == geometry.height * 16 and (
+            geometry.width,
+            geometry.height,
+        ) != (1920, 1080)
 
     def _prepare_analysis_video(self) -> None:
         """Use one 1080p analysis/postprocess space for non-1080p 16:9 video."""
@@ -247,9 +245,7 @@ class OrchestrationRunner:
                 and self.original_geometry.height > 1080
             )
         )
-        if (
-            not needs_proxy
-        ):
+        if not needs_proxy:
             self.analysis_video = self.processing_video
             return
         ffmpeg, _ffprobe = self._ffmpeg_tools()
@@ -308,10 +304,7 @@ class OrchestrationRunner:
         # Downscale large sources before inference as before.  Small 16:9
         # sources keep their original pixels for inference; only the emitted
         # SQLite coordinates are enlarged for postprocessing.
-        if (
-            self.original_geometry.width > 1920
-            and self.original_geometry.height > 1080
-        ):
+        if self.original_geometry.width > 1920 and self.original_geometry.height > 1080:
             self.inference_video = self.proxy_video_path
         self._publish_artifacts(
             {"analysis_proxy_video": self.proxy_video_path},
@@ -452,10 +445,6 @@ class OrchestrationRunner:
             str(output),
             "--orchestration-config-json",
             str(self.resolved_config_path),
-            "--shape-mode",
-            settings.shape_mode,
-            "--device",
-            settings.device,
             "--cut-detect" if settings.cut_detect else "--no-cut-detect",
         ]
         optional = (
@@ -472,27 +461,12 @@ class OrchestrationRunner:
                 settings.remove_short_tracks_max_frames,
             ),
             ("--keyframe-interval", settings.keyframe_interval),
-            ("--max-gap", settings.max_gap),
-            ("--model-root", settings.model_root),
-            ("--k2-run-dir", settings.k2_run_dir),
-            ("--k2-batch-size", settings.k2_batch_size),
-            ("--k2-prep-workers", settings.k2_prep_workers),
-            ("--k2-precision", settings.k2_precision),
-            ("--k2-forward-mode", settings.k2_forward_mode),
-            ("--k2-cudnn-benchmark", settings.k2_cudnn_benchmark),
-            ("--k2-tf32", settings.k2_tf32),
         )
         for flag, value in optional:
             if value is not None:
                 command.extend([flag, str(value)])
         if settings.export_legacy_sqlite:
             command.append("--export-legacy-sqlite")
-        if settings.k2_profile_stages is not None:
-            command.append(
-                "--k2-profile-stages"
-                if settings.k2_profile_stages
-                else "--no-k2-profile-stages"
-            )
         if precomputed_cuts is not None:
             command.extend(["--precomputed-cuts-json", str(precomputed_cuts)])
         if settings.face_mask_target != "none":
@@ -808,8 +782,7 @@ class OrchestrationRunner:
             )
         if self.config.overlay.enabled:
             overlay_outputs = [
-                preset.replace("-", "_")
-                for preset in self.config.overlay.presets
+                preset.replace("-", "_") for preset in self.config.overlay.presets
             ]
             overlay_outputs.extend(
                 mode
@@ -950,9 +923,7 @@ class OrchestrationRunner:
         )
         if completed.returncode != 0:
             detail = completed.stderr.strip() or "unknown FFprobe error"
-            raise OrchestrationError(
-                f"could not inspect input field order: {detail}"
-            )
+            raise OrchestrationError(f"could not inspect input field order: {detail}")
         values = [line.strip().lower() for line in completed.stdout.splitlines()]
         return values[0] if values and values[0] else "unknown"
 
@@ -1367,9 +1338,7 @@ class OrchestrationRunner:
                 ),
             )
             published = {"result_sqlite": output}
-            publication_validation: dict[str, object] = {
-                "result_sqlite": validation
-            }
+            publication_validation: dict[str, object] = {"result_sqlite": validation}
             if proxy_run:
                 proxy_validation = validate_result_sqlite(
                     self.proxy_result_path,
@@ -1871,10 +1840,7 @@ class OrchestrationRunner:
             with process.stdout:
                 for line in process.stdout:
                     print(f"[{stage}] {line}", end="", flush=True)
-                    if (
-                        "[phase-progress]" not in line
-                        and "[live-preview]" not in line
-                    ):
+                    if "[phase-progress]" not in line and "[live-preview]" not in line:
                         log.write(line)
             return_code = process.wait()
         record["elapsed_seconds"] = time.perf_counter() - started

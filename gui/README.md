@@ -69,13 +69,13 @@ DaVinci Resolve / Premiere Proに倣った固定4ペインのNLE型レイアウ�
   `動画名_2`、`動画名_3`へ自動退避し、明示的なresume時だけ同じ場所を使う
 - 新規推論または既存unified inference SQLiteの再利用
 - 推論モード、全モデル/engine、顔モデル、device、warmup、限定並行推論
-- クラス別polygon/ellipse・keyframe・補完のGUI編集、K2 GPU設定、カット検出
+- クラス別の努力目標キーフレーム間隔、Production polygon、カット検出
 - 顔privacy maskと軽量tracking、短命track除去、補完
 - 6表示preset、CPU/NVENC/分割高速overlay、品質・worker・描画設定
 - orchestration設定のdry-run
 - ジョブ実行、キャンセル、stage timeline、throughput scope、リアルタイムログ
 - MonitorのLiveタブ: 推論結果に加え、NMS、カット、追跡・短命削除、
-  polygon/ellipse近似、keyframe、補完、顔tracking/privacy maskを960×540で表示
+  Production polygon、keyframe、補完、顔tracking/privacy maskを960×540で表示
 - `logs/run_manifest.json`から成果物を読み、出力フォルダを開く
 - Linux native PythonとWindows WSL2の切り替え
 

@@ -13,8 +13,7 @@
   },
   "postprocess": {
     "enabled": false,
-    "final_sqlite": "../output/existing_sample_cpu_20260725/02_postprocess/07_mask_gap_fill/predictions.sqlite",
-    "device": "cpu"
+    "final_sqlite": "../output/existing_sample_cpu_20260725/02_postprocess/07_mask_gap_fill/predictions.sqlite"
   },
   "overlay": {
     "enabled": true,

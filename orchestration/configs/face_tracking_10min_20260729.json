@@ -29,8 +29,7 @@
     "face_tracking_low_score_threshold": 0.05,
     "face_short_track_max_hits": 2,
     "face_short_track_keep_score": 0.9,
-    "face_interpolation_max_gap": 3,
-    "device": "cpu"
+    "face_interpolation_max_gap": 3
   },
   "overlay": {
     "enabled": true,

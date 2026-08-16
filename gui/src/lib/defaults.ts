@@ -7,7 +7,7 @@ import type {
 import { PRODUCTION_POSTPROCESS } from "../../shared/production-contract";
 import { normalizeBackend, normalizeFaceBackend } from "./models";
 
-export const DRAFT_STORAGE_VERSION = "5";
+export const DRAFT_STORAGE_VERSION = "6";
 
 export const defaultDraft: PipelineDraft = {
   inputVideo: "",
@@ -38,7 +38,6 @@ export const defaultDraft: PipelineDraft = {
     enabled: true,
     trackedSqlite: "",
     finalSqlite: "",
-    shapeMode: "polygon",
     pipelineConfig: "",
     classPolicyJson: "",
     classPostprocessPolicySource: "editor",
@@ -46,21 +45,15 @@ export const defaultDraft: PipelineDraft = {
     classPostprocessRules: [
       {
         className: "男性器",
-        shapeMode: PRODUCTION_POSTPROCESS.shapeMode,
         keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
-        maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
       },
       {
         className: "女性器",
-        shapeMode: PRODUCTION_POSTPROCESS.shapeMode,
         keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
-        maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
       },
       {
         className: "結合部分",
-        shapeMode: PRODUCTION_POSTPROCESS.shapeMode,
         keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
-        maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
       },
     ],
     scoreMin: 0.6,
@@ -69,17 +62,6 @@ export const defaultDraft: PipelineDraft = {
     precomputeCutsDuringInference: true,
     removeShortTracksMaxFrames: 10,
     keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
-    maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
-    modelRoot: "",
-    k2RunDir: "",
-    k2BatchSize: 128,
-    k2PrepWorkers: 4,
-    k2Precision: null,
-    k2ForwardMode: "states_only",
-    k2ProfileStages: false,
-    k2CudnnBenchmark: "on",
-    k2Tf32: null,
-    device: "cuda:0",
     exportLegacySqlite: false,
     faceMaskTarget: "eyes",
     eyeMaskShape: "rectangle",
@@ -214,16 +196,9 @@ export const browserSettings: AppSettings = {
   wslDistro: "Ubuntu-24.04",
 };
 
-const LEGACY_DEFAULT_RULES = new Map<
-  string,
-  { shapeMode: "polygon" | "ellipse"; keyframeInterval: number; maxGap: number }
->([
-  ["男性器", { shapeMode: "polygon", keyframeInterval: 2, maxGap: 15 }],
-  ["女性器", { shapeMode: "ellipse", keyframeInterval: 2, maxGap: 15 }],
-  ["結合部分", { shapeMode: "ellipse", keyframeInterval: 2, maxGap: 15 }],
-]);
+const LEGACY_DEFAULT_CLASSES = new Set(["男性器", "女性器", "結合部分"]);
 
-/** Migrate only the exact former defaults; intentional user rules survive. */
+/** Migrate saved drafts to the only deployed genital postprocess geometry. */
 export function migrateProductionPostprocessDefaults(
   savedVersion: string | null,
   value: PostprocessDraft,
@@ -231,33 +206,21 @@ export function migrateProductionPostprocessDefaults(
   if (savedVersion === DRAFT_STORAGE_VERSION) {
     return value;
   }
-  const migrated = {
+  const migrated: PostprocessDraft = {
     ...value,
     classPostprocessRules: value.classPostprocessRules.map((rule) => {
-      const legacy = LEGACY_DEFAULT_RULES.get(rule.className);
-      if (
-        legacy &&
-        rule.shapeMode === legacy.shapeMode &&
-        rule.keyframeInterval === legacy.keyframeInterval &&
-        rule.maxGap === legacy.maxGap
-      ) {
-        return {
-          ...rule,
-          shapeMode: "polygon" as const,
-          keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
-          maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
-        };
-      }
-      return rule;
+      return {
+        className: rule.className,
+        keyframeInterval:
+          LEGACY_DEFAULT_CLASSES.has(rule.className) &&
+          rule.keyframeInterval === 2
+            ? PRODUCTION_POSTPROCESS.defaultKeyframeInterval
+            : rule.keyframeInterval,
+      };
     }),
   };
-  if (
-    value.shapeMode === "polygon" &&
-    value.keyframeInterval === 2 &&
-    value.maxGap === 0
-  ) {
+  if (value.keyframeInterval === 2) {
     migrated.keyframeInterval = PRODUCTION_POSTPROCESS.defaultKeyframeInterval;
-    migrated.maxGap = PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames;
   }
   return migrated;
 }

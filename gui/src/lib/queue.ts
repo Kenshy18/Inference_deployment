@@ -83,7 +83,7 @@ export function settingsSummary(draft: PipelineDraft): string {
     parts.push(models.join(" + "));
   }
   if (inference.mode !== "face" && postprocess.enabled) {
-    parts.push(postprocess.shapeMode === "ellipse" ? "楕円" : "ポリゴン");
+    parts.push("ポリゴン");
   }
   parts.push(
     overlay.enabled ? `overlay ${overlay.executionMode}` : "overlayなし",

@@ -107,8 +107,6 @@ class LegacySqliteTests(unittest.TestCase):
                     str(source),
                     "--output-dir",
                     str(root / "output"),
-                    "--shape-mode",
-                    "polygon",
                     "--no-cut-detect",
                     "--remove-short-tracks-max-frames",
                     "0",

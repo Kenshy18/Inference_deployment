@@ -192,17 +192,13 @@ class ConfigTests(unittest.TestCase):
             policy.write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "default": {
-                            "shape_mode": "polygon",
                             "keyframe_interval": 3,
-                            "max_gap": 0,
                         },
                         "classes": {
                             "target": {
-                                "shape_mode": "ellipse",
                                 "keyframe_interval": 2,
-                                "max_gap": 12,
                             }
                         },
                     }
@@ -223,11 +219,8 @@ class ConfigTests(unittest.TestCase):
                         },
                         "postprocess": {
                             "enabled": True,
-                            "shape_mode": "polygon",
                             "class_postprocess_policy_json": str(policy),
                             "keyframe_interval": 4,
-                            "max_gap": 9,
-                            "device": "cuda:0",
                         },
                         "overlay": {"enabled": False},
                     }
@@ -243,15 +236,13 @@ class ConfigTests(unittest.TestCase):
                 policy.resolve(),
                 config.postprocess.class_postprocess_policy_json,
             )
-            self.assertTrue(config.postprocess.uses_gpu)
+            self.assertFalse(config.postprocess.uses_gpu)
             self.assertEqual(
                 str(policy.resolve()),
                 command[command.index("--class-postprocess-policy-json") + 1],
             )
-            self.assertEqual(
-                "9",
-                command[command.index("--max-gap") + 1],
-            )
+            self.assertNotIn("--max-gap", command)
+            self.assertNotIn("--device", command)
 
     def test_invalid_class_postprocess_policy_is_rejected_early(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -261,10 +252,9 @@ class ConfigTests(unittest.TestCase):
             policy.write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "classes": {
                             "target": {
-                                "shape_mode": "spline",
                                 "keyframe_interval": 0,
                             }
                         },
@@ -295,7 +285,7 @@ class ConfigTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 OrchestrationConfigError,
-                "shape_mode must be polygon or ellipse",
+                "keyframe_interval must be at least 1",
             ):
                 OrchestrationConfig.load(config_path)
 
@@ -317,7 +307,6 @@ class ConfigTests(unittest.TestCase):
                         },
                         "postprocess": {
                             "enabled": True,
-                            "device": "cpu",
                             "cut_detect": True,
                             "cut_method": "high_precision",
                             "precompute_cuts_during_inference": True,
@@ -368,7 +357,6 @@ class ConfigTests(unittest.TestCase):
                         },
                         "postprocess": {
                             "enabled": True,
-                            "device": "cpu",
                             "cut_detect": True,
                             "cut_method": "high_precision",
                             "precompute_cuts_during_inference": True,
@@ -484,7 +472,6 @@ class ConfigTests(unittest.TestCase):
                         },
                         "postprocess": {
                             "enabled": True,
-                            "device": "cpu",
                             "face_mask_target": "eyes",
                             "eye_mask_shape": "rectangle",
                             "minimum_eye_confidence": 0.4,
@@ -549,7 +536,7 @@ class ConfigTests(unittest.TestCase):
             ):
                 OrchestrationConfig.load(config_path)
 
-    def test_ellipse_postprocess_accepts_cuda_and_is_planned_on_gpu(self) -> None:
+    def test_retired_ellipse_postprocess_options_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             video = create_video(root / "input.avi")
@@ -577,19 +564,13 @@ class ConfigTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            config = OrchestrationConfig.load(config_path)
-            self.assertTrue(config.postprocess.uses_gpu)
-            plan = OrchestrationRunner(config, dry_run=True).plan()
-            postprocess = next(
-                stage for stage in plan["stages"] if stage["stage"] == "postprocess"
-            )
-            self.assertTrue(postprocess["uses_gpu"])
-            self.assertEqual(
-                "cuda:0",
-                postprocess["command"][postprocess["command"].index("--device") + 1],
-            )
+            with self.assertRaisesRegex(
+                OrchestrationConfigError,
+                "unknown option",
+            ):
+                OrchestrationConfig.load(config_path)
 
-    def test_invalid_postprocess_device_is_rejected(self) -> None:
+    def test_retired_postprocess_device_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             video = create_video(root / "input.avi")
@@ -618,7 +599,7 @@ class ConfigTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 OrchestrationConfigError,
-                "must be cpu, auto, cuda",
+                "unknown option",
             ):
                 OrchestrationConfig.load(config_path)
 
@@ -727,9 +708,7 @@ class ConfigTests(unittest.TestCase):
                             execution_mode="cpu",
                         )
                         self.assertEqual(
-                            cpu_fallback[
-                                cpu_fallback.index("--execution-mode") + 1
-                            ],
+                            cpu_fallback[cpu_fallback.index("--execution-mode") + 1],
                             "cpu",
                         )
                         self.assertIn("--h264-crf", cpu_fallback)
@@ -757,7 +736,7 @@ class ConfigTests(unittest.TestCase):
                             "face_backend": "tensorrt-fast",
                             "device": "cuda:0",
                         },
-                        "postprocess": {"enabled": True, "device": "cpu"},
+                        "postprocess": {"enabled": True},
                         "overlay": {
                             "enabled": True,
                             "faces": True,
@@ -804,7 +783,6 @@ class ConfigTests(unittest.TestCase):
                         },
                         "postprocess": {
                             "enabled": True,
-                            "device": "cpu",
                             "extra_args": ["--device", "cuda"],
                         },
                     }
@@ -817,7 +795,7 @@ class ConfigTests(unittest.TestCase):
             ):
                 OrchestrationConfig.load(config_path)
 
-    def test_typed_k2_and_ffmpeg_options_are_forwarded(self) -> None:
+    def test_ffmpeg_option_is_forwarded_without_retired_k2_options(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             video = create_video(root / "input.avi")
@@ -839,15 +817,6 @@ class ConfigTests(unittest.TestCase):
                         },
                         "postprocess": {
                             "enabled": True,
-                            "shape_mode": "ellipse",
-                            "device": "cuda:0",
-                            "k2_batch_size": 128,
-                            "k2_prep_workers": 4,
-                            "k2_precision": "fp16",
-                            "k2_forward_mode": "states_only",
-                            "k2_profile_stages": False,
-                            "k2_cudnn_benchmark": "on",
-                            "k2_tf32": "off",
                         },
                         "overlay": {
                             "enabled": True,
@@ -863,17 +832,8 @@ class ConfigTests(unittest.TestCase):
             )
             config = OrchestrationConfig.load(config_path)
             postprocess = OrchestrationRunner(config).postprocess_command(sqlite)
-            expected = {
-                "--k2-batch-size": "128",
-                "--k2-prep-workers": "4",
-                "--k2-precision": "fp16",
-                "--k2-forward-mode": "states_only",
-                "--k2-cudnn-benchmark": "on",
-                "--k2-tf32": "off",
-            }
-            for flag, value in expected.items():
-                self.assertEqual(postprocess[postprocess.index(flag) + 1], value)
-            self.assertIn("--no-k2-profile-stages", postprocess)
+            self.assertFalse(any("k2" in token for token in postprocess))
+            self.assertNotIn("--device", postprocess)
 
             overlay = OrchestrationRunner(config).overlay_command(
                 mode="raw",
@@ -906,7 +866,6 @@ class ConfigTests(unittest.TestCase):
                         "postprocess": {
                             "enabled": True,
                             "export_legacy_sqlite": True,
-                            "device": "cpu",
                         },
                         "overlay": {"enabled": False},
                     }

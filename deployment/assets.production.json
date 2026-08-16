@@ -84,14 +84,6 @@
       "include": ["engines", "plugins"]
     },
     {
-      "id": "postprocess-k2",
-      "profiles": ["core", "all"],
-      "stage": "source",
-      "path": "postprocess/models/k2_v5/best_exact.pt",
-      "size": 130497145,
-      "sha256": "ef3aab286091866447da16aafc9f7cbb62448e4dfe2142c35e794e24b87fb2f0"
-    },
-    {
       "id": "postprocess-polygon",
       "profiles": ["core", "all"],
       "stage": "source",

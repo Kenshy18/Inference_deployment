@@ -30,7 +30,8 @@ describe("orchestration bridge", () => {
     expect(config.inference.segmentation_model).toBe("dinov3_codino");
     expect(config.inference.face_model).toBe("face_dino_v2");
     expect(config.inference.face_backend).toBe("tensorrt-fast");
-    expect(config.postprocess.k2_batch_size).toBe(128);
+    expect(config.postprocess.k2_batch_size).toBeUndefined();
+    expect(config.postprocess.shape_mode).toBeUndefined();
     expect(config.postprocess.face_tracking_max_gap_frames).toBe(5);
     expect(config.postprocess.face_detection_score_threshold).toBe(0.55);
     expect(config.postprocess.head_detection_score_threshold).toBe(0.55);
@@ -134,7 +135,6 @@ describe("orchestration bridge", () => {
           ...draft.postprocess,
           classPostprocessPolicySource: "file",
           classPostprocessPolicyJson: "C:\\jobs\\classes.json",
-          modelRoot: "C:\\models\\k2",
         },
         overlay: {
           ...draft.overlay,
@@ -149,7 +149,7 @@ describe("orchestration bridge", () => {
     expect(config.postprocess.class_postprocess_policy_json).toBe(
       "/mnt/c/jobs/classes.json",
     );
-    expect(config.postprocess.model_root).toBe("/mnt/c/models/k2");
+    expect(config.postprocess.model_root).toBeUndefined();
     expect(config.overlay.ffmpeg_bin).toBe("/mnt/c/tools/ffmpeg.exe");
   });
 
@@ -158,43 +158,31 @@ describe("orchestration bridge", () => {
       ...draft,
       postprocess: {
         ...draft.postprocess,
-        shapeMode: "polygon",
         keyframeInterval: 3,
-        maxGap: 0,
         classPostprocessPolicySource: "editor",
         classPostprocessRules: [
           {
             className: "男性器",
-            shapeMode: "ellipse",
             keyframeInterval: 2,
-            maxGap: 30,
           },
           {
             className: "女性器",
-            shapeMode: "polygon",
             keyframeInterval: 3,
-            maxGap: 12,
           },
         ],
       },
     });
     expect(policy).toEqual({
-      schema_version: 1,
+      schema_version: 2,
       default: {
-        shape_mode: "polygon",
         keyframe_interval: 3,
-        max_gap: 15,
       },
       classes: {
         男性器: {
-          shape_mode: "ellipse",
           keyframe_interval: 2,
-          max_gap: 30,
         },
         女性器: {
-          shape_mode: "polygon",
           keyframe_interval: 3,
-          max_gap: 15,
         },
       },
     });
@@ -206,20 +194,15 @@ describe("orchestration bridge", () => {
         ...draft,
         postprocess: {
           ...draft.postprocess,
-          maxGap: 0,
           classPostprocessPolicySource: "editor",
           classPostprocessRules: [
             {
               className: "男性器",
-              shapeMode: "ellipse",
               keyframeInterval: 2,
-              maxGap: 30,
             },
             {
               className: " 男性器 ",
-              shapeMode: "polygon",
               keyframeInterval: 3,
-              maxGap: 0,
             },
           ],
         },
@@ -240,6 +223,6 @@ describe("orchestration bridge", () => {
         },
         settings,
       ),
-    ).toThrow("形状設定JSON");
+    ).toThrow("クラス別JSON");
   });
 });

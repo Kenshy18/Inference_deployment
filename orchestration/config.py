@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -104,8 +103,8 @@ def _validate_class_postprocess_policy(path: Path) -> None:
         schema_version = int(raw.get("schema_version", 1))
     except (TypeError, ValueError) as exc:
         raise OrchestrationConfigError(f"{field}.schema_version must be 1") from exc
-    if schema_version != 1:
-        raise OrchestrationConfigError(f"{field}.schema_version must be 1")
+    if schema_version not in {1, 2}:
+        raise OrchestrationConfigError(f"{field}.schema_version must be 1 or 2")
     classes = raw.get("classes", {})
     if not isinstance(classes, dict):
         raise OrchestrationConfigError(f"{field}.classes must be a JSON object")
@@ -118,18 +117,14 @@ def _validate_class_postprocess_policy(path: Path) -> None:
             continue
         if not isinstance(value, dict):
             raise OrchestrationConfigError(f"{section} must be a JSON object")
-        _reject_unknown(
-            value,
-            {"shape_mode", "keyframe_interval", "max_gap"},
-            section,
+        allowed = (
+            {"shape_mode", "keyframe_interval", "max_gap"}
+            if schema_version == 1
+            else {"keyframe_interval"}
         )
-        if "shape_mode" in value and value["shape_mode"] not in {
-            "polygon",
-            "ellipse",
-        }:
-            raise OrchestrationConfigError(
-                f"{section}.shape_mode must be polygon or ellipse"
-            )
+        _reject_unknown(value, allowed, section)
+        if "shape_mode" in value and value["shape_mode"] != "polygon":
+            raise OrchestrationConfigError(f"{section}.shape_mode must be polygon")
         if "keyframe_interval" in value:
             interval = _optional_int(
                 value["keyframe_interval"],
@@ -141,10 +136,8 @@ def _validate_class_postprocess_policy(path: Path) -> None:
                 )
         if "max_gap" in value:
             max_gap = _optional_int(value["max_gap"], f"{section}.max_gap")
-            if max_gap is None or max_gap < 0:
-                raise OrchestrationConfigError(
-                    f"{section}.max_gap must be non-negative"
-                )
+            if max_gap != 15:
+                raise OrchestrationConfigError(f"{section}.max_gap is fixed at 15")
     if any(not str(label).strip() for label in classes):
         raise OrchestrationConfigError(f"{field}.classes labels must not be empty")
 
@@ -189,7 +182,6 @@ class PostprocessConfig:
     enabled: bool = True
     tracked_sqlite: Path | None = None
     final_sqlite: Path | None = None
-    shape_mode: str = "polygon"
     pipeline_config: Path | None = None
     class_policy_json: Path | None = None
     class_postprocess_policy_json: Path | None = None
@@ -199,17 +191,6 @@ class PostprocessConfig:
     precompute_cuts_during_inference: bool = False
     remove_short_tracks_max_frames: int | None = None
     keyframe_interval: int | None = None
-    max_gap: int | None = None
-    model_root: Path | None = None
-    k2_run_dir: Path | None = None
-    k2_batch_size: int | None = None
-    k2_prep_workers: int | None = None
-    k2_precision: str | None = None
-    k2_forward_mode: str | None = None
-    k2_profile_stages: bool | None = None
-    k2_cudnn_benchmark: str | None = None
-    k2_tf32: str | None = None
-    device: str = "auto"
     extra_args: tuple[str, ...] = ()
     export_legacy_sqlite: bool = False
     face_mask_target: str = "none"
@@ -226,26 +207,8 @@ class PostprocessConfig:
 
     @property
     def uses_gpu(self) -> bool:
-        """Whether this configuration may execute the ellipse K2 CUDA path."""
-        if not self.enabled or self.device.lower() == "cpu":
-            return False
-        if self.class_postprocess_policy_json is None:
-            return self.shape_mode == "ellipse"
-        raw = json.loads(self.class_postprocess_policy_json.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            return self.shape_mode == "ellipse"
-        default_value = raw.get("default", {})
-        default = default_value if isinstance(default_value, dict) else {}
-        default_shape = str(default.get("shape_mode", self.shape_mode))
-        if default_shape == "ellipse":
-            return True
-        classes_value = raw.get("classes", {})
-        classes = classes_value if isinstance(classes_value, dict) else {}
-        return any(
-            str(value.get("shape_mode", default_shape)) == "ellipse"
-            for value in classes.values()
-            if isinstance(value, dict)
-        )
+        """The promoted exact optimizer is CPU-only by contract."""
+        return False
 
 
 @dataclass(frozen=True)
@@ -436,7 +399,6 @@ class OrchestrationConfig:
             "tracked_sqlite",
             "final_sqlite",
             "export_legacy_sqlite",
-            "shape_mode",
             "pipeline_config",
             "class_policy_json",
             "class_postprocess_policy_json",
@@ -446,17 +408,6 @@ class OrchestrationConfig:
             "precompute_cuts_during_inference",
             "remove_short_tracks_max_frames",
             "keyframe_interval",
-            "max_gap",
-            "model_root",
-            "k2_run_dir",
-            "k2_batch_size",
-            "k2_prep_workers",
-            "k2_precision",
-            "k2_forward_mode",
-            "k2_profile_stages",
-            "k2_cudnn_benchmark",
-            "k2_tf32",
-            "device",
             "extra_args",
             "face_mask_target",
             "eye_mask_shape",
@@ -489,7 +440,6 @@ class OrchestrationConfig:
             export_legacy_sqlite=bool(
                 postprocess_raw.get("export_legacy_sqlite", False)
             ),
-            shape_mode=str(postprocess_raw.get("shape_mode", "polygon")),
             pipeline_config=_resolve_path(
                 postprocess_raw.get("pipeline_config"),
                 base=base,
@@ -529,54 +479,6 @@ class OrchestrationConfig:
                 postprocess_raw.get("keyframe_interval"),
                 "postprocess.keyframe_interval",
             ),
-            max_gap=_optional_int(
-                postprocess_raw.get("max_gap"),
-                "postprocess.max_gap",
-            ),
-            model_root=_resolve_path(
-                postprocess_raw.get("model_root"),
-                base=base,
-                field="postprocess.model_root",
-            ),
-            k2_run_dir=_resolve_path(
-                postprocess_raw.get("k2_run_dir"),
-                base=base,
-                field="postprocess.k2_run_dir",
-            ),
-            k2_batch_size=_optional_int(
-                postprocess_raw.get("k2_batch_size"),
-                "postprocess.k2_batch_size",
-            ),
-            k2_prep_workers=_optional_int(
-                postprocess_raw.get("k2_prep_workers"),
-                "postprocess.k2_prep_workers",
-            ),
-            k2_precision=(
-                None
-                if postprocess_raw.get("k2_precision") in (None, "")
-                else str(postprocess_raw["k2_precision"])
-            ),
-            k2_forward_mode=(
-                None
-                if postprocess_raw.get("k2_forward_mode") in (None, "")
-                else str(postprocess_raw["k2_forward_mode"])
-            ),
-            k2_profile_stages=(
-                None
-                if postprocess_raw.get("k2_profile_stages") is None
-                else bool(postprocess_raw["k2_profile_stages"])
-            ),
-            k2_cudnn_benchmark=(
-                None
-                if postprocess_raw.get("k2_cudnn_benchmark") in (None, "")
-                else str(postprocess_raw["k2_cudnn_benchmark"])
-            ),
-            k2_tf32=(
-                None
-                if postprocess_raw.get("k2_tf32") in (None, "")
-                else str(postprocess_raw["k2_tf32"])
-            ),
-            device=str(postprocess_raw.get("device", "auto")),
             extra_args=_string_tuple(
                 postprocess_raw.get("extra_args"),
                 "postprocess.extra_args",
@@ -721,10 +623,7 @@ class OrchestrationConfig:
                 overlay_raw.get(
                     "tracked",
                     uses_legacy_output_selection
-                    and (
-                        postprocess.enabled
-                        or postprocess.tracked_sqlite is not None
-                    ),
+                    and (postprocess.enabled or postprocess.tracked_sqlite is not None),
                 )
             ),
             final=bool(
@@ -951,10 +850,6 @@ class OrchestrationConfig:
                     "precomputed cut overlap currently supports only "
                     "cut_method=high_precision"
                 )
-        if self.postprocess.shape_mode not in {"polygon", "ellipse"}:
-            raise OrchestrationConfigError(
-                "postprocess.shape_mode must be polygon or ellipse"
-            )
         if (
             self.postprocess.pipeline_config is not None
             and self.postprocess.class_postprocess_policy_json is not None
@@ -969,12 +864,6 @@ class OrchestrationConfig:
         ):
             if path is not None and not path.is_file():
                 raise FileNotFoundError(f"{field} not found: {path}")
-        for field, path in (
-            ("postprocess.model_root", self.postprocess.model_root),
-            ("postprocess.k2_run_dir", self.postprocess.k2_run_dir),
-        ):
-            if path is not None and not path.is_dir():
-                raise FileNotFoundError(f"{field} directory not found: {path}")
         if (
             self.postprocess.class_postprocess_policy_json is not None
             and not self.postprocess.class_postprocess_policy_json.is_file()
@@ -993,38 +882,6 @@ class OrchestrationConfig:
         ):
             raise OrchestrationConfigError(
                 "postprocess.keyframe_interval must be at least 1"
-            )
-        if self.postprocess.max_gap is not None and self.postprocess.max_gap < 0:
-            raise OrchestrationConfigError("postprocess.max_gap must be non-negative")
-        if (
-            self.postprocess.k2_batch_size is not None
-            and self.postprocess.k2_batch_size < 1
-        ):
-            raise OrchestrationConfigError(
-                "postprocess.k2_batch_size must be at least 1"
-            )
-        if (
-            self.postprocess.k2_prep_workers is not None
-            and self.postprocess.k2_prep_workers < 0
-        ):
-            raise OrchestrationConfigError(
-                "postprocess.k2_prep_workers must be non-negative"
-            )
-        if self.postprocess.k2_precision not in {None, "fp32", "fp16"}:
-            raise OrchestrationConfigError(
-                "postprocess.k2_precision must be fp32 or fp16"
-            )
-        if self.postprocess.k2_forward_mode not in {None, "states_only", "full"}:
-            raise OrchestrationConfigError(
-                "postprocess.k2_forward_mode must be states_only or full"
-            )
-        if self.postprocess.k2_cudnn_benchmark not in {None, "on", "off"}:
-            raise OrchestrationConfigError(
-                "postprocess.k2_cudnn_benchmark must be on or off"
-            )
-        if self.postprocess.k2_tf32 not in {None, "default", "on", "off"}:
-            raise OrchestrationConfigError(
-                "postprocess.k2_tf32 must be default, on, or off"
             )
         if self.postprocess.face_mask_target not in {"none", "face", "eyes"}:
             raise OrchestrationConfigError(
@@ -1080,14 +937,6 @@ class OrchestrationConfig:
                 raise OrchestrationConfigError(
                     "face mask postprocess currently requires face_dino_v2"
                 )
-        postprocess_device = self.postprocess.device.lower()
-        if (
-            postprocess_device not in {"cpu", "auto", "cuda"}
-            and re.fullmatch(r"cuda:\d+", postprocess_device) is None
-        ):
-            raise OrchestrationConfigError(
-                "postprocess.device must be cpu, auto, cuda, or cuda:<index>"
-            )
         _reject_reserved_args(
             self.postprocess.extra_args,
             {
@@ -1129,32 +978,6 @@ class OrchestrationConfig:
             },
             "postprocess.extra_args",
         )
-        typed_k2_flags = {
-            "--k2-batch-size": self.postprocess.k2_batch_size,
-            "--k2-prep-workers": self.postprocess.k2_prep_workers,
-            "--k2-precision": self.postprocess.k2_precision,
-            "--k2-forward-mode": self.postprocess.k2_forward_mode,
-            "--k2-profile-stages": self.postprocess.k2_profile_stages,
-            "--k2-cudnn-benchmark": self.postprocess.k2_cudnn_benchmark,
-            "--k2-tf32": self.postprocess.k2_tf32,
-        }
-        duplicate_k2_flags = sorted(
-            flag
-            for flag, configured in typed_k2_flags.items()
-            if configured is not None
-            and (
-                flag in self.postprocess.extra_args
-                or (
-                    flag == "--k2-profile-stages"
-                    and "--no-k2-profile-stages" in self.postprocess.extra_args
-                )
-            )
-        )
-        if duplicate_k2_flags:
-            raise OrchestrationConfigError(
-                "postprocess.extra_args duplicates typed K2 option(s): "
-                f"{duplicate_k2_flags}"
-            )
         if not self.postprocess.enabled:
             if self.postprocess.export_legacy_sqlite:
                 raise OrchestrationConfigError(
@@ -1203,9 +1026,7 @@ class OrchestrationConfig:
                 "overlay.outline_thickness must be at least 1"
             )
         if self.overlay.box_thickness < 1:
-            raise OrchestrationConfigError(
-                "overlay.box_thickness must be at least 1"
-            )
+            raise OrchestrationConfigError("overlay.box_thickness must be at least 1")
         if self.overlay.progress_every < 0:
             raise OrchestrationConfigError(
                 "overlay.progress_every must be non-negative"
@@ -1327,8 +1148,7 @@ class OrchestrationConfig:
                 "overlay.minimum_eye_confidence must be between 0 and 1"
             )
         face_preset_requested = any(
-            preset.startswith(("face-", "combined-"))
-            for preset in self.overlay.presets
+            preset.startswith(("face-", "combined-")) for preset in self.overlay.presets
         )
         if self.overlay.face_mask_target != "none":
             if not self.inference.uses_faces:
@@ -1342,18 +1162,12 @@ class OrchestrationConfig:
             if not (
                 face_preset_requested
                 or self.overlay.faces
-                or (
-                    self.overlay.final
-                    and self.overlay.final_include_faces
-                )
+                or (self.overlay.final and self.overlay.final_include_faces)
             ):
                 raise OrchestrationConfigError(
                     "overlay face privacy mask requires a face or combined output"
                 )
-        if (
-            face_preset_requested
-            and not self.inference.uses_faces
-        ):
+        if face_preset_requested and not self.inference.uses_faces:
             raise OrchestrationConfigError(
                 "face/combined overlay presets require face inference"
             )

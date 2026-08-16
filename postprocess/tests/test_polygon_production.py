@@ -1,20 +1,14 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 import numpy as np
 
-from approximation.polygon.production import (
-    DEFAULT_NUM_WORKERS,
-    _resolve_cpp_compiler,
-)
-from approximation.polygon.preparation import (
+from production.polygon.input_geometry import (
     _expand_polygon,
     apply_border_expansion,
     apply_endpoint_extension,
@@ -85,14 +79,6 @@ class PolygonProductionPreparationTests(unittest.TestCase):
         self.assertAlmostEqual(8.0, float(expanded[0, 1]), places=5)
         self.assertLessEqual(float(polygon[0, 0] - expanded[0, 0]), 16.0)
         self.assertLessEqual(float(polygon[0, 1] - expanded[0, 1]), 16.0)
-
-    def test_native_compiler_respects_explicit_environment(self) -> None:
-        with mock.patch.dict(os.environ, {"CXX": "/test/compiler"}):
-            self.assertEqual("/test/compiler", _resolve_cpp_compiler())
-
-    def test_parallel_default_is_bounded_for_interactive_use(self) -> None:
-        self.assertGreaterEqual(DEFAULT_NUM_WORKERS, 1)
-        self.assertLessEqual(DEFAULT_NUM_WORKERS, 4)
 
 
 if __name__ == "__main__":

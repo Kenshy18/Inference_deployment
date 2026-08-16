@@ -10,25 +10,12 @@ from typing import Sequence
 from common.config import (
     PipelineConfig,
     StageSpec,
-    default_ellipse_pipeline,
     default_polygon_pipeline,
     load_pipeline_config,
 )
 from common.runner import PipelineRunner
 from common.result_metadata import record_result_processing_run
-from common.settings import resolve_models
 from contracts.detector_sqlite import detect_mask_sqlite_kind
-
-
-def choose_device(value: str) -> str:
-    if value != "auto":
-        return value
-    try:
-        import torch
-
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    except Exception:
-        return "cpu"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,34 +35,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="resolved orchestrator configuration embedded into result.sqlite",
     )
-    parser.add_argument(
-        "--shape-mode",
-        choices=("ellipse", "polygon"),
-        default="polygon",
-        help="postprocess geometry (default: promoted Production polygon)",
-    )
     parser.add_argument("--pipeline-config", type=Path)
     parser.add_argument("--class-policy-json", type=Path)
     parser.add_argument(
         "--class-postprocess-policy-json",
         type=Path,
         help=(
-            "route each tracked class through its configured shape, "
-            "keyframe interval, and missing-frame gap limit"
+            "route each tracked class through its configured Production "
+            "polygon keyframe interval"
         ),
     )
     parser.add_argument(
         "--keyframe-interval",
         type=int,
         help="explicitly override the selected pipeline stage",
-    )
-    parser.add_argument(
-        "--max-gap",
-        type=int,
-        help=(
-            "maximum missing-frame run to fill; class policy values override "
-            "this fallback"
-        ),
     )
     parser.add_argument(
         "--score-min",
@@ -97,26 +70,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--remove-short-tracks-max-frames", type=int)
-    parser.add_argument("--model-root", type=Path)
-    parser.add_argument("--k2-run-dir", type=Path)
-    parser.add_argument("--device")
-    parser.add_argument("--k2-batch-size", type=int)
-    parser.add_argument("--k2-prep-workers", type=int)
-    parser.add_argument("--k2-precision", choices=("fp32", "fp16"))
-    parser.add_argument(
-        "--k2-forward-mode",
-        choices=("states_only", "full"),
-    )
-    parser.add_argument(
-        "--k2-profile-stages",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
-    parser.add_argument(
-        "--k2-cudnn-benchmark",
-        choices=("on", "off"),
-    )
-    parser.add_argument("--k2-tf32", choices=("default", "on", "off"))
     parser.add_argument(
         "--export-legacy-sqlite",
         "--export-dinov3-legacy-sqlite",
@@ -179,62 +132,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _ellipse_stage_options(
-    args: argparse.Namespace,
-    source_options: dict[str, object] | None = None,
-    *,
-    resolve_auto_device: bool = True,
-) -> dict[str, object]:
-    options = dict(source_options or {})
-    if args.model_root is not None:
-        options["model_root"] = str(args.model_root.expanduser().resolve())
-        if args.k2_run_dir is None:
-            options["k2_run_dir"] = str(
-                args.model_root.expanduser().resolve() / "k2_v5"
-            )
-    else:
-        models = resolve_models(
-            Path(options["model_root"]) if options.get("model_root") else None
-        )
-        options.setdefault("model_root", str(models.root))
-        options.setdefault("k2_run_dir", str(models.k2_dir))
-    if args.k2_run_dir is not None:
-        options["k2_run_dir"] = str(args.k2_run_dir.expanduser().resolve())
-    if args.device is not None:
-        options["device"] = (
-            choose_device(args.device) if resolve_auto_device else args.device
-        )
-    else:
-        options.setdefault(
-            "device",
-            choose_device("auto") if resolve_auto_device else "auto",
-        )
-    ellipse_extra = list(options.get("extra_args", []))
-    for flag, value in (
-        ("--k2-batch-size", args.k2_batch_size),
-        ("--k2-prep-workers", args.k2_prep_workers),
-        ("--k2-precision", args.k2_precision),
-        ("--k2-forward-mode", args.k2_forward_mode),
-        ("--k2-cudnn-benchmark", args.k2_cudnn_benchmark),
-        ("--k2-tf32", args.k2_tf32),
-    ):
-        if value is not None:
-            ellipse_extra.extend((flag, str(value)))
-    if args.k2_profile_stages:
-        ellipse_extra.append("--k2-profile-stages")
-    if ellipse_extra:
-        options["extra_args"] = ellipse_extra
-    return options
-
-
 def _polygon_stage_options(
     args: argparse.Namespace,
     initial: dict[str, object] | None = None,
 ) -> dict[str, object]:
     options = {} if initial is None else dict(initial)
     # Production polygon geometry and its exact CPU evaluator are frozen.
-    # Model/device/worker flags configure only the optional ellipse path and
-    # must not look like effective polygon controls.
     return options
 
 
@@ -258,10 +161,8 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
     }
     if args.pipeline_config is not None:
         source = load_pipeline_config(args.pipeline_config)
-    elif args.shape_mode == "polygon":
-        source = default_polygon_pipeline(include_preprocess=include_raw_stages)
     else:
-        source = default_ellipse_pipeline(include_preprocess=include_raw_stages)
+        source = default_polygon_pipeline(include_preprocess=include_raw_stages)
 
     if args.pipeline_config is None and input_sqlite_kind in {
         "raw_detection",
@@ -286,8 +187,6 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
 
     if args.keyframe_interval is not None and args.keyframe_interval < 1:
         raise ValueError("--keyframe-interval must be >= 1")
-    if args.max_gap is not None and args.max_gap < 0:
-        raise ValueError("--max-gap must be >= 0")
     stages: list[StageSpec] = []
     for stage in source.stages:
         if (
@@ -316,32 +215,10 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
         elif stage.implementation == "production.polygon_v3_cpu":
             if args.keyframe_interval is not None:
                 options["target_interval"] = int(args.keyframe_interval)
-            if args.max_gap is not None:
-                options["max_gap"] = int(args.max_gap)
             options = _polygon_stage_options(args, options)
             # The promoted profile intentionally ignores the inference device:
             # interval evaluation is exact native CPU by contract.
             options["interval_evaluation"] = "native_exact"
-        elif (
-            stage.implementation == "keyframes.polygon.interval"
-            and args.keyframe_interval is not None
-        ):
-            # Retain explicit compatibility for custom/experimental RDP
-            # pipeline configurations.
-            options["interval_frames"] = int(args.keyframe_interval)
-        elif stage.implementation == "approximation.ellipse.production":
-            options = _ellipse_stage_options(args, options)
-        elif (
-            stage.implementation == "keyframes.ellipse.dense"
-            and args.keyframe_interval is not None
-        ):
-            options["target_ratio"] = 1.0 / float(args.keyframe_interval)
-        elif (
-            stage.implementation
-            in {"gap_fill.polygon.linear", "gap_fill.ellipse.linear"}
-            and args.max_gap is not None
-        ):
-            options["max_gap"] = int(args.max_gap)
         stages.append(
             StageSpec(
                 stage.id,
@@ -369,16 +246,10 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                 "classwise_postprocess",
                 "classwise.production",
                 {
-                    "default_shape_mode": args.shape_mode,
                     "default_keyframe_interval": (
-                        (6 if args.shape_mode == "polygon" else 3)
+                        6
                         if args.keyframe_interval is None
                         else int(args.keyframe_interval)
-                    ),
-                    "default_max_gap": args.max_gap,
-                    "ellipse_options": _ellipse_stage_options(
-                        args,
-                        resolve_auto_device=False,
                     ),
                     "polygon_options": _polygon_stage_options(args),
                 },

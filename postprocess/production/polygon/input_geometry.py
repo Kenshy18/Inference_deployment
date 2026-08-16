@@ -1,4 +1,4 @@
-"""Original polygon recall safeguards before the v22 optimizer."""
+"""Production input-geometry safeguards for borders and track endpoints."""
 
 from __future__ import annotations
 

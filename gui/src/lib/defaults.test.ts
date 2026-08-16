@@ -19,17 +19,9 @@ describe("default processing profile", () => {
       fastSqlite: false,
     });
     expect(defaultDraft.postprocess).toMatchObject({
-      shapeMode: "polygon",
       classPostprocessPolicySource: "editor",
       scoreMin: 0.6,
       keyframeInterval: 6,
-      maxGap: 15,
-      k2BatchSize: 128,
-      k2PrepWorkers: 4,
-      k2ForwardMode: "states_only",
-      k2CudnnBenchmark: "on",
-      k2Tf32: null,
-      device: "cuda:0",
       faceMaskTarget: "eyes",
       eyeMaskShape: "rectangle",
       faceDetectionScoreThreshold: 0.55,
@@ -38,21 +30,15 @@ describe("default processing profile", () => {
     expect(defaultDraft.postprocess.classPostprocessRules).toEqual([
       {
         className: "男性器",
-        shapeMode: "polygon",
         keyframeInterval: 6,
-        maxGap: 15,
       },
       {
         className: "女性器",
-        shapeMode: "polygon",
         keyframeInterval: 6,
-        maxGap: 15,
       },
       {
         className: "結合部分",
-        shapeMode: "polygon",
         keyframeInterval: 6,
-        maxGap: 15,
       },
     ]);
     expect(defaultDraft.overlay).toMatchObject({
@@ -72,19 +58,17 @@ describe("default processing profile", () => {
 });
 
 describe("Production postprocess draft migration", () => {
-  it("moves only the exact old mixed-shape defaults to the promoted profile", () => {
+  it("moves former class defaults to the promoted profile", () => {
     const old = structuredClone(defaultDraft.postprocess);
     old.keyframeInterval = 2;
-    old.maxGap = 0;
     old.classPostprocessRules = [
-      { className: "男性器", shapeMode: "polygon", keyframeInterval: 2, maxGap: 15 },
-      { className: "女性器", shapeMode: "ellipse", keyframeInterval: 2, maxGap: 15 },
-      { className: "結合部分", shapeMode: "ellipse", keyframeInterval: 2, maxGap: 15 },
-      { className: "custom", shapeMode: "ellipse", keyframeInterval: 4, maxGap: 9 },
+      { className: "男性器", keyframeInterval: 2 },
+      { className: "女性器", keyframeInterval: 2 },
+      { className: "結合部分", keyframeInterval: 2 },
+      { className: "custom", keyframeInterval: 4 },
     ];
-    const migrated = migrateProductionPostprocessDefaults("4", old);
+    const migrated = migrateProductionPostprocessDefaults("5", old);
     expect(migrated.keyframeInterval).toBe(6);
-    expect(migrated.maxGap).toBe(15);
     expect(migrated.classPostprocessRules.slice(0, 3)).toEqual(
       defaultDraft.postprocess.classPostprocessRules,
     );

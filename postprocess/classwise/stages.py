@@ -29,53 +29,23 @@ from .sqlite import (
 def _nested_pipeline(
     settings: ClassPostprocessSettings,
     *,
-    ellipse_options: dict[str, object],
     polygon_options: dict[str, object],
 ) -> PipelineConfig:
-    if settings.shape_mode == "polygon":
-        stages = (
-            StageSpec(
-                "polygon_optimization",
-                "production.polygon_v3_cpu",
-                {
-                    **polygon_options,
-                    "target_interval": settings.keyframe_interval,
-                    "max_gap": settings.max_gap,
-                    "interval_evaluation": "native_exact",
-                },
-            ),
-            StageSpec("exact_evaluation", "evaluation.mask_iou"),
-            StageSpec("output_validation", "artifacts.validate"),
-        )
-    else:
-        stages = (
-            StageSpec(
-                "ellipse_approximation",
-                "approximation.ellipse.production",
-                dict(ellipse_options),
-            ),
-            StageSpec(
-                "keyframe_selection",
-                "keyframes.ellipse.dense",
-                {
-                    "target_ratio": 1.0 / settings.keyframe_interval,
-                    "dense_recall_target": 0.96,
-                },
-            ),
-            StageSpec(
-                "mask_gap_fill",
-                "gap_fill.ellipse.linear",
-                {"max_gap": settings.max_gap},
-            ),
-            StageSpec("exact_evaluation", "evaluation.ellipse.exact"),
-            StageSpec("sqlite_export", "artifacts.union_sqlite"),
-            StageSpec("output_validation", "artifacts.validate"),
-        )
-    return PipelineConfig(
-        name=(
-            f"classwise_{settings.shape_mode}_"
-            f"k{settings.keyframe_interval}_g{settings.max_gap}"
+    stages = (
+        StageSpec(
+            "polygon_optimization",
+            "production.polygon_v3_cpu",
+            {
+                **polygon_options,
+                "target_interval": settings.keyframe_interval,
+                "interval_evaluation": "native_exact",
+            },
         ),
+        StageSpec("exact_evaluation", "evaluation.mask_iou"),
+        StageSpec("output_validation", "artifacts.validate"),
+    )
+    return PipelineConfig(
+        name=f"classwise_polygon_k{settings.keyframe_interval}",
         stages=stages,
     )
 
@@ -91,23 +61,15 @@ class ClasswisePostprocessStage:
 
     def run(self, context: StageContext) -> StageResult:
         started = time.perf_counter()
-        fallback_shape = str(self.options.get("default_shape_mode", "polygon"))
-        fallback_gap_value = self.options.get("default_max_gap")
         fallback = ClassPostprocessSettings(
-            shape_mode=fallback_shape,
+            shape_mode="polygon",
             keyframe_interval=int(
                 self.options.get(
                     "default_keyframe_interval",
-                    6 if fallback_shape == "polygon" else 3,
+                    6,
                 )
             ),
-            max_gap=(
-                PRODUCTION_POLYGON_MAX_GAP
-                if fallback_shape == "polygon"
-                else int(fallback_gap_value)
-                if fallback_gap_value is not None
-                else 30
-            ),
+            max_gap=PRODUCTION_POLYGON_MAX_GAP,
         )
         policy = load_class_postprocess_policy(
             context.artifacts["class_postprocess_policy_json"],
@@ -115,34 +77,26 @@ class ClasswisePostprocessStage:
         )
         tracked = context.artifacts["tracked_sqlite"]
         track_labels = read_track_labels(tracked)
-        # The original production pipeline optimized each semantic class in an
-        # independent branch.  Do not coalesce labels merely because their
-        # settings happen to match: both ellipse and polygon optimizers have a
-        # branch-global keyframe budget.
+        # Each semantic class has an independent keyframe budget. Do not
+        # coalesce labels merely because their interval happens to match.
         tracks_by_group: dict[tuple[str, ClassPostprocessSettings], list[str]] = {}
         for track_id, label in sorted(track_labels.items()):
             settings = policy.resolve(label)
             tracks_by_group.setdefault((label, settings), []).append(track_id)
 
-        ellipse_options = dict(self.options.get("ellipse_options", {}))
         polygon_options = dict(self.options.get("polygon_options", {}))
         routed: list[RoutedGroup] = []
         group_manifests: list[dict[str, object]] = []
         ordered_groups = sorted(
             tracks_by_group,
             key=lambda value: (
-                value[1].shape_mode,
                 value[1].keyframe_interval,
-                value[1].max_gap,
                 value[0],
             ),
         )
         for index, (label, settings) in enumerate(ordered_groups):
             group_started = time.perf_counter()
-            group_id = (
-                f"{index:02d}_{settings.shape_mode}_"
-                f"k{settings.keyframe_interval}_g{settings.max_gap}"
-            )
+            group_id = f"{index:02d}_polygon_k{settings.keyframe_interval}"
             group_root = context.stage_dir / "groups" / group_id
             projected = group_root / "tracked.sqlite"
             track_ids = tuple(tracks_by_group[(label, settings)])
@@ -162,7 +116,6 @@ class ClasswisePostprocessStage:
             manifest = PipelineRunner(
                 _nested_pipeline(
                     settings,
-                    ellipse_options=ellipse_options,
                     polygon_options=polygon_options,
                 ),
                 nested_root,

@@ -309,7 +309,7 @@ button:not(:disabled) {
 .policy-editor__head,
 .policy-editor__rule {
   display: grid;
-  grid-template-columns: minmax(70px, 1.3fr) minmax(60px, 1fr) 46px 46px 22px;
+  grid-template-columns: minmax(90px, 1.5fr) minmax(70px, 1fr) 22px;
   align-items: center;
   gap: 4px;
 }
@@ -341,7 +341,7 @@ button:not(:disabled) {
 .simple-policy-editor__head,
 .simple-policy-editor__rule {
   display: grid;
-  grid-template-columns: minmax(64px, 0.8fr) minmax(150px, 1.7fr) 64px;
+  grid-template-columns: minmax(100px, 1.4fr) minmax(80px, 1fr);
   align-items: center;
   gap: 6px;
 }

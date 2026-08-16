@@ -7,7 +7,6 @@ import type {
   PipelineDraft,
   SettingsView,
 } from "../../shared/types";
-import { PRODUCTION_POSTPROCESS } from "../../shared/production-contract";
 import {
   FACE_MODELS,
   faceModelSpec,
@@ -118,13 +117,6 @@ export function InspectorPanel({
     (hasFacePreset ||
       overlay.faces ||
       (overlay.final && overlay.finalIncludeFaces));
-  const mayUseEllipse =
-    postprocess.classPostprocessPolicySource === "file" ||
-    postprocess.shapeMode === "ellipse" ||
-    (postprocess.classPostprocessPolicySource === "editor" &&
-      postprocess.classPostprocessRules.some(
-        (rule) => rule.shapeMode === "ellipse",
-      ));
   const parallelCompatible =
     inference.mode === "segmentation-face" &&
     inference.segmentationModel === "dinov3_codino_mh0" &&
@@ -179,12 +171,7 @@ export function InspectorPanel({
     }
     return {
       className,
-      shapeMode: postprocess.shapeMode,
       keyframeInterval: postprocess.keyframeInterval ?? 2,
-      maxGap:
-        postprocess.shapeMode === "polygon"
-          ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-          : (postprocess.maxGap ?? 0),
     };
   });
   const updateSimpleClassRule = (
@@ -589,12 +576,11 @@ export function InspectorPanel({
             <>
               {!advanced && (
                 <>
-                  <SubHead>クラス別形状・キーフレーム</SubHead>
+                  <SubHead>クラス別キーフレーム</SubHead>
                   <Row label="クラス別設定" stack>
                     <div className="simple-policy-editor">
                       <div className="simple-policy-editor__head">
                         <span>クラス</span>
-                        <span>形状</span>
                         <span>KF間隔</span>
                       </div>
                       {simpleClassRules.map((rule) => (
@@ -605,23 +591,6 @@ export function InspectorPanel({
                           <span className="simple-policy-editor__name">
                             {rule.className}
                           </span>
-                          <Segment
-                            value={rule.shapeMode}
-                            disabled={busy || !postprocess.enabled}
-                            onChange={(shapeMode) =>
-                              updateSimpleClassRule(rule.className, {
-                                shapeMode,
-                                maxGap:
-                                  shapeMode === "polygon"
-                                    ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                                    : rule.maxGap,
-                              })
-                            }
-                            options={[
-                              { value: "polygon", label: "ポリゴン" },
-                              { value: "ellipse", label: "楕円" },
-                            ]}
-                          />
                           <NumberInput
                             value={rule.keyframeInterval}
                             min={1}
@@ -638,35 +607,6 @@ export function InspectorPanel({
                     </div>
                   </Row>
                 </>
-              )}
-              {advanced &&
-                postprocess.classPostprocessPolicySource !== "editor" && (
-                <Row
-                  label="既定形状"
-                  hint={
-                    postprocess.classPostprocessPolicySource === "file"
-                      ? "JSONで未指定のクラスに適用"
-                      : undefined
-                  }
-                >
-                  <Segment
-                    value={postprocess.shapeMode}
-                    disabled={busy}
-                    onChange={(shapeMode) =>
-                      actions.postprocess({
-                        shapeMode,
-                        maxGap:
-                          shapeMode === "polygon"
-                            ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                            : postprocess.maxGap,
-                      })
-                    }
-                    options={[
-                      { value: "polygon", label: "ポリゴン" },
-                      { value: "ellipse", label: "楕円" },
-                    ]}
-                  />
-                </Row>
               )}
               <Row label="検出スコア下限">
                 <NumberInput
@@ -812,7 +752,7 @@ export function InspectorPanel({
                   <Row
                     label="パイプラインJSON"
                     stack
-                    title="後処理stage全体を定義する上級者向け設定。クラス別形状JSONとは併用できません。"
+                    title="後処理stage全体を定義する上級者向け設定。クラス別KF JSONとは併用できません。"
                   >
                     <TextInput
                       value={postprocess.pipelineConfig}
@@ -848,8 +788,8 @@ export function InspectorPanel({
                     />
                   </Row>
                   <Row
-                    label="形状・KF・補完"
-                    title="形状、キーフレーム間隔、補完上限の指定方法です。"
+                    label="キーフレーム間隔"
+                    title="Productionポリゴンの目標キーフレーム間隔の指定方法です。"
                   >
                     <Select
                       value={postprocess.classPostprocessPolicySource}
@@ -865,12 +805,6 @@ export function InspectorPanel({
                             classPostprocessPolicySource === "editor"
                               ? (postprocess.keyframeInterval ?? 3)
                               : postprocess.keyframeInterval,
-                          maxGap:
-                            classPostprocessPolicySource === "editor"
-                              ? postprocess.shapeMode === "polygon"
-                                ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                                : (postprocess.maxGap ?? 0)
-                              : postprocess.maxGap,
                         })
                       }
                       options={[
@@ -882,9 +816,9 @@ export function InspectorPanel({
                   </Row>
                   {postprocess.classPostprocessPolicySource === "file" && (
                     <Row
-                      label="形状設定JSON"
+                      label="KF設定JSON"
                       stack
-                      title="クラス別のshape_mode・キーフレーム間隔・補完上限を持つJSONです。"
+                      title="クラス別のProductionポリゴン目標間隔を持つJSONです。"
                     >
                       <TextInput
                         value={postprocess.classPostprocessPolicyJson}
@@ -909,9 +843,7 @@ export function InspectorPanel({
                       <div className="policy-editor">
                         <div className="policy-editor__head">
                           <span>確定クラス名</span>
-                          <span>形状</span>
                           <span>KF間隔</span>
-                          <span>補完上限</span>
                           <span />
                         </div>
                         <div className="policy-editor__rule policy-editor__rule--default">
@@ -919,23 +851,6 @@ export function InspectorPanel({
                             value="その他（未指定）"
                             disabled
                             onChange={() => undefined}
-                          />
-                          <Select
-                            value={postprocess.shapeMode}
-                            disabled={busy}
-                            onChange={(shapeMode) =>
-                              actions.postprocess({
-                                shapeMode,
-                                maxGap:
-                                  shapeMode === "polygon"
-                                    ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                                    : postprocess.maxGap,
-                              })
-                            }
-                            options={[
-                              { value: "polygon", label: "ポリゴン" },
-                              { value: "ellipse", label: "楕円" },
-                            ]}
                           />
                           <NumberInput
                             value={postprocess.keyframeInterval}
@@ -945,20 +860,6 @@ export function InspectorPanel({
                               actions.postprocess({
                                 keyframeInterval:
                                   keyframeInterval ?? 1,
-                              })
-                            }
-                          />
-                          <NumberInput
-                            value={
-                              postprocess.shapeMode === "polygon"
-                                ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                                : postprocess.maxGap
-                            }
-                            min={0}
-                            disabled={busy || postprocess.shapeMode === "polygon"}
-                            onChange={(maxGap) =>
-                              actions.postprocess({
-                                maxGap: maxGap ?? 0,
                               })
                             }
                           />
@@ -977,23 +878,6 @@ export function InspectorPanel({
                                   updateClassRule(index, { className })
                                 }
                               />
-                              <Select
-                                value={rule.shapeMode}
-                                disabled={busy}
-                                onChange={(shapeMode) =>
-                                  updateClassRule(index, {
-                                    shapeMode,
-                                    maxGap:
-                                      shapeMode === "polygon"
-                                        ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                                        : rule.maxGap,
-                                  })
-                                }
-                                options={[
-                                  { value: "polygon", label: "ポリゴン" },
-                                  { value: "ellipse", label: "楕円" },
-                                ]}
-                              />
                               <NumberInput
                                 value={rule.keyframeInterval}
                                 min={1}
@@ -1001,20 +885,6 @@ export function InspectorPanel({
                                 onChange={(value) =>
                                   updateClassRule(index, {
                                     keyframeInterval: value ?? 1,
-                                  })
-                                }
-                              />
-                              <NumberInput
-                                value={
-                                  rule.shapeMode === "polygon"
-                                    ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                                    : rule.maxGap
-                                }
-                                min={0}
-                                disabled={busy || rule.shapeMode === "polygon"}
-                                onChange={(value) =>
-                                  updateClassRule(index, {
-                                    maxGap: value ?? 0,
                                   })
                                 }
                               />
@@ -1050,13 +920,8 @@ export function InspectorPanel({
                                   className: `class_${
                                     postprocess.classPostprocessRules.length + 1
                                   }`,
-                                  shapeMode: postprocess.shapeMode,
                                   keyframeInterval:
                                     postprocess.keyframeInterval ?? 3,
-                                  maxGap:
-                                    postprocess.shapeMode === "polygon"
-                                      ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                                      : (postprocess.maxGap ?? 0),
                                 },
                               ],
                             })
@@ -1139,188 +1004,6 @@ export function InspectorPanel({
                         actions.postprocess({
                           removeShortTracksMaxFrames,
                         })
-                      }
-                    />
-                  </Row>
-                  {postprocess.classPostprocessPolicySource !== "editor" && (
-                    <Row
-                      label="既定補完上限"
-                      hint={
-                        postprocess.shapeMode === "polygon"
-                          ? "Productionポリゴンは15フレーム固定"
-                          : undefined
-                      }
-                    >
-                      <NumberInput
-                        value={
-                          postprocess.shapeMode === "polygon"
-                            ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
-                            : postprocess.maxGap
-                        }
-                        min={0}
-                        unit="f"
-                        placeholder="既定値"
-                        disabled={busy || postprocess.shapeMode === "polygon"}
-                        onChange={(maxGap) =>
-                          actions.postprocess({ maxGap })
-                        }
-                      />
-                    </Row>
-                  )}
-                  <SubHead>楕円近似（K2）</SubHead>
-                  <Row
-                    label="モデルroot"
-                    stack
-                    off={!mayUseEllipse}
-                    title="楕円を使用する場合だけ有効です。"
-                  >
-                    <TextInput
-                      value={postprocess.modelRoot}
-                      disabled={busy || !mayUseEllipse}
-                      mono
-                      placeholder="空欄: 自動検出"
-                      onChange={(modelRoot) =>
-                        actions.postprocess({ modelRoot })
-                      }
-                    />
-                  </Row>
-                  <Row label="K2 run directory" stack off={!mayUseEllipse}>
-                    <TextInput
-                      value={postprocess.k2RunDir}
-                      disabled={busy || !mayUseEllipse}
-                      mono
-                      placeholder="空欄: model root/k2_v5"
-                      onChange={(k2RunDir) =>
-                        actions.postprocess({ k2RunDir })
-                      }
-                    />
-                  </Row>
-                  <Row label="GPUバッチ数" off={!mayUseEllipse}>
-                    <NumberInput
-                      value={postprocess.k2BatchSize}
-                      min={1}
-                      placeholder="パイプライン既定"
-                      disabled={busy || !mayUseEllipse}
-                      onChange={(k2BatchSize) =>
-                        actions.postprocess({ k2BatchSize })
-                      }
-                    />
-                  </Row>
-                  <Row label="CPU前処理worker" off={!mayUseEllipse}>
-                    <NumberInput
-                      value={postprocess.k2PrepWorkers}
-                      min={0}
-                      placeholder="既定値"
-                      disabled={busy || !mayUseEllipse}
-                      onChange={(k2PrepWorkers) =>
-                        actions.postprocess({ k2PrepWorkers })
-                      }
-                    />
-                  </Row>
-                  <Row label="計算精度" off={!mayUseEllipse}>
-                    <Select
-                      value={postprocess.k2Precision ?? ""}
-                      disabled={busy || !mayUseEllipse}
-                      onChange={(value) =>
-                        actions.postprocess({
-                          k2Precision: value === "" ? null : value,
-                        })
-                      }
-                      options={[
-                        { value: "", label: "パイプライン既定" },
-                        { value: "fp32", label: "FP32" },
-                        { value: "fp16", label: "FP16" },
-                      ]}
-                    />
-                  </Row>
-                  <Row
-                    label="計算範囲"
-                    off={!mayUseEllipse}
-                    title="states_onlyは未使用のソフトマスク生成を省略します。"
-                  >
-                    <Select
-                      value={postprocess.k2ForwardMode ?? ""}
-                      disabled={busy || !mayUseEllipse}
-                      onChange={(value) =>
-                        actions.postprocess({
-                          k2ForwardMode: value === "" ? null : value,
-                        })
-                      }
-                      options={[
-                        { value: "", label: "パイプライン既定" },
-                        { value: "states_only", label: "必要値のみ（推奨）" },
-                        { value: "full", label: "全出力（診断用）" },
-                      ]}
-                    />
-                  </Row>
-                  <Row
-                    label="内部時間計測"
-                    off={!mayUseEllipse}
-                    title="正確な計測のためGPU同期が入り、通常処理は遅くなります。"
-                  >
-                    <Select
-                      value={
-                        postprocess.k2ProfileStages === null
-                          ? ""
-                          : postprocess.k2ProfileStages
-                            ? "on"
-                            : "off"
-                      }
-                      disabled={busy || !mayUseEllipse}
-                      onChange={(value) =>
-                        actions.postprocess({
-                          k2ProfileStages:
-                            value === "" ? null : value === "on",
-                        })
-                      }
-                      options={[
-                        { value: "", label: "パイプライン既定" },
-                        { value: "on", label: "計測する" },
-                        { value: "off", label: "計測しない（推奨）" },
-                      ]}
-                    />
-                  </Row>
-                  <Row label="cuDNN autotune" off={!mayUseEllipse}>
-                    <Select
-                      value={postprocess.k2CudnnBenchmark ?? ""}
-                      disabled={busy || !mayUseEllipse}
-                      onChange={(value) =>
-                        actions.postprocess({
-                          k2CudnnBenchmark:
-                            value === "" ? null : value,
-                        })
-                      }
-                      options={[
-                        { value: "", label: "パイプライン既定" },
-                        { value: "on", label: "有効" },
-                        { value: "off", label: "無効" },
-                      ]}
-                    />
-                  </Row>
-                  <Row label="TF32" off={!mayUseEllipse}>
-                    <Select
-                      value={postprocess.k2Tf32 ?? ""}
-                      disabled={busy || !mayUseEllipse}
-                      onChange={(value) =>
-                        actions.postprocess({
-                          k2Tf32: value === "" ? null : value,
-                        })
-                      }
-                      options={[
-                        { value: "", label: "パイプライン既定" },
-                        { value: "default", label: "PyTorch既定" },
-                        { value: "on", label: "有効" },
-                        { value: "off", label: "無効（再現性優先）" },
-                      ]}
-                    />
-                  </Row>
-                  <Row label="K2デバイス" off={!mayUseEllipse}>
-                    <TextInput
-                      value={postprocess.device}
-                      disabled={busy || !mayUseEllipse}
-                      mono
-                      onChange={(device) =>
-                        actions.postprocess({ device })
                       }
                     />
                   </Row>

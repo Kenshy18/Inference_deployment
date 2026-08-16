@@ -15,13 +15,6 @@ class StandaloneLayoutTests(unittest.TestCase):
             "nms",
             "cut_detection",
             "tracking",
-            "approximation/ellipse",
-            "approximation/polygon",
-            "keyframes/ellipse",
-            "keyframes/polygon",
-            "gap_fill",
-            "gap_fill/ellipse",
-            "gap_fill/polygon",
             "evaluation",
             "artifacts",
             "visualization",
@@ -37,11 +30,23 @@ class StandaloneLayoutTests(unittest.TestCase):
     def test_polygon_responsibilities_are_separate_files(self) -> None:
         root = Path(__file__).resolve().parents[1]
         for relative in (
-            "approximation/polygon/rdp.py",
-            "keyframes/polygon/interval.py",
-            "gap_fill/polygon/interpolate.py",
+            "production/polygon/preparation.py",
+            "production/polygon/input_geometry.py",
+            "production/polygon/vertex_policy.py",
+            "production/polygon/runtime/dp.py",
+            "production/polygon/runtime/pair_vote.py",
+            "production/polygon/runtime/topology.py",
         ):
             self.assertTrue((root / relative).is_file(), relative)
+        self.assertEqual([], list((root / "approximation").rglob("*.py")))
+        for retired in (
+            "approximation/ellipse",
+            "keyframes/ellipse",
+            "keyframes/polygon",
+            "gap_fill/ellipse",
+            "gap_fill/polygon",
+        ):
+            self.assertEqual([], list((root / retired).glob("*.py")), retired)
         self.assertFalse((root / "keyframes/polygon/advanced.py").exists())
         self.assertFalse((root / "approximation/polygon/optimizer.py").exists())
 

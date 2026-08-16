@@ -17,8 +17,7 @@
     "fast_sqlite": false
   },
   "postprocess": {
-    "enabled": false,
-    "device": "cpu"
+    "enabled": false
   },
   "overlay": {
     "enabled": true,

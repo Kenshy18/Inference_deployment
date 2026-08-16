@@ -18,7 +18,7 @@ from statistics import mean
 import numpy as np
 from shapely.geometry import box
 
-from approximation.polygon.preparation import _expand_polygon
+from production.polygon.input_geometry import _expand_polygon
 
 from .fixed_budget import (
     FrameEvaluation,
@@ -273,16 +273,12 @@ def build_border_safety_constraints(
             if area <= 1e-8:
                 continue
             required = {
-                "left": min(
-                    float(expanded_minimum[0]), -float(config.min_expand_px)
-                ),
+                "left": min(float(expanded_minimum[0]), -float(config.min_expand_px)),
                 "right": max(
                     float(expanded_maximum[0]),
                     float(width - 1) + float(config.min_expand_px),
                 ),
-                "top": min(
-                    float(expanded_minimum[1]), -float(config.min_expand_px)
-                ),
+                "top": min(float(expanded_minimum[1]), -float(config.min_expand_px)),
                 "bottom": max(
                     float(expanded_maximum[1]),
                     float(height - 1) + float(config.min_expand_px),
@@ -301,9 +297,9 @@ def build_border_safety_constraints(
             excluded = strips[constraints[0].side]
             for side in constraints[1:]:
                 excluded = excluded.union(strips[side.side])
-            quality_domain = box(
-                0.0, 0.0, float(width), float(height)
-            ).difference(excluded)
+            quality_domain = box(0.0, 0.0, float(width), float(height)).difference(
+                excluded
+            )
             output[identity] = BorderFrameConstraint(
                 sides=tuple(constraints),
                 local_recall_floor=float(local_recall_floor),
@@ -343,13 +339,9 @@ def border_geometry_metrics(
             "bottom": bounds[3],
         }[side.side]
         if side.side in {"left", "top"}:
-            extent_violations += int(
-                coordinate > side.required_coordinate + 1e-9
-            )
+            extent_violations += int(coordinate > side.required_coordinate + 1e-9)
         else:
-            extent_violations += int(
-                coordinate < side.required_coordinate - 1e-9
-            )
+            extent_violations += int(coordinate < side.required_coordinate - 1e-9)
     return minimum_recall, extent_violations
 
 
@@ -359,10 +351,7 @@ def border_geometry_feasible(
     recall, extent_violations = border_geometry_metrics(geometry, constraint)
     return bool(
         extent_violations == 0
-        and (
-            constraint is None
-            or recall + 1e-12 >= constraint.local_recall_floor
-        )
+        and (constraint is None or recall + 1e-12 >= constraint.local_recall_floor)
     )
 
 
@@ -398,9 +387,7 @@ def audit_border_safety(
             geometry, constraint
         )
         minimum_local_recall = min(minimum_local_recall, local_recall)
-        recall_violations += int(
-            local_recall + 1e-12 < constraint.local_recall_floor
-        )
+        recall_violations += int(local_recall + 1e-12 < constraint.local_recall_floor)
         extent_violations += current_extent_violations
         side_count += len(constraint.sides)
         worst.append(
@@ -426,9 +413,7 @@ def audit_border_safety(
         "extent_violations": extent_violations,
         "missing_frames": missing_frames,
         "passed": (
-            recall_violations == 0
-            and extent_violations == 0
-            and missing_frames == 0
+            recall_violations == 0 and extent_violations == 0 and missing_frames == 0
         ),
         "worst_frames": worst[:20],
     }

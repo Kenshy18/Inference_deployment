@@ -156,7 +156,6 @@ class ProductionPolygonStage:
             "profile": config.profile_id,
             "target_interval": config.target_interval,
             "gapfill_max_gap": config.gapfill_max_gap,
-            "requested_max_gap": self.options.get("max_gap"),
             "interval_evaluation": config.interval_evaluation,
             "vertex_policy": {
                 "method": "track_q99.9_pre_border_screen_occupancy_v1",

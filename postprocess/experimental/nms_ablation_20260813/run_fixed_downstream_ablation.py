@@ -39,7 +39,7 @@ from nms.component_aware import ComponentAwareMaskNms
 from nms.component_virtual import VirtualComponentMaskNms, VirtualComponentNms
 from nms.components import fill_holes_and_remove_tiny_islands
 from tracking.builder import build_tracked_sqlite
-from approximation.polygon.preparation import (
+from production.polygon.input_geometry import (
     apply_border_expansion,
     apply_endpoint_extension,
 )

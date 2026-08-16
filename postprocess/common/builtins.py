@@ -46,52 +46,10 @@ def tracking(options: dict[str, Any]) -> PostprocessStage:
     return TrackingStage(options)
 
 
-def polygon_approximation(options: dict[str, Any]) -> PostprocessStage:
-    from approximation.polygon.stages import RdpApproximationStage
-
-    return RdpApproximationStage(options)
-
-
 def polygon_production_v3_cpu(options: dict[str, Any]) -> PostprocessStage:
     from production.polygon import ProductionPolygonStage
 
     return ProductionPolygonStage(options)
-
-
-def ellipse_approximation(options: dict[str, Any]) -> PostprocessStage:
-    from approximation.ellipse.stages import EllipseApproximationStage
-
-    return EllipseApproximationStage(options)
-
-
-def polygon_keyframes(options: dict[str, Any]) -> PostprocessStage:
-    from keyframes.polygon.stages import IntervalKeyframesStage
-
-    return IntervalKeyframesStage(options)
-
-
-def ellipse_keyframes(options: dict[str, Any]) -> PostprocessStage:
-    from keyframes.ellipse.stages import DenseEllipseKeyframesStage
-
-    return DenseEllipseKeyframesStage(options)
-
-
-def polygon_gap_fill(options: dict[str, Any]) -> PostprocessStage:
-    from gap_fill.polygon.stages import PolygonGapFillStage
-
-    return PolygonGapFillStage(options)
-
-
-def ellipse_gap_fill(options: dict[str, Any]) -> PostprocessStage:
-    from gap_fill.ellipse.stages import EllipseGapFillStage
-
-    return EllipseGapFillStage(options)
-
-
-def ellipse_evaluation(options: dict[str, Any]) -> PostprocessStage:
-    from evaluation.stages import ExactEllipseEvaluationStage
-
-    return ExactEllipseEvaluationStage(options)
 
 
 def mask_evaluation(options: dict[str, Any]) -> PostprocessStage:
@@ -148,14 +106,7 @@ register_stage("preprocessing.score_policy", score_policy)
 register_stage("nms.production_v3", production_mask_nms)
 register_stage("cut_detection.video", cut_detection)
 register_stage("tracking.greedy", tracking)
-register_stage("approximation.polygon.rdp", polygon_approximation)
 register_stage("production.polygon_v3_cpu", polygon_production_v3_cpu)
-register_stage("approximation.ellipse.production", ellipse_approximation)
-register_stage("keyframes.polygon.interval", polygon_keyframes)
-register_stage("keyframes.ellipse.dense", ellipse_keyframes)
-register_stage("gap_fill.polygon.linear", polygon_gap_fill)
-register_stage("gap_fill.ellipse.linear", ellipse_gap_fill)
-register_stage("evaluation.ellipse.exact", ellipse_evaluation)
 register_stage("evaluation.mask_iou", mask_evaluation)
 register_stage("artifacts.union_sqlite", union_sqlite)
 register_stage("artifacts.validate", validate_output)

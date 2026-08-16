@@ -16,16 +16,7 @@ postprocess/
   nms/                     NMS
   cut_detection/           カット検出
   tracking/                トラッキング
-  approximation/
-    ellipse/               楕円近似
-    polygon/               ポリゴン近似
-  keyframes/
-    ellipse/               楕円キーフレーム
-    polygon/               ポリゴンキーフレーム
-  gap_fill/
-    ellipse/               楕円マスク補完
-    polygon/               ポリゴン補完
-  classwise/               クラス別shape/keyframe/補完ルーティング
+  classwise/               クラス別キーフレーム間隔ルーティング
   face_privacy/            顔楕円・Eye点から顔/目マスクを生成・統合
   evaluation/              品質評価
   artifacts/               最終SQLite生成・検証
@@ -33,9 +24,10 @@ postprocess/
   visualization/           可視化
 ```
 
-各機能ディレクトリがアルゴリズムと、その機能をパイプラインへ接続する
-`stages.py`を所有します。機能パッケージ同士はimportしません。データは
-`contracts`で定義された名前付き成果物だけで受け渡されます。
+各機能ディレクトリがアルゴリズムと、その機能をパイプラインへ接続するstageを
+所有します。後処理の正本は`production/polygon/`に集約され、NMS、入力幾何、
+頂点方針、DP、pair-vote、topology検証、成果物materializeを別モジュールに分離
+しています。データは`contracts`で定義された名前付き成果物だけで受け渡されます。
 
 GUI用Liveプレビューは`common/live_preview.py`の単一非同期workerへ、各stageが
 フレーム番号と軽量な図形だけを通知します。元動画のデコード・960×540描画・JPEG
@@ -59,8 +51,7 @@ AIの生出力JSONLからポリゴン後処理を行う例です。カット検�
 python run_pipeline.py \
   --input-jsonl input/detections.jsonl \
   --input-video input/video.mp4 \
-  --output-dir output/polygon \
-  --shape-mode polygon
+  --output-dir output/polygon
 ```
 
 動画がなく、カットを検出しない場合:
@@ -69,28 +60,17 @@ python run_pipeline.py \
 python run_pipeline.py \
   --input-jsonl input/detections.jsonl \
   --output-dir output/polygon \
-  --shape-mode polygon \
   --no-cut-detect
 ```
 
-既存の追跡済みSQLiteから楕円後処理を開始する場合:
+既存の追跡済みSQLiteから開始する場合:
 
 ```bash
 python run_pipeline.py \
   --input-sqlite input/tracked.sqlite \
-  --output-dir output/ellipse \
-  --shape-mode ellipse \
-  --device cuda:0
+  --output-dir output/postprocess \
+  --keyframe-interval 6
 ```
-
-楕円近似のK2ネットワークは`--device auto`（既定）でCUDAが利用可能なら
-GPUを使い、`--device cpu`でCPUへ固定できます。既定の
-`--k2-forward-mode states_only`は、最終楕円に不要なsoft mask生成を省いて
-同じstate出力を高速に計算します。性能調整用に
-`--k2-batch-size`、`--k2-prep-workers`、`--k2-precision`、
-`--k2-cudnn-benchmark`、`--k2-tf32`を指定できます。
-CPU版との数値的一致を優先する場合はFP32の
-`--k2-tf32 off`を使用してください。
 
 未追跡の検出SQLiteと元動画から開始する場合:
 
@@ -98,8 +78,7 @@ CPU版との数値的一致を優先する場合はFP32の
 python run_pipeline.py \
   --input-sqlite input/video_raw_detections.sqlite \
   --input-video input/video.mp4 \
-  --output-dir output/ellipse \
-  --shape-mode ellipse
+  --output-dir output/postprocess
 ```
 
 `--input-sqlite`は次の形式を自動判別します。
@@ -141,29 +120,25 @@ python run_pipeline.py \
   --input-sqlite input/inference.sqlite \
   --input-video input/video.mp4 \
   --precomputed-cuts-json output/cuts.json \
-  --output-dir output/postprocess \
-  --shape-mode ellipse
+  --output-dir output/postprocess
 ```
 
 `--max-frames`はprecompute側の上限です。動画が先に終了した場合は実フレーム数で
 正常終了します。`cuts.json`は通常のカット検出stageと同じ契約で検証されます。
 
-### クラス別に形状・キーフレーム・補完を設定する
+### クラス別にキーフレーム間隔を設定する
 
-tracking後の確定クラスごとに、`shape_mode`、`keyframe_interval`、
-`max_gap`を独立して設定できます。
+tracking後の確定クラスごとに、努力目標の`keyframe_interval`を独立して設定
+できます。形状はProduction polygon、内部gap補完上限は15に固定されています。
 
 ```bash
 python run_pipeline.py \
   --input-sqlite input/inference.sqlite \
   --input-video input/video.mp4 \
   --output-dir output/classwise \
-  --shape-mode polygon \
   --keyframe-interval 3 \
-  --max-gap 0 \
   --class-postprocess-policy-json \
-    configs/class_postprocess_policy.example.json \
-  --device cuda:0
+    configs/class_postprocess_policy.example.json
 ```
 
 ポリシーは次の形式です。
@@ -172,36 +147,28 @@ python run_pipeline.py \
 {
   "schema_version": 1,
   "default": {
-    "shape_mode": "polygon",
-    "keyframe_interval": 3,
-    "max_gap": 0
+    "keyframe_interval": 3
   },
   "classes": {
     "男性器": {
-      "shape_mode": "ellipse",
-      "keyframe_interval": 2,
-      "max_gap": 30
+      "keyframe_interval": 2
     }
   }
 }
 ```
 
-優先順位はクラス設定、ポリシーの`default`、CLIの共通値です。同じ3設定を持つ
-クラスは1グループへまとめ、モデル起動とSQLite走査を共有します。
-
-- `shape_mode`: `polygon`または`ellipse`
-- `keyframe_interval`: 1以上。値が小さいほどキーフレームが密
-- `max_gap`: 同一trackの両側に観測がある欠損を何フレームまで補完するか。
-  `0`は観測のないフレームを追加しない
+優先順位はクラス設定、ポリシーの`default`、CLIの共通値です。同じ間隔を持つ
+クラスは1グループへまとめ、SQLite走査を共有します。`keyframe_interval`は1以上で、
+値が小さいほどキーフレームが密になります。
 
 クラス判定にはtracking後のtrack確定ラベル（多数決）を使います。設定した
 クラスが入力に存在しなくてもエラーにはならず、未指定クラスは`default`へ
-進みます。楕円を1クラスでも指定し`--device auto/cuda:0`を使う場合、その
-グループだけK2のGPU経路を使用します。
+進みます。旧policyの`shape_mode: polygon`と`max_gap: 15`は移行入力として受理
+しますが、異なる値は明示的に拒否し、旧アルゴリズムへfallbackしません。
 
 最終SQLiteには`class_postprocess_policies`と
 `mask_postprocess_provenance`を追加します。後者は各性器マスクについて、
-適用した形状、キーフレーム間隔、補完上限、クラス指定かdefaultか、
+適用した固定形状契約、キーフレーム間隔、補完上限、クラス指定かdefaultか、
 新規補完フレームかを記録します。`cuts`、`cut_detection_metadata`、
 `raw_tracks`も最終統合後に保持されます。検出単位の追跡結果は
 `raw_tracked_masks`を複製せず、`tracking_assignments`から生出力
@@ -220,7 +187,6 @@ python run_pipeline.py \
   --input-sqlite input/inference.sqlite \
   --input-video input/video.mp4 \
   --output-dir output/postprocess \
-  --shape-mode ellipse \
   --face-mask-target eyes \
   --eye-mask-shape ellipse \
   --minimum-eye-confidence 0.35
@@ -264,8 +230,7 @@ classwise処理は欠落テーブルではなく空テーブルとなり、利�
 Face DINO v2だけの入力でも`package_result.py --face-mask-target face/eyes`を
 指定すれば、派生マスクを通常の最終キーフレームとして格納できます。
 
-インストール後は、同じCLIを`postprocess`コマンドでも実行できます。モデルの
-配置を変える場合は`--model-root`または`POSTPROCESS_MODEL_ROOT`を使います。
+インストール後は、同じCLIを`postprocess`コマンドでも実行できます。
 
 出力ディレクトリには各ステージのサブディレクトリ、最終成果物、および
 `pipeline_manifest.json`が生成されます。manifestには使用実装、要求・提供

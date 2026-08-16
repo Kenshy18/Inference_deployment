@@ -86,7 +86,7 @@ class ClassPostprocessTests(unittest.TestCase):
             self.assertEqual(15, policy.default.max_gap)
             self.assertEqual(15, policy.resolve("男性器").max_gap)
 
-    def test_policy_resolves_each_field_by_class_then_default(self) -> None:
+    def test_policy_rejects_retired_ellipse_geometry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "policy.json"
             path.write_text(
@@ -108,18 +108,11 @@ class ClassPostprocessTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            policy = load_class_postprocess_policy(
-                path,
-                fallback=ClassPostprocessSettings("polygon", 3, 15),
-            )
-            self.assertEqual(
-                ClassPostprocessSettings("polygon", 4, 15),
-                policy.resolve("unlisted"),
-            )
-            self.assertEqual(
-                ClassPostprocessSettings("ellipse", 2, 15),
-                policy.resolve("ellipse-class"),
-            )
+            with self.assertRaisesRegex(ValueError, "polygon only"):
+                load_class_postprocess_policy(
+                    path,
+                    fallback=ClassPostprocessSettings("polygon", 3, 15),
+                )
 
     def test_polygon_classes_use_independent_keyframe_settings(
         self,
@@ -157,12 +150,8 @@ class ClassPostprocessTests(unittest.TestCase):
                     str(source),
                     "--output-dir",
                     str(root / "output"),
-                    "--shape-mode",
-                    "polygon",
                     "--class-postprocess-policy-json",
                     str(policy),
-                    "--device",
-                    "cpu",
                 ]
             )
             manifest = run_pipeline(args)

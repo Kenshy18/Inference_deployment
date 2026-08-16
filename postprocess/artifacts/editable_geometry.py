@@ -469,7 +469,7 @@ def import_polygon_keyframes(
                     """,
                     (
                         keyframe_id,
-                        "keyframes.polygon.interval",
+                        "artifacts.fixed_interval_import_v1",
                         json.dumps(
                             {"source_artifact": str(Path(path).resolve())},
                             ensure_ascii=False,

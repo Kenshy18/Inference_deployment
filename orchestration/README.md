@@ -128,30 +128,23 @@ Postprocess実行時に旧`Dinov3_postprocess`互換SQLiteも作る場合は、
 
 ### クラス別後処理
 
-性器クラスごとに形状、キーフレーム密度、欠損補完上限を変える場合は、
-postprocess policyを指定します。
+性器クラスごとに努力目標キーフレーム間隔を変える場合は、postprocess policyを
+指定します。形状はProduction polygon、内部gap補完上限は15に固定されています。
 
 ```json
 {
   "postprocess": {
     "enabled": true,
-    "shape_mode": "polygon",
-    "keyframe_interval": 3,
-    "max_gap": 0,
+    "keyframe_interval": 6,
     "class_postprocess_policy_json":
-      "../../postprocess/configs/class_postprocess_policy.example.json",
-    "device": "cuda:0"
+      "../../postprocess/configs/class_postprocess_policy.example.json"
   }
 }
 ```
 
-`shape_mode`、`keyframe_interval`、`max_gap`はpolicyに値がない場合の共通
-fallbackです。policy内はクラス指定、`default`、このfallbackの順に解決します。
-`max_gap=0`は観測のないフレームを追加せず、正数は両側に同一trackが存在する
-欠損をそのフレーム数まで補完します。
-
-オーケストレーターはpolicyに楕円クラスが1つでもあればpostprocessをGPU stage
-として計画し、CLIへpolicyをそのまま渡します。設定例は
+`keyframe_interval`はpolicyに値がない場合の共通fallbackです。policy内はクラス
+指定、`default`、このfallbackの順に解決します。後処理はCPU exact stageとして
+計画され、旧楕円/K2経路やGPU近似へ暗黙に切り替わりません。設定例は
 [`../postprocess/configs/class_postprocess_policy.example.json`](../postprocess/configs/class_postprocess_policy.example.json)
 です。任意グラフの`postprocess.pipeline_config`とは併用できません。10分入力の
 実測値は
@@ -293,22 +286,15 @@ overlay/native/build.sh
 ## GPU policy
 
 - inferenceは`inference.device`をモデルCLIへ渡します。
-- postprocessは`shape_mode: ellipse`かつ`device: auto/cuda/cuda:N`の場合、
-  K2楕円近似へGPUを公開します。`device: cpu`でCPU実行を強制できます。
-- ポリゴン後処理は`postprocess.device`にかかわらずCPU処理です。
+- 性器postprocessは最小Recallを厳密に守るCPU `native_exact`処理です。
 - `postprocess.face_mask_target: face/eyes`はFace DINO v2の楕円・keypointから
   CPUでprivacy maskを作り、性器の最終SQLiteへ統合します。
 - overlayは`nvenc`または`fast`だけにGPUを公開します。
 - `cpu` subprocessには`CUDA_VISIBLE_DEVICES=""`と
   `NVIDIA_VISIBLE_DEVICES=none`を設定します。
 
-楕円近似の標準設定は、下流で使わないsoft maskを生成しない
-`states_only`です。`postprocess.k2_batch_size`、`k2_prep_workers`、
-`k2_precision`、`k2_forward_mode`、`k2_profile_stages`、
-`k2_cudnn_benchmark`、`k2_tf32`を型付きで設定できます。以前の
-`postprocess.extra_args`指定も互換性のため受理しますが、同じ項目を型付き設定と
-重複指定することはできません。CPU版との数値的一致を優先する本番設定は
-`k2_tf32: off`、最大速度優先は`k2_tf32: on`です。
+旧K2楕円用のdevice/model/precision引数は公開設定から撤去済みです。
+`postprocess.extra_args`で同名の予約引数を渡すことも検証時に拒否します。
 
 ## 成果物
 

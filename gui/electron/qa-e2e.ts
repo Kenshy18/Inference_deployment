@@ -71,10 +71,8 @@ export async function runQaE2e(
         Object.assign(draft.postprocess, {
           enabled: true,
           classPostprocessPolicySource: "editor",
-          shapeMode: "polygon",
           cutDetect: true,
           precomputeCutsDuringInference: true,
-          device: "cuda:0",
           faceMaskTarget: "eyes",
           eyeMaskShape: "rectangle",
         });

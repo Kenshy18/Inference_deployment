@@ -1,6 +1,5 @@
 export type BackendMode = "native" | "wsl";
 export type InferenceMode = "segmentation" | "segmentation-face" | "face";
-export type ShapeMode = "polygon" | "ellipse";
 export type SettingsView = "simple" | "advanced";
 export type SegmentationModel =
   | "dinov3_codino"
@@ -28,9 +27,7 @@ export type ClassPostprocessPolicySource = "global" | "editor" | "file";
 
 export interface ClassPostprocessRule {
   className: string;
-  shapeMode: ShapeMode;
   keyframeInterval: number;
-  maxGap: number;
 }
 export type JobStatus =
   | "idle"
@@ -73,7 +70,6 @@ export interface PostprocessDraft {
   enabled: boolean;
   trackedSqlite: string;
   finalSqlite: string;
-  shapeMode: ShapeMode;
   pipelineConfig: string;
   classPolicyJson: string;
   classPostprocessPolicySource: ClassPostprocessPolicySource;
@@ -85,17 +81,6 @@ export interface PostprocessDraft {
   precomputeCutsDuringInference: boolean;
   removeShortTracksMaxFrames: number | null;
   keyframeInterval: number | null;
-  maxGap: number | null;
-  modelRoot: string;
-  k2RunDir: string;
-  k2BatchSize: number | null;
-  k2PrepWorkers: number | null;
-  k2Precision: "fp32" | "fp16" | null;
-  k2ForwardMode: "states_only" | "full" | null;
-  k2ProfileStages: boolean | null;
-  k2CudnnBenchmark: "on" | "off" | null;
-  k2Tf32: "default" | "on" | "off" | null;
-  device: string;
   exportLegacySqlite: boolean;
   faceMaskTarget: FaceMaskTarget;
   eyeMaskShape: EyeMaskShape;

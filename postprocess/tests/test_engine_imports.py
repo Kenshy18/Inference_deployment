@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import importlib
-import pickle
 import subprocess
 import sys
 import unittest
-
-from approximation.ellipse import runtime_fst
 
 
 RUNTIME_MODULES = (
@@ -29,17 +26,7 @@ RUNTIME_MODULES = (
     "tracking.association",
     "tracking.builder",
     "tracking.stages",
-    "approximation.ellipse.inference",
-    "approximation.ellipse.stages",
-    "approximation.polygon.rdp",
-    "approximation.polygon.stages",
-    "keyframes.ellipse.stages",
-    "keyframes.polygon.interval",
-    "keyframes.polygon.stages",
-    "gap_fill.polygon.interpolate",
-    "gap_fill.polygon.stages",
-    "gap_fill.ellipse.interpolate",
-    "gap_fill.ellipse.stages",
+    "production.polygon.input_geometry",
     "evaluation.mask_iou",
     "evaluation.stages",
     "artifacts.sqlite",
@@ -66,14 +53,6 @@ class EngineImportTests(unittest.TestCase):
             with self.subTest(module=module_name):
                 importlib.import_module(module_name)
 
-    def test_registered_fst_worker_is_pickleable(self) -> None:
-        for worker in (
-            runtime_fst.fst._solve_k1_row_worker,
-            runtime_fst.fst._solve_k1_payload_worker,
-        ):
-            with self.subTest(worker=worker.__name__):
-                self.assertIs(pickle.loads(pickle.dumps(worker)), worker)
-
     def test_production_nms_does_not_load_historical_policies(self) -> None:
         script = (
             "import sys; import nms.production; "
@@ -82,6 +61,20 @@ class EngineImportTests(unittest.TestCase):
             "assert not loaded, sorted(loaded)"
         )
         subprocess.run([sys.executable, "-c", script], check=True)
+
+    def test_retired_genital_algorithms_are_not_registered(self) -> None:
+        from common.registry import stage_implementations
+
+        retired = {
+            "approximation.ellipse.production",
+            "approximation.polygon.rdp",
+            "keyframes.ellipse.dense",
+            "keyframes.polygon.interval",
+            "gap_fill.ellipse.linear",
+            "gap_fill.polygon.linear",
+            "evaluation.ellipse.exact",
+        }
+        self.assertTrue(retired.isdisjoint(stage_implementations()))
 
 
 if __name__ == "__main__":

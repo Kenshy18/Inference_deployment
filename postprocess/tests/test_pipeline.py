@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import io
 import os
 import sqlite3
 import tempfile
 import unittest
 from dataclasses import dataclass
-from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,7 +20,7 @@ from tests.helpers import write_sample_sqlite
 class MarkerStage:
     message: str = "inserted"
     name: str = "test_marker"
-    requires: frozenset[str] = frozenset({"approximated_sqlite"})
+    requires: frozenset[str] = frozenset({"predictions_sqlite"})
     provides: frozenset[str] = frozenset({"marker"})
 
     def run(self, context: StageContext) -> StageResult:
@@ -48,7 +46,6 @@ class PipelineTests(unittest.TestCase):
         args = build_parser().parse_args(
             ["--input-jsonl", "input.jsonl", "--output-dir", "output"]
         )
-        self.assertEqual("polygon", args.shape_mode)
         config = _configured_pipeline(args)
         implementations = [stage.implementation for stage in config.stages]
         self.assertIn("nms.production_v3", implementations)
@@ -121,9 +118,9 @@ class PipelineTests(unittest.TestCase):
                                 },
                             },
                             {
-                                "id": "keyframes",
-                                "implementation": "keyframes.polygon.interval",
-                                "options": {"interval_frames": 99},
+                                "id": "production_polygon",
+                                "implementation": "production.polygon_v3_cpu",
+                                "options": {"target_interval": 99},
                             },
                         ],
                     }
@@ -142,7 +139,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(0.91, configured.stages[0].options["score_min"])
             self.assertFalse(configured.stages[1].options["enabled"])
             self.assertEqual("frame_diff", configured.stages[1].options["method"])
-            self.assertEqual(99, configured.stages[2].options["interval_frames"])
+            self.assertEqual(99, configured.stages[2].options["target_interval"])
 
             overridden = _configured_pipeline(
                 build_parser().parse_args(
@@ -161,24 +158,18 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(0.2, overridden.stages[0].options["score_min"])
             self.assertTrue(overridden.stages[1].options["enabled"])
             self.assertEqual("high_precision", overridden.stages[1].options["method"])
-            self.assertEqual(4, overridden.stages[2].options["interval_frames"])
+            self.assertEqual(4, overridden.stages[2].options["target_interval"])
 
     def test_polygon_pipeline_supports_external_stage_insertion(self) -> None:
         config = PipelineConfig(
             "test_polygon",
             (
-                StageSpec("approximation", "approximation.polygon.rdp"),
+                StageSpec("production_polygon", "production.polygon_v3_cpu"),
                 StageSpec(
                     "custom_filter",
                     "tests.test_pipeline:MarkerStage",
-                    {"message": "between approximation and keyframes"},
+                    {"message": "after promoted production"},
                 ),
-                StageSpec(
-                    "keyframes",
-                    "keyframes.polygon.interval",
-                    {"interval_frames": 3},
-                ),
-                StageSpec("gap_fill", "gap_fill.polygon.linear"),
                 StageSpec("validation", "artifacts.validate"),
             ),
         )
@@ -193,17 +184,15 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(manifest["complete"])
             self.assertEqual(
                 [
-                    "approximation",
+                    "production_polygon",
                     "custom_filter",
-                    "keyframes",
-                    "gap_fill",
                     "validation",
                 ],
                 [stage["id"] for stage in manifest["stages"]],
             )
             marker = Path(manifest["artifacts"]["marker"])
             self.assertEqual(
-                "between approximation and keyframes",
+                "after promoted production",
                 marker.read_text(encoding="utf-8"),
             )
             with sqlite3.connect(manifest["artifacts"]["predictions_sqlite"]) as db:
@@ -214,10 +203,10 @@ class PipelineTests(unittest.TestCase):
     def test_missing_stage_artifact_fails_before_execution(self) -> None:
         config = PipelineConfig(
             "invalid",
-            (StageSpec("keyframes", "keyframes.polygon.interval"),),
+            (StageSpec("custom", "tests.test_pipeline:MarkerStage"),),
         )
         with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaisesRegex(ValueError, "approximated_sqlite"):
+            with self.assertRaisesRegex(ValueError, "predictions_sqlite"):
                 PipelineRunner(config, Path(temporary)).run({})
 
     def test_malformed_declared_artifact_is_rejected_at_stage_boundary(self) -> None:
@@ -287,8 +276,6 @@ class PipelineTests(unittest.TestCase):
                     str(source),
                     "--output-dir",
                     str(root / "output"),
-                    "--shape-mode",
-                    "polygon",
                     "--keyframe-interval",
                     "2",
                 ]
@@ -314,8 +301,6 @@ class PipelineTests(unittest.TestCase):
                     str(source),
                     "--output-dir",
                     "relative-output",
-                    "--shape-mode",
-                    "polygon",
                     "--keyframe-interval",
                     "2",
                 ]
@@ -330,37 +315,18 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(result.is_absolute())
             self.assertTrue(result.is_file())
 
-    def test_default_ellipse_pipeline_runs_end_to_end(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = write_sample_sqlite(root / "source.sqlite", frames=2)
-            args = build_parser().parse_args(
+    def test_retired_genital_geometry_cli_is_rejected(self) -> None:
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(
                 [
                     "--input-sqlite",
-                    str(source),
+                    "source.sqlite",
                     "--output-dir",
-                    str(root / "output"),
-                    "--shape-mode",
-                    "ellipse",
+                    "output",
                     "--device",
                     "cpu",
                 ]
             )
-            with redirect_stdout(io.StringIO()):
-                manifest = run_pipeline(args)
-            self.assertTrue(manifest["complete"])
-            self.assertEqual("ellipse_modular", manifest["pipeline"])
-            with sqlite3.connect(
-                manifest["artifacts"]["predictions_sqlite"]
-            ) as connection:
-                self.assertEqual(
-                    2,
-                    connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0],
-                )
-                self.assertEqual(
-                    [("sample",)],
-                    connection.execute("SELECT DISTINCT label FROM masks").fetchall(),
-                )
 
 
 if __name__ == "__main__":

@@ -125,20 +125,37 @@ def main() -> int:
                     "import json,sys;"
                     f"sys.path.insert(0,{str(root / 'postprocess')!r});"
                     "import run_pipeline,nms.production,production.polygon;"
-                    "forbidden={'nms.adaptive','nms.component_aware','nms.stages'};"
-                    "loaded=sorted(forbidden.intersection(sys.modules));"
+                    "from common.registry import stage_implementations;"
+                    "forbidden_modules={'nms.adaptive','nms.component_aware',"
+                    "'nms.stages'};"
+                    "loaded=sorted(forbidden_modules.intersection(sys.modules));"
                     "assert not loaded,loaded;"
-                    "print(json.dumps({'default_shape':"
-                    "run_pipeline.build_parser().parse_args(["
-                    "'--input-jsonl','input.jsonl','--output-dir','output'"
-                    "]).shape_mode,'loaded_forbidden':loaded}))"
+                    "p=run_pipeline.build_parser();"
+                    "options=sorted(o for a in p._actions for o in a.option_strings);"
+                    "retired_options=sorted(set(options).intersection({"
+                    "'--shape-mode','--device','--max-gap','--model-root',"
+                    "'--k2-run-dir','--k2-batch-size'}));"
+                    "assert not retired_options,retired_options;"
+                    "a=p.parse_args(['--input-jsonl','input.jsonl',"
+                    "'--output-dir','output']);"
+                    "stages=[s.implementation for s in "
+                    "run_pipeline._configured_pipeline(a).stages];"
+                    "assert 'nms.production_v3' in stages,stages;"
+                    "assert 'production.polygon_v3_cpu' in stages,stages;"
+                    "registered=stage_implementations();"
+                    "retired_stages=sorted(set(registered).intersection({"
+                    "'approximation.polygon.rdp','keyframes.polygon.interval',"
+                    "'gap_fill.polygon.linear','approximation.ellipse.production',"
+                    "'keyframes.ellipse.dense','gap_fill.ellipse.linear'}));"
+                    "assert not retired_stages,retired_stages;"
+                    "print(json.dumps({'stages':stages,'retired_options':"
+                    "retired_options,'retired_stages':retired_stages,"
+                    "'loaded_forbidden':loaded}))"
                 ),
             ],
             cwd=root,
         )
         report["postprocess_runtime"] = json.loads(postprocess_probe)
-        if report["postprocess_runtime"].get("default_shape") != "polygon":
-            failures.append("postprocess CLI does not default to Production polygon")
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         failures.append(f"Production postprocess import probe failed: {exc}")
     native_build = root / "postprocess/production/polygon/runtime/native_interval/build"

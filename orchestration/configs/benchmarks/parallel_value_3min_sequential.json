@@ -22,16 +22,13 @@
   },
   "postprocess": {
     "enabled": true,
-    "shape_mode": "polygon",
     "score_min": 0.35,
     "cut_detect": true,
     "cut_method": "high_precision",
     "precompute_cuts_during_inference": false,
     "remove_short_tracks_max_frames": 10,
     "keyframe_interval": 3,
-    "max_gap": 0,
-    "face_mask_target": "none",
-    "device": "cpu"
+    "face_mask_target": "none"
   },
   "overlay": {
     "enabled": false

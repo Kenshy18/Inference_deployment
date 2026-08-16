@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 from pathlib import Path
 
-from approximation.polygon.preparation import (
+from .input_geometry import (
     apply_border_expansion,
     apply_endpoint_extension,
 )

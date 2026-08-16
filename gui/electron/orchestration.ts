@@ -5,7 +5,6 @@ import type {
   PipelineDraft,
 } from "../shared/types";
 import { windowsToWslPath, wslLaunchWrapper } from "./wsl-bridge";
-import { effectivePostprocessMaxGap } from "../shared/production-contract";
 
 export interface OrchestrationConfig {
   schema_version: 1;
@@ -27,18 +26,14 @@ export interface LaunchSpec {
 }
 
 export interface ClassPostprocessPolicyFile {
-  schema_version: 1;
+  schema_version: 2;
   default: {
-    shape_mode: PipelineDraft["postprocess"]["shapeMode"];
     keyframe_interval: number;
-    max_gap: number;
   };
   classes: Record<
     string,
     {
-      shape_mode: PipelineDraft["postprocess"]["shapeMode"];
       keyframe_interval: number;
-      max_gap: number;
     }
   >;
 }
@@ -50,9 +45,6 @@ function validateClassRule(rule: ClassPostprocessRule, index: number): string {
   }
   if (!Number.isInteger(rule.keyframeInterval) || rule.keyframeInterval < 1) {
     throw new Error(`${label}: キーフレーム間隔は1以上の整数が必要です。`);
-  }
-  if (!Number.isInteger(rule.maxGap) || rule.maxGap < 0) {
-    throw new Error(`${label}: 補完上限は0以上の整数が必要です。`);
   }
   return label;
 }
@@ -73,13 +65,6 @@ export function buildClassPostprocessPolicy(
       "クラス別後処理では既定キーフレーム間隔に1以上の整数が必要です。",
     );
   }
-  if (
-    settings.maxGap === null ||
-    !Number.isInteger(settings.maxGap) ||
-    settings.maxGap < 0
-  ) {
-    throw new Error("クラス別後処理では既定補完上限に0以上の整数が必要です。");
-  }
   const classes: ClassPostprocessPolicyFile["classes"] = {};
   settings.classPostprocessRules.forEach((rule, index) => {
     const label = validateClassRule(rule, index);
@@ -87,20 +72,13 @@ export function buildClassPostprocessPolicy(
       throw new Error(`クラス別後処理のクラス名が重複しています: ${label}`);
     }
     classes[label] = {
-      shape_mode: rule.shapeMode,
       keyframe_interval: rule.keyframeInterval,
-      max_gap: effectivePostprocessMaxGap(rule.shapeMode, rule.maxGap),
     };
   });
   return {
-    schema_version: 1,
+    schema_version: 2,
     default: {
-      shape_mode: settings.shapeMode,
       keyframe_interval: settings.keyframeInterval,
-      max_gap: effectivePostprocessMaxGap(
-        settings.shapeMode,
-        settings.maxGap,
-      ),
     },
     classes,
   };
@@ -155,7 +133,6 @@ export function buildOrchestrationConfig(
 
   const postprocess: Record<string, unknown> = {
     enabled: draft.postprocess.enabled,
-    shape_mode: draft.postprocess.shapeMode,
     pipeline_config: optionalRuntimePath(draft.postprocess.pipelineConfig),
     class_policy_json: optionalRuntimePath(draft.postprocess.classPolicyJson),
     class_postprocess_policy_json:
@@ -170,17 +147,6 @@ export function buildOrchestrationConfig(
     remove_short_tracks_max_frames:
       draft.postprocess.removeShortTracksMaxFrames,
     keyframe_interval: draft.postprocess.keyframeInterval,
-    max_gap: draft.postprocess.maxGap,
-    model_root: optionalRuntimePath(draft.postprocess.modelRoot),
-    k2_run_dir: optionalRuntimePath(draft.postprocess.k2RunDir),
-    k2_batch_size: draft.postprocess.k2BatchSize,
-    k2_prep_workers: draft.postprocess.k2PrepWorkers,
-    k2_precision: draft.postprocess.k2Precision,
-    k2_forward_mode: draft.postprocess.k2ForwardMode,
-    k2_profile_stages: draft.postprocess.k2ProfileStages,
-    k2_cudnn_benchmark: draft.postprocess.k2CudnnBenchmark,
-    k2_tf32: draft.postprocess.k2Tf32,
-    device: draft.postprocess.device,
     export_legacy_sqlite: draft.postprocess.exportLegacySqlite,
     face_mask_target: draft.postprocess.faceMaskTarget,
     eye_mask_shape: draft.postprocess.eyeMaskShape,

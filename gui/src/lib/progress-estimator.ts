@@ -281,12 +281,7 @@ export function estimatePipelineProgress(
   }
 
   if (draft.postprocess.enabled) {
-    const hasEllipse =
-      draft.postprocess.shapeMode === "ellipse" ||
-      draft.postprocess.classPostprocessRules.some(
-        (rule) => rule.shapeMode === "ellipse",
-      );
-    const geometryRate = hasEllipse ? 1_050 : 1_250;
+    const geometryRate = 1_250;
     const serialCutSeconds =
       draft.postprocess.cutDetect &&
       !draft.postprocess.precomputeCutsDuringInference

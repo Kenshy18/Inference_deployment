@@ -29,9 +29,9 @@ const data = (...parts) => path.join(repositoryRoot, "data", ...parts);
 const fixture = (name) => path.join(matrixRoot, "fixtures", name);
 
 const mixedRules = [
-  { className: "男性器", shapeMode: "polygon", keyframeInterval: 2, maxGap: 8 },
-  { className: "女性器", shapeMode: "ellipse", keyframeInterval: 3, maxGap: 12 },
-  { className: "結合部分", shapeMode: "polygon", keyframeInterval: 4, maxGap: 6 },
+  { className: "男性器", keyframeInterval: 2 },
+  { className: "女性器", keyframeInterval: 3 },
+  { className: "結合部分", keyframeInterval: 4 },
 ];
 
 const cases = [
@@ -57,13 +57,11 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        shapeMode: "polygon",
         classPostprocessRules: mixedRules,
         faceMaskTarget: "eyes",
         eyeMaskShape: "rectangle",
         cutDetect: true,
         precomputeCutsDuringInference: true,
-        device: "cuda:0",
       },
       overlay: {
         enabled: true,
@@ -94,13 +92,11 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        shapeMode: "polygon",
         classPostprocessRules: mixedRules,
         faceMaskTarget: "eyes",
         eyeMaskShape: "ellipse",
         cutDetect: true,
         precomputeCutsDuringInference: true,
-        device: "cuda:0",
       },
       overlay: {
         enabled: true,
@@ -127,14 +123,9 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        shapeMode: "polygon",
-        classPostprocessRules: mixedRules.map((rule) => ({
-          ...rule,
-          shapeMode: "polygon",
-        })),
+        classPostprocessRules: mixedRules,
         faceMaskTarget: "none",
         precomputeCutsDuringInference: true,
-        device: "cpu",
       },
       overlay: {
         enabled: true,
@@ -160,14 +151,9 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        shapeMode: "ellipse",
-        classPostprocessRules: mixedRules.map((rule) => ({
-          ...rule,
-          shapeMode: "ellipse",
-        })),
+        classPostprocessRules: mixedRules,
         faceMaskTarget: "none",
         precomputeCutsDuringInference: false,
-        device: "cuda:0",
       },
       overlay: {
         enabled: true,
@@ -228,12 +214,10 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        shapeMode: "polygon",
         classPostprocessRules: mixedRules,
         faceMaskTarget: "face",
         eyeMaskShape: "ellipse",
         precomputeCutsDuringInference: true,
-        device: "cuda:0",
       },
       overlay: {
         enabled: true,
@@ -263,12 +247,10 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        shapeMode: "polygon",
         classPostprocessRules: mixedRules,
         faceMaskTarget: "eyes",
         eyeMaskShape: "rectangle",
         precomputeCutsDuringInference: true,
-        device: "cuda:0",
       },
       overlay: {
         enabled: true,
@@ -326,14 +308,9 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        shapeMode: "ellipse",
-        classPostprocessRules: mixedRules.map((rule) => ({
-          ...rule,
-          shapeMode: "ellipse",
-        })),
+        classPostprocessRules: mixedRules,
         faceMaskTarget: "none",
         precomputeCutsDuringInference: false,
-        device: "cuda:0",
       },
       overlay: {
         enabled: true,
@@ -389,12 +366,10 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        shapeMode: "polygon",
         classPostprocessRules: mixedRules,
         faceMaskTarget: "none",
         cutDetect: true,
         precomputeCutsDuringInference: true,
-        device: "cuda:0",
       },
       overlay: {
         enabled: true,
@@ -466,7 +441,6 @@ const cases = [
         classPostprocessRules: mixedRules,
         faceMaskTarget: "eyes",
         eyeMaskShape: "ellipse",
-        device: "cuda:0",
       },
       overlay: { enabled: true, executionMode: "fast", presets: ["combined-detailed"] },
     },

@@ -14,8 +14,7 @@
   "postprocess": {
     "enabled": false,
     "tracked_sqlite": "/path/to/tracked.sqlite",
-    "final_sqlite": "/path/to/predictions.sqlite",
-    "device": "cpu"
+    "final_sqlite": "/path/to/predictions.sqlite"
   },
   "overlay": {
     "enabled": true,

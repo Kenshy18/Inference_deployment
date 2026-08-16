@@ -45,11 +45,9 @@ class WorkflowTests(unittest.TestCase):
             policy.write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "default": {
-                            "shape_mode": "polygon",
                             "keyframe_interval": 2,
-                            "max_gap": 0,
                         },
                         "classes": {},
                     }
@@ -75,7 +73,6 @@ class WorkflowTests(unittest.TestCase):
                             "class_postprocess_policy_json": str(policy),
                             "cut_detect": False,
                             "remove_short_tracks_max_frames": 0,
-                            "device": "cpu",
                             "face_mask_target": "eyes",
                             "eye_mask_shape": "rectangle",
                         },
@@ -89,7 +86,9 @@ class WorkflowTests(unittest.TestCase):
 
             self.assertEqual("complete", manifest["status"])
             validation = manifest["validation"]["result_sqlite"]
-            self.assertEqual(PUBLIC_RESULT_SCHEMA_SIGNATURE, validation["schema_signature"])
+            self.assertEqual(
+                PUBLIC_RESULT_SCHEMA_SIGNATURE, validation["schema_signature"]
+            )
             self.assertEqual(0, validation["inference"]["segmentations"])
             self.assertEqual(1, validation["inference"]["face_observations"])
             self.assertEqual(
@@ -209,9 +208,7 @@ class WorkflowTests(unittest.TestCase):
                         json.dumps(payload),
                         encoding="utf-8",
                     )
-                    runner = OrchestrationRunner(
-                        OrchestrationConfig.load(config_path)
-                    )
+                    runner = OrchestrationRunner(OrchestrationConfig.load(config_path))
                     command = runner.overlay_command(
                         mode=None,
                         source_sqlite=source,
@@ -497,10 +494,8 @@ class WorkflowTests(unittest.TestCase):
                         "postprocess": {
                             "enabled": True,
                             "export_legacy_sqlite": True,
-                            "shape_mode": "polygon",
                             "cut_detect": False,
                             "remove_short_tracks_max_frames": 0,
-                            "device": "cpu",
                             "face_mask_target": "eyes",
                             "eye_mask_shape": "rectangle",
                         },
@@ -868,10 +863,8 @@ class WorkflowTests(unittest.TestCase):
                         "postprocess": {
                             "enabled": True,
                             "export_legacy_sqlite": True,
-                            "shape_mode": "polygon",
                             "cut_detect": False,
                             "remove_short_tracks_max_frames": 0,
-                            "device": "cpu",
                         },
                         "overlay": {
                             "enabled": True,

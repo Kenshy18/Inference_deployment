@@ -412,9 +412,7 @@ export function MonitorPanel({
     const policy =
       draft.postprocess.classPostprocessPolicySource === "editor"
         ? `${draft.postprocess.classPostprocessRules.length}クラス個別`
-        : draft.postprocess.shapeMode === "ellipse"
-          ? "楕円"
-          : "ポリゴン";
+        : "ポリゴン";
     const cut =
       draft.postprocess.cutDetect
         ? draft.postprocess.precomputeCutsDuringInference

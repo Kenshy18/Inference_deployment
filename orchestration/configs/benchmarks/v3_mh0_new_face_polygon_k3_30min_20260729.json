@@ -26,17 +26,14 @@
   "postprocess": {
     "enabled": true,
     "export_legacy_sqlite": false,
-    "shape_mode": "polygon",
     "score_min": 0.35,
     "cut_detect": true,
     "cut_method": "high_precision",
     "remove_short_tracks_max_frames": 10,
     "keyframe_interval": 3,
-    "max_gap": 30,
     "face_mask_target": "eyes",
     "eye_mask_shape": "ellipse",
-    "minimum_eye_confidence": 0.35,
-    "device": "cpu"
+    "minimum_eye_confidence": 0.35
   },
   "overlay": {
     "enabled": false

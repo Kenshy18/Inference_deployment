@@ -1,25 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "default": {
-    "shape_mode": "polygon",
-    "keyframe_interval": 3,
-    "max_gap": 0
+    "keyframe_interval": 6
   },
   "classes": {
     "男性器": {
-      "shape_mode": "ellipse",
-      "keyframe_interval": 2,
-      "max_gap": 30
+      "keyframe_interval": 6
     },
     "女性器": {
-      "shape_mode": "polygon",
-      "keyframe_interval": 3,
-      "max_gap": 12
+      "keyframe_interval": 6
     },
     "結合部分": {
-      "shape_mode": "polygon",
-      "keyframe_interval": 2,
-      "max_gap": 8
+      "keyframe_interval": 6
     }
   }
 }

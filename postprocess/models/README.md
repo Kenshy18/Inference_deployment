@@ -1,18 +1,14 @@
 # Runtime models
 
-この standalone workspace には検証済みの既定 checkpoint が同梱されています。
+このruntimeにはProduction polygon候補生成用の軽量point predictorを配置します。
 
 ```text
 models/
-  k2_v5/
-    best_exact.pt
-    run_config.json
   polygon_point_predictor/
     best.pt
     feature_stats.npz
     run_config.json
 ```
 
-別モデルを利用する場合は同じレイアウトで別 directory に配置し、
-`POSTPROCESS_MODEL_ROOT` または `--model-root` で切り替えてください。既定モデルを
-上書きせず、モデルごとに config、重み、特徴量統計をまとめることを推奨します。
+重いバイナリは配布asset manifestから注入され、Gitには保存しません。旧K2楕円
+モデルはProduction経路から撤去済みで、配布物にも含めません。

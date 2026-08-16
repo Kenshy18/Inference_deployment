@@ -62,26 +62,15 @@ GUIでは次の区別を明示します。
 | --- | --- | --- |
 | `enabled` | 簡単 | 性器の追跡・整形。顔後処理とは独立 |
 | `tracked_sqlite` / `final_sqlite` | 簡単 | 後処理を省略する場合の既存SQLite（後処理セクション内） |
-| `shape_mode` | 簡単 | 既定のpolygon/ellipse |
 | `pipeline_config` | 詳細 | pipeline設定 |
 | `class_policy_json` | 詳細 | クラスpolicy |
-| `class_postprocess_policy_json` | 詳細 | GUI編集または既存JSON。クラス別shape/keyframe/補完policy |
+| `class_postprocess_policy_json` | 詳細 | GUI編集または既存JSON。クラス別キーフレーム間隔policy |
 | `score_min` | 簡単 | 検出スコア下限 |
 | `cut_detect` | 簡単 | カット検出 |
 | `cut_method` | 詳細 | 高精度またはframe差分 |
 | `precompute_cuts_during_inference` | 詳細 | 独立したFFmpeg縮小decodeによるCPU検出をGPU推論と同時実行 |
 | `remove_short_tracks_max_frames` | 詳細 | 性器の短命track除去 |
 | `keyframe_interval` | 簡単 | 既定キーフレーム間隔 |
-| `max_gap` | 詳細 | 補完する欠損フレーム上限 |
-| `model_root` / `k2_run_dir` | 詳細 | 楕円K2モデルの場所 |
-| `k2_batch_size` | 詳細 | K2 GPU batch |
-| `k2_prep_workers` | 詳細 | K2前処理worker |
-| `k2_precision` | 詳細 | FP32/FP16 |
-| `k2_forward_mode` | 詳細 | `states_only`/`full` |
-| `k2_profile_stages` | 詳細 | K2 stage計測 |
-| `k2_cudnn_benchmark` | 詳細 | cuDNN benchmark |
-| `k2_tf32` | 詳細 | TF32設定 |
-| `device` | 詳細 | CPU/auto/CUDA |
 | `export_legacy_sqlite` | 詳細 | v1互換SQLiteも出力 |
 | `face_mask_target` | 簡単 | 最終SQLiteへ保存する顔privacy mask。なし、顔全体、目元 |
 | `eye_mask_shape` | 簡単 | 目元の楕円/長方形 |
@@ -94,14 +83,11 @@ GUIでは次の区別を明示します。
 | `face_interpolation_max_gap` | 詳細 | 顔trackの補完上限 |
 | `extra_args` | 詳細 | 将来の未型付け引数 |
 
-K2設定は以前`extra_args`だけで指定できましたが、現在はオーケストレーターの型付き
-設定です。予約引数の二重指定は検証時に拒否されます。
-
 クラス別後処理は「共通」「GUI」「JSON」の3方式です。「GUI」では確定クラス名ごとに
-`shape_mode`、`keyframe_interval`、`max_gap`を直接編集します。実行時に
+`keyframe_interval`を直接編集します。実行時に
 `class_postprocess_policy.json`をジョブ設定フォルダへ保存するため、実行後も適用値を
-再現できます。未指定クラスは画面上の既定形状・既定キーフレーム・既定補完上限を
-使います。
+再現できます。未指定クラスは画面上の既定キーフレーム間隔を使います。性器形状、
+gap補完、評価方式は昇格済みProduction契約が固定し、GUIから変更しません。
 
 ## Overlay
 

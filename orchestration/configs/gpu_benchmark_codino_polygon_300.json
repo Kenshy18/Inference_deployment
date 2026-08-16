@@ -24,13 +24,11 @@
   },
   "postprocess": {
     "enabled": true,
-    "shape_mode": "polygon",
     "score_min": 0.35,
     "cut_detect": true,
     "cut_method": "high_precision",
     "remove_short_tracks_max_frames": 10,
-    "keyframe_interval": 3,
-    "device": "cpu"
+    "keyframe_interval": 6
   },
   "overlay": {
     "enabled": true,
