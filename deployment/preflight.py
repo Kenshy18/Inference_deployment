@@ -25,7 +25,9 @@ def run(command: list[str], *, cwd: Path) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
     parser.add_argument("--profile", choices=("core", "all"), default="core")
     parser.add_argument(
         "--runtime-python",
@@ -94,9 +96,36 @@ def main() -> int:
         if runtime.get("cuda_available") is not True:
             failures.append("PyTorch cannot access CUDA")
         if runtime.get("capability") != [12, 0]:
-            failures.append(f"production engines require SM120; found {runtime.get('capability')}")
+            failures.append(
+                f"production engines require SM120; found {runtime.get('capability')}"
+            )
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         failures.append(f"Python/GPU probe failed: {exc}")
+    native_build = root / "postprocess/production/polygon/runtime/native_interval/build"
+    try:
+        native_probe = run(
+            [
+                str(runtime_python),
+                "-c",
+                (
+                    "import json,sys;"
+                    f"sys.path.insert(0,{str(native_build)!r});"
+                    "import native_interval_metrics as n;"
+                    "v=n.exact_metrics([[[0,0],[4,0],[4,4],[0,4]]],"
+                    "[[[0,0],[4,0],[4,4],[0,4]]]);"
+                    "print(json.dumps({'module':n.__file__,'iou':v['iou'],"
+                    "'recall':v['recall']}))"
+                ),
+            ],
+            cwd=root,
+        )
+        report["native_polygon_evaluator"] = json.loads(native_probe)
+        if report["native_polygon_evaluator"].get("iou") != 1.0:
+            failures.append("native polygon evaluator returned an invalid IoU")
+        if report["native_polygon_evaluator"].get("recall") != 1.0:
+            failures.append("native polygon evaluator returned an invalid Recall")
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        failures.append(f"native polygon evaluator probe failed: {exc}")
     nvidia_smi = shutil.which("nvidia-smi")
     if nvidia_smi is None:
         failures.append("nvidia-smi is unavailable inside WSL")
@@ -113,7 +142,9 @@ def main() -> int:
         except subprocess.CalledProcessError as exc:
             failures.append(f"nvidia-smi probe failed: {exc}")
     overlay_binary = root / "overlay" / "native" / "build" / "overlay_native"
-    overlay_ffmpeg = root / "overlay" / "native" / ".runtime" / "ffmpeg" / "bin" / "ffmpeg"
+    overlay_ffmpeg = (
+        root / "overlay" / "native" / ".runtime" / "ffmpeg" / "bin" / "ffmpeg"
+    )
     fast_overlay_ffmpeg = (
         root / "overlay" / ".runtime" / "ffmpeg-nvenc-btbn-8.1" / "bin" / "ffmpeg"
     )

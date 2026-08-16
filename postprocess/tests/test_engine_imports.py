@@ -46,8 +46,15 @@ RUNTIME_MODULES = (
     "visualization.overlay",
     "production.config",
     "production.polygon.materialize",
+    "production.polygon.preparation",
     "production.polygon.runtime_bridge",
+    "production.polygon.runtime.candidate_config",
+    "production.polygon.runtime.engine",
+    "production.polygon.runtime.phase1_runtime",
+    "production.polygon.runtime.phase2_runtime",
+    "production.polygon.runtime.run_phase2",
     "production.polygon.stage",
+    "production.polygon.vertex_policy",
     "run_pipeline",
 )
 

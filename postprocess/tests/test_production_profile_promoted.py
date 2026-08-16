@@ -31,12 +31,10 @@ def _reference(path: Path) -> Path:
 
 
 class PromotedProductionProfileTests(unittest.TestCase):
-    def test_dated_runtime_imports_are_quarantined_to_one_module(self) -> None:
+    def test_production_tree_never_imports_experimental_code(self) -> None:
         root = Path(__file__).resolve().parents[1] / "production"
         offenders: list[str] = []
         for path in root.rglob("*.py"):
-            if path.name == "runtime_bridge.py":
-                continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 module = ""
@@ -49,6 +47,31 @@ class PromotedProductionProfileTests(unittest.TestCase):
                 if module.startswith("experimental"):
                     offenders.append(str(path.relative_to(root)))
         self.assertEqual([], offenders)
+
+    def test_native_exact_runtime_is_shipped_with_reproducible_sources(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        native = root / "production/polygon/runtime/native_interval"
+        required = {
+            "CMakeLists.txt",
+            "bootstrap_and_build.sh",
+            "environment.yml",
+            "native_interval_metrics.cpp",
+            "test_native_interval_metrics.py",
+        }
+        self.assertEqual(required, {path.name for path in native.iterdir()} & required)
+        setup = (root.parent / "deployment/setup_phase2.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            "production/polygon/runtime/native_interval/bootstrap_and_build.sh",
+            setup,
+        )
+        package_config = (root / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('"production",', package_config)
+        self.assertIn('"vendor" = "vendor"', package_config)
+        coordinator = (root / "production/polygon/runtime/run_phase2.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("MASK_PIPELINE_CUDA_EXPERIMENT_SITE", coordinator)
+        self.assertNotIn("mask-pipeline-cuda-experiment", coordinator)
 
     def test_public_contract_forces_native_exact_cpu(self) -> None:
         PRODUCTION.validate()

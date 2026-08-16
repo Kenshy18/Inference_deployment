@@ -214,7 +214,7 @@ class ProductionPolygonStage:
             "preparation": preparation,
             "optimizer": optimizer,
             "materialization": materialization,
-            "runtime_bridge": "experimental_0809_parity_frozen_adaptive_v2",
+            "runtime_bridge": "production_internal_parity_frozen_adaptive_v3",
         }
         manifest = stage_dir / "production_polygon_manifest.json"
         manifest.write_text(

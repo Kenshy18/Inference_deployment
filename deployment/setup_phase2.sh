@@ -4,6 +4,7 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/.." && pwd)
 runtime_python=${INFERENCE_RUNTIME_PYTHON:-/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10}
+native_interval_root=/home/kenshin/.local/share/video-mask-runtime/native-interval
 profile=core
 full_hash=0
 skip_overlay_bootstrap=0
@@ -30,6 +31,10 @@ if [[ ! -x "$runtime_python" ]]; then
   echo "Phase 2 reuses the existing runtime; phase 3 will provision it." >&2
   exit 1
 fi
+
+MASK_PIPELINE_NATIVE_ROOT="$native_interval_root" \
+INFERENCE_RUNTIME_PYTHON="$runtime_python" \
+  "$repo_root/postprocess/production/polygon/runtime/native_interval/bootstrap_and_build.sh"
 
 verify=("$runtime_python" "$script_dir/verify_assets.py" --root "$repo_root" --profile "$profile" --stage runtime)
 if [[ $full_hash -eq 1 ]]; then verify+=(--full-hash); fi

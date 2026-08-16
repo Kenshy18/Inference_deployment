@@ -275,6 +275,56 @@ class KeyframeCacheTests(unittest.TestCase):
                     connection.execute("SELECT frame FROM cuts").fetchall(),
                 )
 
+    def test_index_interpolation_keeps_keyframe_without_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "result.sqlite"
+            self._write_source(source)
+            with sqlite3.connect(source) as connection:
+                connection.executescript(
+                    """
+                    UPDATE mask_track_segments
+                    SET interpolation_method='linear_polygon_index_v1'
+                    WHERE id=1;
+                    UPDATE tracking_assignments
+                    SET removed_by_short_track=1
+                    WHERE frame=1 AND final_track_id='1';
+                    INSERT INTO mask_keyframes VALUES (4, 1, 1);
+                    INSERT INTO keyframe_components
+                        VALUES (4, 4, 0, 'polygon');
+                    INSERT INTO keyframe_polygon_rings
+                        VALUES (3, 4, 0, 'exterior');
+                    INSERT INTO keyframe_polygon_points VALUES
+                        (3, 0, 100, 0), (3, 1, 102, 0),
+                        (3, 2, 102, 2), (3, 3, 100, 2);
+                    """
+                )
+
+            cache = root / "final-cache.sqlite"
+            materialize_overlay_cache(
+                source,
+                cache,
+                mode="final",
+                mask_domain="genital",
+            )
+            with sqlite3.connect(cache) as connection:
+                middle = json.loads(
+                    connection.execute(
+                        "SELECT polygons FROM masks " "WHERE frame=1 AND track_id='1'"
+                    ).fetchone()[0]
+                )
+                self.assertEqual(
+                    1,
+                    connection.execute(
+                        "SELECT is_keyframe FROM masks "
+                        "WHERE frame=1 AND track_id='1'"
+                    ).fetchone()[0],
+                )
+            self.assertEqual(
+                [[100.0, 0.0], [102.0, 0.0], [102.0, 2.0], [100.0, 2.0]],
+                middle[0],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

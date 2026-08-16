@@ -19,8 +19,9 @@ The default polygon pipeline uses the promoted adaptive CPU-exact profile:
 
 The prior `nms.adaptive` and `approximation.polygon.production_v22` stage IDs
 remain registered as explicit rollback paths. The parity-frozen optimizer is
-reached only through `production/polygon/runtime_bridge.py`; no other
-Production module imports dated experimental runtime modules.
+reached only through `production/polygon/runtime_bridge.py`. The polygon
+optimizer is fully owned by `production.polygon.runtime`; a deployed backend
+does not import code from `postprocess.experimental`.
 
 Final exact Recall violations, rejected pair-vote trials, selected vertex
 counts, border settings, and SQLite integrity are recorded in manifests. A

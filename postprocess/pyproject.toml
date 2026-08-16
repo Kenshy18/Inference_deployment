@@ -42,6 +42,7 @@ packages = [
   "visualization",
   "tentative",
   "classwise",
+  "production",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
@@ -53,6 +54,7 @@ packages = [
 "README.md" = "mask_postprocess_docs/README.md"
 "configs" = "mask_postprocess_docs/configs"
 "docs" = "mask_postprocess_docs/docs"
+"vendor" = "vendor"
 
 [tool.black]
 line-length = 88

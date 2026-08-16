@@ -1,15 +1,11 @@
-"""Single quarantine boundary around the parity-frozen optimizer runtime."""
+"""Stable boundary around the self-contained Production optimizer runtime."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from experimental.production_candidate_20260814.polygon.engine import (
-    run_polygon_optimizer,
-)
-from experimental.production_candidate_20260814.polygon.preparation import (
-    prepare_classwise_source,
-)
+from .preparation import prepare_classwise_source
+from .runtime.engine import run_polygon_optimizer
 
 from ..config import (
     RUNTIME_CANDIDATE_PROFILE_ID,
@@ -19,8 +15,8 @@ from ..config import (
 
 
 def build_runtime_config(config: ProductionConfig):
-    """Translate the stable contract at the sole experimental boundary."""
-    from experimental.production_candidate_20260814.config import (
+    """Translate the public contract to the parity-frozen internal payload."""
+    from .runtime.candidate_config import (
         CANDIDATE,
         with_interval_evaluation,
         with_target_interval,

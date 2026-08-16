@@ -457,7 +457,52 @@ def _polygon_components_for_final_frame(
     frame: int,
     interpolation_method: str,
 ) -> tuple[Component, ...]:
-    """Reproduce the polygon pipeline's observed-frame then gap-fill order."""
+    """Materialize final polygons using the method declared by the producer."""
+
+    if interpolation_method == "linear_polygon_index_v1":
+        # Production polygon keyframes already have a fixed vertex count,
+        # winding, slot order and point-index correspondence.  They are the
+        # authoritative state used to create predictions.sqlite, including
+        # keyframes inserted on a frame where the detector had no observation.
+        # Re-interpolating through tracking observations both skips such a
+        # keyframe and changes the geometry that passed the exact Recall gate.
+        # Keep float32 arithmetic identical to the optimizer so the public
+        # keyframe-primary SQLite materializes byte-for-byte-equivalent point
+        # coordinates to the validated dense output.
+        frames = [keyframe.frame for keyframe in keyframes]
+        position = bisect.bisect_left(frames, frame)
+        if position < len(keyframes) and frames[position] == frame:
+            return tuple(
+                component for _slot, component in keyframes[position].components
+            )
+        if position == 0:
+            return tuple(component for _slot, component in keyframes[0].components)
+        if position == len(keyframes):
+            return tuple(component for _slot, component in keyframes[-1].components)
+        left = keyframes[position - 1]
+        right = keyframes[position]
+        alpha = float((frame - left.frame) / (right.frame - left.frame))
+        left_by_slot = dict(left.components)
+        right_by_slot = dict(right.components)
+        if left_by_slot.keys() != right_by_slot.keys():
+            return _interpolate_polygon_keyframes(left, right, alpha)
+        output: list[Component] = []
+        for slot in sorted(left_by_slot):
+            left_component = left_by_slot[slot]
+            right_component = right_by_slot[slot]
+            left_points = np.asarray(left_component.values, dtype=np.float32)
+            right_points = np.asarray(right_component.values, dtype=np.float32)
+            if left_points.shape != right_points.shape:
+                return _interpolate_polygon_keyframes(left, right, alpha)
+            output.append(
+                Component(
+                    "polygon",
+                    ((1.0 - alpha) * left_points + alpha * right_points)
+                    .astype(np.float32)
+                    .tolist(),
+                )
+            )
+        return tuple(output)
 
     if not observed_frames:
         return _components_at(keyframes, frame, interpolation_method)
@@ -480,12 +525,6 @@ def _polygon_components_for_final_frame(
         right_frame,
         tuple(enumerate(observed_components[right_frame])),
     )
-    if interpolation_method == "linear_polygon_index_v1":
-        return _components_at(
-            [left, right],
-            frame,
-            interpolation_method,
-        )
     return _interpolate_polygon_keyframes(left, right, alpha)
 
 
@@ -668,13 +707,10 @@ def _materialize_final(
                 connected_keyframes[-1].frame,
             )
             connected_observed_frames = [
-                frame
-                for frame in observed_frames
-                if first_frame <= frame <= last_frame
+                frame for frame in observed_frames if first_frame <= frame <= last_frame
             ]
             connected_observed_components = {
-                frame: observed_components[frame]
-                for frame in connected_observed_frames
+                frame: observed_components[frame] for frame in connected_observed_frames
             }
             for frame in range(first_frame, last_frame + 1):
                 components = (
@@ -730,9 +766,7 @@ def _materialize_final(
                     continue
                 polygons = _component_polygons(
                     components,
-                    face_label=(
-                        str(label) if str(domain) == "face_privacy" else None
-                    ),
+                    face_label=(str(label) if str(domain) == "face_privacy" else None),
                 )
                 if not polygons:
                     continue

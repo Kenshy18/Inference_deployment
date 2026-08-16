@@ -1,8 +1,8 @@
-"""Immutable Production contract and translation to the validated runtime.
+"""Immutable public contract for the deployed Production post-processor.
 
-The public contract lives here.  The older experimental dataclasses are only
-used as a compatibility payload for the frozen optimizer bridge; callers do
-not configure that implementation directly.
+The parity-frozen internal runtime has its own detailed payload, but it lives
+under :mod:`production` and is validated against this public contract before
+every run.
 """
 
 from __future__ import annotations
