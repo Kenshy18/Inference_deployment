@@ -156,8 +156,13 @@ def main() -> int:
     labels = [value.strip() for value in args.labels.split(",") if value.strip()]
     if not intervals or any(value < 1 for value in intervals):
         raise ValueError("intervals must contain positive integers")
-    if not labels or any(value not in LABELS for value in labels):
-        raise ValueError(f"labels must be selected from {LABELS}")
+    if not labels:
+        raise ValueError("labels must contain at least one non-empty class name")
+    unsupported = tuple(label for label in labels if label not in LABELS)
+    if unsupported:
+        raise ValueError(
+            f"unsupported Production labels: {unsupported}; expected a subset of {LABELS}"
+        )
     root = args.output_root.expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     if args.profile == ADAPTIVE_PROFILE_ID:

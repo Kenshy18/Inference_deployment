@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 
 _SETTING_KEYS = {"shape_mode", "keyframe_interval", "max_gap"}
+PRODUCTION_POLYGON_MAX_GAP = 15
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +25,11 @@ class ClassPostprocessSettings:
             raise ValueError("keyframe_interval must be at least 1")
         if self.max_gap < 0:
             raise ValueError("max_gap must be non-negative")
+        if self.shape_mode == "polygon" and self.max_gap != PRODUCTION_POLYGON_MAX_GAP:
+            raise ValueError(
+                "Production polygon max_gap is fixed at "
+                f"{PRODUCTION_POLYGON_MAX_GAP}; got {self.max_gap}"
+            )
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -50,9 +56,7 @@ def _resolve_settings(
     fallback: ClassPostprocessSettings,
 ) -> ClassPostprocessSettings:
     shape_mode = str(values.get("shape_mode", fallback.shape_mode))
-    keyframe_interval = int(
-        values.get("keyframe_interval", fallback.keyframe_interval)
-    )
+    keyframe_interval = int(values.get("keyframe_interval", fallback.keyframe_interval))
     max_gap = int(values.get("max_gap", fallback.max_gap))
     return ClassPostprocessSettings(
         shape_mode=shape_mode,
@@ -94,8 +98,7 @@ def load_class_postprocess_policy(
     unknown = set(raw) - {"schema_version", "default", "classes"}
     if unknown:
         raise ValueError(
-            "class postprocess policy has unknown option(s): "
-            f"{sorted(unknown)}"
+            "class postprocess policy has unknown option(s): " f"{sorted(unknown)}"
         )
     schema_version = int(raw.get("schema_version", 1))
     if schema_version != 1:
@@ -120,5 +123,6 @@ def load_class_postprocess_policy(
 __all__ = [
     "ClassPostprocessPolicy",
     "ClassPostprocessSettings",
+    "PRODUCTION_POLYGON_MAX_GAP",
     "load_class_postprocess_policy",
 ]

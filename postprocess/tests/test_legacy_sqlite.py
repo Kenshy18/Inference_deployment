@@ -98,7 +98,9 @@ class LegacySqliteTests(unittest.TestCase):
     def test_pipeline_option_publishes_additional_legacy_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = write_raw_detector_sqlite(root / "raw.sqlite", frames=4)
+            source = write_raw_detector_sqlite(
+                root / "raw.sqlite", frames=4, label="男性器"
+            )
             args = build_parser().parse_args(
                 [
                     "--input-sqlite",
@@ -110,7 +112,6 @@ class LegacySqliteTests(unittest.TestCase):
                     "--no-cut-detect",
                     "--remove-short-tracks-max-frames",
                     "0",
-                    "--no-polygon-endpoint-extend",
                     "--export-legacy-sqlite",
                 ]
             )
@@ -128,6 +129,9 @@ class LegacySqliteTests(unittest.TestCase):
                         "SELECT name FROM sqlite_master WHERE type='table'"
                     )
                 }
+                current_masks = int(
+                    connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0]
+                )
             with sqlite3.connect(legacy) as connection:
                 legacy_tables = {
                     str(row[0])
@@ -142,7 +146,7 @@ class LegacySqliteTests(unittest.TestCase):
             self.assertIn("raw_tracked_masks", current_tables)
             self.assertIn("cut_detection_metadata", current_tables)
             self.assertEqual({"masks", "tracks", "cuts"}, legacy_tables)
-            self.assertEqual(4, legacy_masks)
+            self.assertEqual(current_masks, legacy_masks)
 
     def test_tentative_cli_exports_and_reports_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

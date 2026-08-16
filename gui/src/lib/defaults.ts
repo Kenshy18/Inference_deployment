@@ -2,10 +2,12 @@ import type {
   AppSettings,
   JobSnapshot,
   PipelineDraft,
+  PostprocessDraft,
 } from "../../shared/types";
+import { PRODUCTION_POSTPROCESS } from "../../shared/production-contract";
 import { normalizeBackend, normalizeFaceBackend } from "./models";
 
-export const DRAFT_STORAGE_VERSION = "4";
+export const DRAFT_STORAGE_VERSION = "5";
 
 export const defaultDraft: PipelineDraft = {
   inputVideo: "",
@@ -44,21 +46,21 @@ export const defaultDraft: PipelineDraft = {
     classPostprocessRules: [
       {
         className: "男性器",
-        shapeMode: "polygon",
-        keyframeInterval: 2,
-        maxGap: 15,
+        shapeMode: PRODUCTION_POSTPROCESS.shapeMode,
+        keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
+        maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
       },
       {
         className: "女性器",
-        shapeMode: "ellipse",
-        keyframeInterval: 2,
-        maxGap: 15,
+        shapeMode: PRODUCTION_POSTPROCESS.shapeMode,
+        keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
+        maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
       },
       {
         className: "結合部分",
-        shapeMode: "ellipse",
-        keyframeInterval: 2,
-        maxGap: 15,
+        shapeMode: PRODUCTION_POSTPROCESS.shapeMode,
+        keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
+        maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
       },
     ],
     scoreMin: 0.6,
@@ -66,8 +68,8 @@ export const defaultDraft: PipelineDraft = {
     cutMethod: "high_precision",
     precomputeCutsDuringInference: true,
     removeShortTracksMaxFrames: 10,
-    keyframeInterval: 2,
-    maxGap: 0,
+    keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
+    maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
     modelRoot: "",
     k2RunDir: "",
     k2BatchSize: 128,
@@ -212,6 +214,54 @@ export const browserSettings: AppSettings = {
   wslDistro: "Ubuntu-24.04",
 };
 
+const LEGACY_DEFAULT_RULES = new Map<
+  string,
+  { shapeMode: "polygon" | "ellipse"; keyframeInterval: number; maxGap: number }
+>([
+  ["男性器", { shapeMode: "polygon", keyframeInterval: 2, maxGap: 15 }],
+  ["女性器", { shapeMode: "ellipse", keyframeInterval: 2, maxGap: 15 }],
+  ["結合部分", { shapeMode: "ellipse", keyframeInterval: 2, maxGap: 15 }],
+]);
+
+/** Migrate only the exact former defaults; intentional user rules survive. */
+export function migrateProductionPostprocessDefaults(
+  savedVersion: string | null,
+  value: PostprocessDraft,
+): PostprocessDraft {
+  if (savedVersion === DRAFT_STORAGE_VERSION) {
+    return value;
+  }
+  const migrated = {
+    ...value,
+    classPostprocessRules: value.classPostprocessRules.map((rule) => {
+      const legacy = LEGACY_DEFAULT_RULES.get(rule.className);
+      if (
+        legacy &&
+        rule.shapeMode === legacy.shapeMode &&
+        rule.keyframeInterval === legacy.keyframeInterval &&
+        rule.maxGap === legacy.maxGap
+      ) {
+        return {
+          ...rule,
+          shapeMode: "polygon" as const,
+          keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
+          maxGap: PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames,
+        };
+      }
+      return rule;
+    }),
+  };
+  if (
+    value.shapeMode === "polygon" &&
+    value.keyframeInterval === 2 &&
+    value.maxGap === 0
+  ) {
+    migrated.keyframeInterval = PRODUCTION_POSTPROCESS.defaultKeyframeInterval;
+    migrated.maxGap = PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames;
+  }
+  return migrated;
+}
+
 export function loadDraft(): PipelineDraft {
   try {
     const savedVersion = window.localStorage.getItem(
@@ -247,7 +297,7 @@ export function loadDraft(): PipelineDraft {
           ? inference.parallelModelStaggerSeconds
           : 0,
     };
-    const postprocess = {
+    let postprocess = {
       ...defaultDraft.postprocess,
       ...saved.postprocess,
       classPostprocessRules:
@@ -259,6 +309,7 @@ export function loadDraft(): PipelineDraft {
           ...rule,
         })),
     };
+    postprocess = migrateProductionPostprocessDefaults(savedVersion, postprocess);
     if (
       saved.postprocess?.classPostprocessPolicySource === undefined &&
       saved.postprocess?.classPostprocessPolicyJson

@@ -7,6 +7,7 @@ import type {
   PipelineDraft,
   SettingsView,
 } from "../../shared/types";
+import { PRODUCTION_POSTPROCESS } from "../../shared/production-contract";
 import {
   FACE_MODELS,
   faceModelSpec,
@@ -180,7 +181,10 @@ export function InspectorPanel({
       className,
       shapeMode: postprocess.shapeMode,
       keyframeInterval: postprocess.keyframeInterval ?? 2,
-      maxGap: postprocess.maxGap ?? 0,
+      maxGap:
+        postprocess.shapeMode === "polygon"
+          ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+          : (postprocess.maxGap ?? 0),
     };
   });
   const updateSimpleClassRule = (
@@ -607,6 +611,10 @@ export function InspectorPanel({
                             onChange={(shapeMode) =>
                               updateSimpleClassRule(rule.className, {
                                 shapeMode,
+                                maxGap:
+                                  shapeMode === "polygon"
+                                    ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                                    : rule.maxGap,
                               })
                             }
                             options={[
@@ -645,7 +653,13 @@ export function InspectorPanel({
                     value={postprocess.shapeMode}
                     disabled={busy}
                     onChange={(shapeMode) =>
-                      actions.postprocess({ shapeMode })
+                      actions.postprocess({
+                        shapeMode,
+                        maxGap:
+                          shapeMode === "polygon"
+                            ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                            : postprocess.maxGap,
+                      })
                     }
                     options={[
                       { value: "polygon", label: "ポリゴン" },
@@ -853,7 +867,9 @@ export function InspectorPanel({
                               : postprocess.keyframeInterval,
                           maxGap:
                             classPostprocessPolicySource === "editor"
-                              ? (postprocess.maxGap ?? 0)
+                              ? postprocess.shapeMode === "polygon"
+                                ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                                : (postprocess.maxGap ?? 0)
                               : postprocess.maxGap,
                         })
                       }
@@ -908,7 +924,13 @@ export function InspectorPanel({
                             value={postprocess.shapeMode}
                             disabled={busy}
                             onChange={(shapeMode) =>
-                              actions.postprocess({ shapeMode })
+                              actions.postprocess({
+                                shapeMode,
+                                maxGap:
+                                  shapeMode === "polygon"
+                                    ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                                    : postprocess.maxGap,
+                              })
                             }
                             options={[
                               { value: "polygon", label: "ポリゴン" },
@@ -927,9 +949,13 @@ export function InspectorPanel({
                             }
                           />
                           <NumberInput
-                            value={postprocess.maxGap}
+                            value={
+                              postprocess.shapeMode === "polygon"
+                                ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                                : postprocess.maxGap
+                            }
                             min={0}
-                            disabled={busy}
+                            disabled={busy || postprocess.shapeMode === "polygon"}
                             onChange={(maxGap) =>
                               actions.postprocess({
                                 maxGap: maxGap ?? 0,
@@ -955,7 +981,13 @@ export function InspectorPanel({
                                 value={rule.shapeMode}
                                 disabled={busy}
                                 onChange={(shapeMode) =>
-                                  updateClassRule(index, { shapeMode })
+                                  updateClassRule(index, {
+                                    shapeMode,
+                                    maxGap:
+                                      shapeMode === "polygon"
+                                        ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                                        : rule.maxGap,
+                                  })
                                 }
                                 options={[
                                   { value: "polygon", label: "ポリゴン" },
@@ -973,9 +1005,13 @@ export function InspectorPanel({
                                 }
                               />
                               <NumberInput
-                                value={rule.maxGap}
+                                value={
+                                  rule.shapeMode === "polygon"
+                                    ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                                    : rule.maxGap
+                                }
                                 min={0}
-                                disabled={busy}
+                                disabled={busy || rule.shapeMode === "polygon"}
                                 onChange={(value) =>
                                   updateClassRule(index, {
                                     maxGap: value ?? 0,
@@ -1017,7 +1053,10 @@ export function InspectorPanel({
                                   shapeMode: postprocess.shapeMode,
                                   keyframeInterval:
                                     postprocess.keyframeInterval ?? 3,
-                                  maxGap: postprocess.maxGap ?? 0,
+                                  maxGap:
+                                    postprocess.shapeMode === "polygon"
+                                      ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                                      : (postprocess.maxGap ?? 0),
                                 },
                               ],
                             })
@@ -1104,13 +1143,24 @@ export function InspectorPanel({
                     />
                   </Row>
                   {postprocess.classPostprocessPolicySource !== "editor" && (
-                    <Row label="既定補完上限">
+                    <Row
+                      label="既定補完上限"
+                      hint={
+                        postprocess.shapeMode === "polygon"
+                          ? "Productionポリゴンは15フレーム固定"
+                          : undefined
+                      }
+                    >
                       <NumberInput
-                        value={postprocess.maxGap}
+                        value={
+                          postprocess.shapeMode === "polygon"
+                            ? PRODUCTION_POSTPROCESS.polygonGapFillMaxFrames
+                            : postprocess.maxGap
+                        }
                         min={0}
                         unit="f"
                         placeholder="既定値"
-                        disabled={busy}
+                        disabled={busy || postprocess.shapeMode === "polygon"}
                         onChange={(maxGap) =>
                           actions.postprocess({ maxGap })
                         }

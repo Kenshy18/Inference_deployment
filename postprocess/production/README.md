@@ -17,11 +17,16 @@ The default polygon pipeline uses the promoted adaptive CPU-exact profile:
   trials without stopping the complete video.
 - Interval evaluation uses the native CPU-exact implementation by default.
 
-The prior `nms.adaptive` and `approximation.polygon.production_v22` stage IDs
-remain registered as explicit rollback paths. The parity-frozen optimizer is
-reached only through `production/polygon/runtime_bridge.py`. The polygon
-optimizer is fully owned by `production.polygon.runtime`; a deployed backend
-does not import code from `postprocess.experimental`.
+The default runner exposes only the promoted NMS and polygon stage IDs. It
+never falls back to the retired polygon optimizer: unsupported semantic labels
+or contract options fail with an actionable error. The parity-frozen optimizer
+is reached only through `production/polygon/runtime_bridge.py`; deployed code
+does not import `postprocess.experimental`.
+
+Polygon gap filling is fixed at 15 frames. The supported user quality control
+is the soft target keyframe interval; Production preparation, Recall floors,
+topology checks, vertex-count policy, and evaluator are frozen as one tested
+contract.
 
 Final exact Recall violations, rejected pair-vote trials, selected vertex
 counts, border settings, and SQLite integrity are recorded in manifests. A

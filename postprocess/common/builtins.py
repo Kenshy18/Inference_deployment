@@ -28,30 +28,6 @@ def score_policy(options: dict[str, Any]) -> PostprocessStage:
     return ScorePolicyStage(options)
 
 
-def adaptive_nms(options: dict[str, Any]) -> PostprocessStage:
-    from nms.stages import AdaptiveNmsStage
-
-    return AdaptiveNmsStage(options)
-
-
-def component_aware_mask_nms(options: dict[str, Any]) -> PostprocessStage:
-    from nms.stages import ComponentAwareMaskNmsStage
-
-    return ComponentAwareMaskNmsStage(options)
-
-
-def virtual_component_nms(options: dict[str, Any]) -> PostprocessStage:
-    from nms.stages import VirtualComponentNmsStage
-
-    return VirtualComponentNmsStage(options)
-
-
-def virtual_component_mask_nms(options: dict[str, Any]) -> PostprocessStage:
-    from nms.stages import VirtualComponentNmsStage
-
-    return VirtualComponentNmsStage({**options, "comparison_policy": "adaptive_mask"})
-
-
 def production_mask_nms(options: dict[str, Any]) -> PostprocessStage:
     from nms.production import ProductionMaskNmsStage
 
@@ -74,12 +50,6 @@ def polygon_approximation(options: dict[str, Any]) -> PostprocessStage:
     from approximation.polygon.stages import RdpApproximationStage
 
     return RdpApproximationStage(options)
-
-
-def polygon_production(options: dict[str, Any]) -> PostprocessStage:
-    from approximation.polygon.production import ProductionPolygonV22Stage
-
-    return ProductionPolygonV22Stage(options)
 
 
 def polygon_production_v3_cpu(options: dict[str, Any]) -> PostprocessStage:
@@ -175,15 +145,10 @@ def classwise_postprocess(options: dict[str, Any]) -> PostprocessStage:
 register_stage("preprocessing.normalize", normalization)
 register_stage("preprocessing.raw_sqlite", raw_sqlite_normalization)
 register_stage("preprocessing.score_policy", score_policy)
-register_stage("nms.adaptive", adaptive_nms)
-register_stage("nms.component_aware_mask_candidate_v2", component_aware_mask_nms)
-register_stage("nms.virtual_component_candidate_v3", virtual_component_nms)
-register_stage("nms.virtual_component_mask_candidate_v4", virtual_component_mask_nms)
 register_stage("nms.production_v3", production_mask_nms)
 register_stage("cut_detection.video", cut_detection)
 register_stage("tracking.greedy", tracking)
 register_stage("approximation.polygon.rdp", polygon_approximation)
-register_stage("approximation.polygon.production_v22", polygon_production)
 register_stage("production.polygon_v3_cpu", polygon_production_v3_cpu)
 register_stage("approximation.ellipse.production", ellipse_approximation)
 register_stage("keyframes.polygon.interval", polygon_keyframes)

@@ -78,7 +78,8 @@ class PipelineTests(unittest.TestCase):
                 [stage.implementation for stage in config.stages],
             )
             tracking = next(
-                stage for stage in config.stages
+                stage
+                for stage in config.stages
                 if stage.implementation == "tracking.greedy"
             )
             self.assertTrue(tracking.enabled)
@@ -267,7 +268,7 @@ class PipelineTests(unittest.TestCase):
     def test_default_run_uses_modular_polygon_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = write_sample_sqlite(root / "source.sqlite", frames=6)
+            source = write_sample_sqlite(root / "source.sqlite", frames=6, label="男性器")
             args = build_parser().parse_args(
                 [
                     "--input-sqlite",
@@ -294,7 +295,7 @@ class PipelineTests(unittest.TestCase):
     def test_polygon_pipeline_accepts_relative_output_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = write_sample_sqlite(root / "source.sqlite", frames=6)
+            source = write_sample_sqlite(root / "source.sqlite", frames=6, label="男性器")
             args = build_parser().parse_args(
                 [
                     "--input-sqlite",
@@ -346,9 +347,7 @@ class PipelineTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     [("sample",)],
-                    connection.execute(
-                        "SELECT DISTINCT label FROM masks"
-                    ).fetchall(),
+                    connection.execute("SELECT DISTINCT label FROM masks").fetchall(),
                 )
 
 

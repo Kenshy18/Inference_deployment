@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { defaultDraft } from "./defaults";
+import {
+  defaultDraft,
+  migrateProductionPostprocessDefaults,
+} from "./defaults";
 
 describe("default processing profile", () => {
   it("matches the adopted Inspector configuration without job-specific paths", () => {
@@ -19,7 +22,8 @@ describe("default processing profile", () => {
       shapeMode: "polygon",
       classPostprocessPolicySource: "editor",
       scoreMin: 0.6,
-      maxGap: 0,
+      keyframeInterval: 6,
+      maxGap: 15,
       k2BatchSize: 128,
       k2PrepWorkers: 4,
       k2ForwardMode: "states_only",
@@ -35,19 +39,19 @@ describe("default processing profile", () => {
       {
         className: "男性器",
         shapeMode: "polygon",
-        keyframeInterval: 2,
+        keyframeInterval: 6,
         maxGap: 15,
       },
       {
         className: "女性器",
-        shapeMode: "ellipse",
-        keyframeInterval: 2,
+        shapeMode: "polygon",
+        keyframeInterval: 6,
         maxGap: 15,
       },
       {
         className: "結合部分",
-        shapeMode: "ellipse",
-        keyframeInterval: 2,
+        shapeMode: "polygon",
+        keyframeInterval: 6,
         maxGap: 15,
       },
     ]);
@@ -64,5 +68,26 @@ describe("default processing profile", () => {
       targetBitrateMbps: 8,
       nvencPreset: "p1",
     });
+  });
+});
+
+describe("Production postprocess draft migration", () => {
+  it("moves only the exact old mixed-shape defaults to the promoted profile", () => {
+    const old = structuredClone(defaultDraft.postprocess);
+    old.keyframeInterval = 2;
+    old.maxGap = 0;
+    old.classPostprocessRules = [
+      { className: "男性器", shapeMode: "polygon", keyframeInterval: 2, maxGap: 15 },
+      { className: "女性器", shapeMode: "ellipse", keyframeInterval: 2, maxGap: 15 },
+      { className: "結合部分", shapeMode: "ellipse", keyframeInterval: 2, maxGap: 15 },
+      { className: "custom", shapeMode: "ellipse", keyframeInterval: 4, maxGap: 9 },
+    ];
+    const migrated = migrateProductionPostprocessDefaults("4", old);
+    expect(migrated.keyframeInterval).toBe(6);
+    expect(migrated.maxGap).toBe(15);
+    expect(migrated.classPostprocessRules.slice(0, 3)).toEqual(
+      defaultDraft.postprocess.classPostprocessRules,
+    );
+    expect(migrated.classPostprocessRules[3]).toEqual(old.classPostprocessRules[3]);
   });
 });

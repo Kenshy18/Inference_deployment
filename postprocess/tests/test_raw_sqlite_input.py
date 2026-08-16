@@ -84,7 +84,7 @@ class RawSqliteInputTests(unittest.TestCase):
     def test_default_polygon_pipeline_accepts_raw_sqlite(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            raw = write_raw_detector_sqlite(root / "raw.sqlite", frames=6)
+            raw = write_raw_detector_sqlite(root / "raw.sqlite", frames=6, label="男性器")
             args = build_parser().parse_args(
                 [
                     "--input-sqlite",
@@ -96,7 +96,6 @@ class RawSqliteInputTests(unittest.TestCase):
                     "--no-cut-detect",
                     "--remove-short-tracks-max-frames",
                     "0",
-                    "--no-polygon-endpoint-extend",
                 ]
             )
 
@@ -112,7 +111,7 @@ class RawSqliteInputTests(unittest.TestCase):
                 manifest["artifacts"]["predictions_sqlite"]
             ) as connection:
                 self.assertEqual(
-                    6,
+                    11,
                     connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0],
                 )
 
@@ -142,7 +141,9 @@ class RawSqliteInputTests(unittest.TestCase):
     def test_default_polygon_pipeline_accepts_unified_inference(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = write_unified_inference_sqlite(root / "unified.sqlite", frames=6)
+            source = write_unified_inference_sqlite(
+                root / "unified.sqlite", frames=6, label="男性器"
+            )
             args = build_parser().parse_args(
                 [
                     "--input-sqlite",
@@ -154,7 +155,6 @@ class RawSqliteInputTests(unittest.TestCase):
                     "--no-cut-detect",
                     "--remove-short-tracks-max-frames",
                     "0",
-                    "--no-polygon-endpoint-extend",
                 ]
             )
 
@@ -173,7 +173,7 @@ class RawSqliteInputTests(unittest.TestCase):
                 manifest["artifacts"]["predictions_sqlite"]
             ) as connection:
                 self.assertEqual(
-                    5,
+                    10,
                     connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0],
                 )
             result = Path(manifest["artifacts"]["result_sqlite"])
@@ -249,7 +249,9 @@ class RawSqliteInputTests(unittest.TestCase):
     def test_classwise_polygon_keyframes_are_promoted_to_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = write_unified_inference_sqlite(root / "unified.sqlite", frames=6)
+            source = write_unified_inference_sqlite(
+                root / "unified.sqlite", frames=6, label="男性器"
+            )
             policy = root / "classwise.json"
             policy.write_text(
                 json.dumps(
@@ -258,7 +260,7 @@ class RawSqliteInputTests(unittest.TestCase):
                         "default": {
                             "shape_mode": "polygon",
                             "keyframe_interval": 2,
-                            "max_gap": 0,
+                            "max_gap": 15,
                         },
                         "classes": {},
                     }

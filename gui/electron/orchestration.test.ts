@@ -183,7 +183,7 @@ describe("orchestration bridge", () => {
       default: {
         shape_mode: "polygon",
         keyframe_interval: 3,
-        max_gap: 0,
+        max_gap: 15,
       },
       classes: {
         男性器: {
@@ -194,7 +194,7 @@ describe("orchestration bridge", () => {
         女性器: {
           shape_mode: "polygon",
           keyframe_interval: 3,
-          max_gap: 12,
+          max_gap: 15,
         },
       },
     });

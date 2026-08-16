@@ -110,7 +110,7 @@ def default_ellipse_pipeline(*, include_preprocess: bool) -> PipelineConfig:
                     "preprocessing.score_policy",
                     {"score_min": 0.35},
                 ),
-                StageSpec("nms", "nms.adaptive"),
+                StageSpec("nms", "nms.production_v3"),
                 StageSpec(
                     "cut_detection",
                     "cut_detection.video",

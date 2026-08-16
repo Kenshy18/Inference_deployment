@@ -35,6 +35,7 @@ class ProductionConfig:
     interval_evaluation: str = "native_exact"
     pair_vote_sweeps: int = 2
     remove_short_tracks_max_frames: int = 10
+    gapfill_max_gap: int = 15
     border_max_expand_px: float = 16.0
     border_influence_px: float = 16.0
     border_corner_support: bool = True
@@ -74,6 +75,8 @@ class ProductionConfig:
             raise ValueError("Production border influence band must be 16 px")
         if not self.border_corner_support:
             raise ValueError("Production two-axis corner support must remain enabled")
+        if self.gapfill_max_gap != 15:
+            raise ValueError("Production polygon gap-fill limit must remain 15 frames")
         for name, value in (
             ("spatial recall", self.spatial_recall_floor),
             ("spatial IoU", self.spatial_iou_floor),

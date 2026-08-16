@@ -14,7 +14,7 @@
     },
     {
       "id": "nms",
-      "implementation": "nms.adaptive"
+      "implementation": "nms.production_v3"
     },
     {
       "id": "cut_detection",

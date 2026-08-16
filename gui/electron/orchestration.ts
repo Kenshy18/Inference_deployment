@@ -5,6 +5,7 @@ import type {
   PipelineDraft,
 } from "../shared/types";
 import { windowsToWslPath, wslLaunchWrapper } from "./wsl-bridge";
+import { effectivePostprocessMaxGap } from "../shared/production-contract";
 
 export interface OrchestrationConfig {
   schema_version: 1;
@@ -88,7 +89,7 @@ export function buildClassPostprocessPolicy(
     classes[label] = {
       shape_mode: rule.shapeMode,
       keyframe_interval: rule.keyframeInterval,
-      max_gap: rule.maxGap,
+      max_gap: effectivePostprocessMaxGap(rule.shapeMode, rule.maxGap),
     };
   });
   return {
@@ -96,7 +97,10 @@ export function buildClassPostprocessPolicy(
     default: {
       shape_mode: settings.shapeMode,
       keyframe_interval: settings.keyframeInterval,
-      max_gap: settings.maxGap,
+      max_gap: effectivePostprocessMaxGap(
+        settings.shapeMode,
+        settings.maxGap,
+      ),
     },
     classes,
   };

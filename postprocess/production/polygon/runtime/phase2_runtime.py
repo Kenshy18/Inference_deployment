@@ -1197,7 +1197,7 @@ def _class_role_state_profile(
             "VF8_P1",
             "VB8_P1",
         )
-    raise ValueError(f"unsupported Phase-2 class label: {label!r}")
+    raise ValueError(f"unsupported Production label: {label}")
 
 
 MIXED_STATE_PROFILES = {

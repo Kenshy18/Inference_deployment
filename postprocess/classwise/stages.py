@@ -86,9 +86,7 @@ class ClasswisePostprocessStage:
     requires: frozenset[str] = frozenset(
         {"tracked_sqlite", "class_postprocess_policy_json"}
     )
-    provides: frozenset[str] = frozenset(
-        {"predictions_sqlite", "classwise_manifest"}
-    )
+    provides: frozenset[str] = frozenset({"predictions_sqlite", "classwise_manifest"})
 
     def run(self, context: StageContext) -> StageResult:
         started = time.perf_counter()
@@ -107,7 +105,7 @@ class ClasswisePostprocessStage:
                 if fallback_gap_value is not None
                 else 30
                 if fallback_shape == "ellipse"
-                else 0
+                else 15
             ),
         )
         policy = load_class_postprocess_policy(
@@ -168,9 +166,11 @@ class ClasswisePostprocessStage:
                 ),
                 nested_root,
             ).run(nested_inputs)
-            predictions = Path(
-                str(manifest["artifacts"]["predictions_sqlite"])
-            ).expanduser().resolve()
+            predictions = (
+                Path(str(manifest["artifacts"]["predictions_sqlite"]))
+                .expanduser()
+                .resolve()
+            )
             routed.append(
                 RoutedGroup(
                     group_id=group_id,
@@ -193,9 +193,7 @@ class ClasswisePostprocessStage:
                     "settings": settings.as_dict(),
                     "input_masks": input_masks,
                     "output_masks": output_masks,
-                    "pipeline_manifest": str(
-                        nested_root / "pipeline_manifest.json"
-                    ),
+                    "pipeline_manifest": str(nested_root / "pipeline_manifest.json"),
                     "predictions_sqlite": str(predictions),
                     "elapsed_seconds": time.perf_counter() - group_started,
                 }
@@ -214,9 +212,7 @@ class ClasswisePostprocessStage:
         manifest_value = {
             "schema_version": 1,
             "policy": policy.as_dict(),
-            "policy_source": str(
-                context.artifacts["class_postprocess_policy_json"]
-            ),
+            "policy_source": str(context.artifacts["class_postprocess_policy_json"]),
             "tracked_sqlite": str(tracked),
             "predictions_sqlite": str(output),
             "groups": group_manifests,

@@ -30,14 +30,12 @@ def _polygon(x: float) -> str:
 def _tracked_sqlite(path: Path) -> Path:
     with sqlite3.connect(path) as connection:
         create_schema(connection)
-        journal_mode = str(
-            connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
-        )
+        journal_mode = str(connection.execute("PRAGMA journal_mode=WAL").fetchone()[0])
         if journal_mode.lower() != "wal":
             raise RuntimeError(f"test fixture did not enter WAL mode: {journal_mode}")
         connection.executemany(
             "INSERT INTO tracks(track_id, label) VALUES (?, ?)",
-            (("1", "class-a"), ("2", "class-b")),
+            (("1", "男性器"), ("2", "女性器")),
         )
         connection.executemany(
             """
@@ -46,10 +44,10 @@ def _tracked_sqlite(path: Path) -> Path:
             ) VALUES (?, ?, ?, 'polygon', ?)
             """,
             (
-                (0, "1", _polygon(0.0), "class-a"),
-                (2, "1", _polygon(2.0), "class-a"),
-                (0, "2", _polygon(20.0), "class-b"),
-                (2, "2", _polygon(22.0), "class-b"),
+                (0, "1", _polygon(0.0), "男性器"),
+                (2, "1", _polygon(2.0), "男性器"),
+                (0, "2", _polygon(20.0), "女性器"),
+                (2, "2", _polygon(22.0), "女性器"),
             ),
         )
         connection.execute(
@@ -74,7 +72,7 @@ class ClassPostprocessTests(unittest.TestCase):
                         "default": {
                             "shape_mode": "polygon",
                             "keyframe_interval": 4,
-                            "max_gap": 7,
+                            "max_gap": 15,
                         },
                         "classes": {
                             "ellipse-class": {
@@ -88,18 +86,18 @@ class ClassPostprocessTests(unittest.TestCase):
             )
             policy = load_class_postprocess_policy(
                 path,
-                fallback=ClassPostprocessSettings("polygon", 3, 0),
+                fallback=ClassPostprocessSettings("polygon", 3, 15),
             )
             self.assertEqual(
-                ClassPostprocessSettings("polygon", 4, 7),
+                ClassPostprocessSettings("polygon", 4, 15),
                 policy.resolve("unlisted"),
             )
             self.assertEqual(
-                ClassPostprocessSettings("ellipse", 2, 7),
+                ClassPostprocessSettings("ellipse", 2, 15),
                 policy.resolve("ellipse-class"),
             )
 
-    def test_polygon_classes_use_independent_keyframe_and_gap_settings(
+    def test_polygon_classes_use_independent_keyframe_settings(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -113,16 +111,16 @@ class ClassPostprocessTests(unittest.TestCase):
                         "default": {
                             "shape_mode": "polygon",
                             "keyframe_interval": 3,
-                            "max_gap": 0,
+                            "max_gap": 15,
                         },
                         "classes": {
-                            "class-a": {
+                            "男性器": {
                                 "keyframe_interval": 1,
-                                "max_gap": 1,
+                                "max_gap": 15,
                             },
-                            "class-b": {
+                            "女性器": {
                                 "keyframe_interval": 2,
-                                "max_gap": 0,
+                                "max_gap": 15,
                             },
                         },
                     }
@@ -141,7 +139,6 @@ class ClassPostprocessTests(unittest.TestCase):
                     str(policy),
                     "--device",
                     "cpu",
-                    "--no-polygon-endpoint-extend",
                 ]
             )
             manifest = run_pipeline(args)
@@ -153,28 +150,32 @@ class ClassPostprocessTests(unittest.TestCase):
                         connection.execute("PRAGMA journal_mode").fetchone()[0]
                     ).lower(),
                 )
+                # Production endpoint protection extends the final observed
+                # geometry by five frames before temporal optimization.
                 self.assertEqual(
-                    [(0,), (1,), (2,)],
-                    connection.execute(
-                        """
-                        SELECT frame FROM masks
-                        WHERE track_id='1' ORDER BY frame
-                        """
-                    ).fetchall(),
+                    list(range(8)),
+                    [
+                        row[0]
+                        for row in connection.execute(
+                            "SELECT frame FROM masks "
+                            "WHERE track_id='1' ORDER BY frame"
+                        )
+                    ],
                 )
                 self.assertEqual(
-                    [(0,), (2,)],
-                    connection.execute(
-                        """
-                        SELECT frame FROM masks
-                        WHERE track_id='2' ORDER BY frame
-                        """
-                    ).fetchall(),
+                    list(range(8)),
+                    [
+                        row[0]
+                        for row in connection.execute(
+                            "SELECT frame FROM masks "
+                            "WHERE track_id='2' ORDER BY frame"
+                        )
+                    ],
                 )
                 self.assertEqual(
                     [
-                        ("class-a", "polygon", 1, 1),
-                        ("class-b", "polygon", 2, 0),
+                        ("女性器", "polygon", 2, 15),
+                        ("男性器", "polygon", 1, 15),
                     ],
                     connection.execute(
                         """
@@ -194,12 +195,10 @@ class ClassPostprocessTests(unittest.TestCase):
                         """
                     ).fetchone()[0],
                 )
-            classwise_manifest = Path(
-                manifest["artifacts"]["classwise_manifest"]
-            )
+            classwise_manifest = Path(manifest["artifacts"]["classwise_manifest"])
             classwise = json.loads(classwise_manifest.read_text(encoding="utf-8"))
             self.assertEqual(2, len(classwise["groups"]))
-            self.assertEqual(1, classwise["merge"]["gap_filled_masks"])
+            self.assertEqual(12, classwise["merge"]["gap_filled_masks"])
 
     def test_pipeline_config_and_class_policy_are_mutually_exclusive(self) -> None:
         args = build_parser().parse_args(

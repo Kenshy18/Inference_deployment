@@ -91,6 +91,13 @@ class ProductionPolygonStage:
         evaluator = str(self.options.get("interval_evaluation", "native_exact"))
         if evaluator != "native_exact":
             raise ValueError("Production supports only CPU native_exact evaluation")
+        if self.options.get("max_gap") is not None:
+            maximum_gap = int(self.options["max_gap"])
+            if maximum_gap != config.gapfill_max_gap:
+                raise ValueError(
+                    "Production polygon gap filling is fixed at "
+                    f"{config.gapfill_max_gap} frames; got {maximum_gap}"
+                )
         return config
 
     def run(self, context: StageContext) -> StageResult:
@@ -98,48 +105,13 @@ class ProductionPolygonStage:
         stage_dir = Path(context.stage_dir).expanduser().resolve()
         tracked = Path(context.artifacts["tracked_sqlite"]).resolve()
         input_labels = _labels(tracked)
-        unsupported = tuple(
+        unsupported_labels = tuple(
             label for label in input_labels if label not in config.labels
         )
-        if unsupported:
-            # The promoted optimizer has class-specific state palettes.  Never
-            # silently discard another domain: preserve the previous exact
-            # Production implementation as a whole-input compatibility path.
-            from approximation.polygon.production import ProductionPolygonV22Stage
-
-            legacy_options = {
-                "interval_frames": config.target_interval,
-                "max_gap": int(self.options.get("max_gap", 30)),
-                "border_expand": bool(self.options.get("border_expand", True)),
-                "endpoint_extend": bool(self.options.get("endpoint_extend", True)),
-                "predictor_device": str(self.options.get("predictor_device", "cpu")),
-            }
-            if self.options.get("point_predictor_model_dir") is not None:
-                legacy_options["point_predictor_model_dir"] = self.options[
-                    "point_predictor_model_dir"
-                ]
-            result = ProductionPolygonV22Stage(legacy_options).run(context)
-            payload = {
-                "schema_version": 1,
-                "status": "production_compatibility_fallback",
-                "profile": config.profile_id,
-                "reason": "unsupported_class_specific_palette",
-                "unsupported_labels": list(unsupported),
-                "implementation": "approximation.polygon.production_v22",
-                "metadata": dict(result.metadata),
-            }
-            manifest = stage_dir / "production_polygon_manifest.json"
-            manifest.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            return StageResult(
-                {
-                    "predictions_sqlite": result.artifacts["predictions_sqlite"],
-                    "keyframes_sqlite": result.artifacts["keyframes_sqlite"],
-                    "production_polygon_manifest": manifest,
-                },
-                payload,
+        if unsupported_labels:
+            raise ValueError(
+                "Production polygon postprocess supports only "
+                f"{config.labels}; found unsupported labels {unsupported_labels}"
             )
         width, height = _dimensions(
             tracked,
@@ -195,6 +167,7 @@ class ProductionPolygonStage:
             "status": "production",
             "profile": config.profile_id,
             "target_interval": config.target_interval,
+            "gapfill_max_gap": config.gapfill_max_gap,
             "interval_evaluation": config.interval_evaluation,
             "vertex_policy": {
                 "method": "track_q99.9_pre_border_screen_occupancy_v1",

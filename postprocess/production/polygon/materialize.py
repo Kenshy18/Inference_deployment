@@ -30,7 +30,7 @@ def materialize_outputs(
     config: ProductionConfig,
     runtime_profile: str,
 ) -> dict[str, object]:
-    """Merge three independent semantic-class jobs without changing schema."""
+    """Merge independent semantic-class jobs without changing schema."""
     exact_labels, track_labels = _label_maps(tracked_sqlite)
     dense_rows: list[MaskRow] = []
     key_rows: list[MaskRow] = []

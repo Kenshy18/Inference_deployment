@@ -103,11 +103,16 @@ def run_polygon_optimizer(
     """Run the parity-frozen optimizer owned by the Production package."""
     assert_runtime_bridge_contract(config)
     selected_labels = tuple(config.labels if labels is None else labels)
+    unsupported = tuple(
+        label for label in selected_labels if label not in config.labels
+    )
+    if unsupported:
+        raise ValueError(
+            f"unsupported Production optimizer labels: {unsupported}; "
+            f"expected a subset of {config.labels}"
+        )
     if len(set(selected_labels)) != len(selected_labels):
         raise ValueError("optimizer labels must not contain duplicates")
-    invalid = tuple(label for label in selected_labels if label not in config.labels)
-    if invalid:
-        raise ValueError(f"unsupported optimizer labels: {invalid}")
     output = Path(output_root).resolve()
     output.mkdir(parents=True, exist_ok=True)
     if not selected_labels:

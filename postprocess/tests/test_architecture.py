@@ -150,7 +150,7 @@ class ArchitectureTests(unittest.TestCase):
                         "frame_idx": frame,
                         "instances": [
                             {
-                                "label": "target",
+                                "label": "男性器",
                                 "score": 0.9,
                                 "bbox": [x, 0.0, 10.0, 10.0],
                                 "segmentation": [polygon],
