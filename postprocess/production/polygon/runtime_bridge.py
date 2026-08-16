@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from .preparation import prepare_classwise_source
 from .runtime.engine import run_polygon_optimizer
@@ -91,6 +92,7 @@ def optimize(
     max_tracks: int,
     force: bool,
     config: ProductionConfig,
+    progress_callback: Callable[[str, float | None, float | None], None] | None = None,
 ) -> dict[str, object]:
     return run_polygon_optimizer(
         source_root,
@@ -99,6 +101,7 @@ def optimize(
         labels=labels,
         max_tracks=max_tracks,
         force=force,
+        progress_callback=progress_callback,
     )
 
 

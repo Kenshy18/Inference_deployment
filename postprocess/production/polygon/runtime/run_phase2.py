@@ -333,20 +333,85 @@ def main() -> int:
     args.output_root.mkdir(parents=True, exist_ok=True)
     all_rows: list[dict[str, object]] = []
     profile_reports = []
+    total_progress_units = max(1, len(profiles) * len(labels))
+    completed_progress_units = 0
     for profile in profiles:
         print(f"[phase2-profile] {profile}", flush=True)
+        print(
+            "[production-progress] "
+            + json.dumps(
+                {
+                    "detail": f"polygon:optimizer:{profile}",
+                    "completed": completed_progress_units,
+                    "total": total_progress_units,
+                    "fraction": completed_progress_units / total_progress_units,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            flush=True,
+        )
         started = time.perf_counter()
         workers = min(int(args.label_workers), len(labels))
+        rows_by_label: dict[str, dict[str, object]] = {}
         if workers == 1:
-            rows = [run_cell(sources[label], label, profile, args) for label in labels]
+            for label in labels:
+                rows_by_label[label] = run_cell(
+                    sources[label],
+                    label,
+                    profile,
+                    args,
+                )
+                completed_progress_units += 1
+                print(
+                    "[production-progress] "
+                    + json.dumps(
+                        {
+                            "detail": f"polygon:optimized:{label}",
+                            "completed": completed_progress_units,
+                            "total": total_progress_units,
+                            "fraction": (
+                                completed_progress_units / total_progress_units
+                            ),
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    flush=True,
+                )
         else:
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-                rows = list(
-                    executor.map(
-                        lambda label: run_cell(sources[label], label, profile, args),
-                        labels,
+                futures = {
+                    executor.submit(
+                        run_cell,
+                        sources[label],
+                        label,
+                        profile,
+                        args,
+                    ): label
+                    for label in labels
+                }
+                for future in concurrent.futures.as_completed(futures):
+                    label = futures[future]
+                    rows_by_label[label] = future.result()
+                    completed_progress_units += 1
+                    print(
+                        "[production-progress] "
+                        + json.dumps(
+                            {
+                                "detail": f"polygon:optimized:{label}",
+                                "completed": completed_progress_units,
+                                "total": total_progress_units,
+                                "fraction": (
+                                    completed_progress_units / total_progress_units
+                                ),
+                            },
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
+                        flush=True,
                     )
-                )
+        rows = [rows_by_label[label] for label in labels]
         elapsed = time.perf_counter() - started
         aggregate = phase1._aggregate(rows, args.target_interval)
         aggregate["candidate_profile"] = profile

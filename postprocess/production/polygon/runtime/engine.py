@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
 from .candidate_config import CANDIDATE, CandidateConfig
 from .candidate_palette import role_ids
@@ -99,6 +100,7 @@ def run_polygon_optimizer(
     labels: tuple[str, ...] | None = None,
     max_tracks: int = 0,
     force: bool = False,
+    progress_callback: Callable[[str, float | None, float | None], None] | None = None,
 ) -> dict[str, object]:
     """Run the parity-frozen optimizer owned by the Production package."""
     assert_runtime_bridge_contract(config)
@@ -210,18 +212,34 @@ def run_polygon_optimizer(
     log_path = output / "optimizer.log"
     started = time.perf_counter()
     with log_path.open("w", encoding="utf-8") as log:
-        process = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=REPOSITORY_ROOT,
             env=environment,
-            stdout=log,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            check=False,
+            text=True,
+            bufsize=1,
         )
+        assert process.stdout is not None
+        for line in process.stdout:
+            log.write(line)
+            log.flush()
+            if not line.startswith("[production-progress] "):
+                continue
+            try:
+                payload = json.loads(line.split(" ", 1)[1])
+                detail = str(payload.get("detail", "polygon:optimizer"))
+                fraction = float(payload["fraction"])
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if progress_callback is not None:
+                progress_callback(detail, fraction, None)
+        returncode = process.wait()
     wall = time.perf_counter() - started
-    if process.returncode:
+    if returncode:
         raise RuntimeError(
-            f"polygon optimizer failed with exit {process.returncode}; see {log_path}"
+            f"polygon optimizer failed with exit {returncode}; see {log_path}"
         )
     interval_root = output / f"interval_{config.temporal.target_interval}"
     manifest_path = output / "production_candidate_manifest.json"

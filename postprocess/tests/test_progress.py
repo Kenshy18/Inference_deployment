@@ -23,8 +23,7 @@ class StageGraphProgressTests(unittest.TestCase):
             progress.finish_stage(3, "tracking:complete")
 
         events = [
-            json.loads(line.split(" ", 1)[1])
-            for line in output.getvalue().splitlines()
+            json.loads(line.split(" ", 1)[1]) for line in output.getvalue().splitlines()
         ]
         self.assertEqual([2, 2, 3], [event["completed"] for event in events])
         self.assertEqual(0.2, events[0]["display_progress"])
@@ -35,6 +34,22 @@ class StageGraphProgressTests(unittest.TestCase):
         self.assertEqual(0.3, events[2]["display_progress"])
         self.assertFalse(events[2]["estimated"])
         self.assertIsNone(events[2]["active_elapsed_seconds"])
+
+    def test_exact_stage_fraction_replaces_elapsed_estimate_monotonically(self) -> None:
+        output = io.StringIO()
+        progress = StageGraphProgress(5, interval_seconds=0.1)
+        with redirect_stdout(output):
+            progress.begin_stage(1, "polygon:preparing")
+            progress.activity("polygon:label:女性器", 0.25, 120.0)
+            progress.activity("polygon:late-line", 0.20, 110.0)
+
+        events = [
+            json.loads(line.split(" ", 1)[1]) for line in output.getvalue().splitlines()
+        ]
+        self.assertEqual(0.25, events[-1]["stage_progress"])
+        self.assertEqual(0.25, events[-1]["display_progress"])
+        self.assertFalse(events[-1]["estimated"])
+        self.assertEqual(110.0, events[-1]["fps"])
 
 
 if __name__ == "__main__":

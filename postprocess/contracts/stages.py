@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
+
+
+ProgressCallback = Callable[[str, float | None, float | None], None]
 
 
 @dataclass(frozen=True)
@@ -14,6 +17,18 @@ class StageContext:
     output_dir: Path
     stage_dir: Path
     artifacts: Mapping[str, Path]
+    progress_callback: ProgressCallback | None = None
+
+    def report_progress(
+        self,
+        detail: str,
+        stage_fraction: float | None = None,
+        fps: float | None = None,
+    ) -> None:
+        """Publish optional in-stage progress without coupling stage logic."""
+
+        if self.progress_callback is not None:
+            self.progress_callback(str(detail), stage_fraction, fps)
 
 
 @dataclass(frozen=True)

@@ -33,9 +33,6 @@ packages = [
   "nms",
   "cut_detection",
   "tracking",
-  "approximation",
-  "keyframes",
-  "gap_fill",
   "evaluation",
   "face_privacy",
   "artifacts",
@@ -45,7 +42,6 @@ packages = [
 ]
 
 exclude = [
-  "approximation/polygon/production.py",
   "nms/adaptive.py",
   "nms/component_aware.py",
   "nms/stages.py",

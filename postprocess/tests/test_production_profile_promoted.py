@@ -68,7 +68,9 @@ class PromotedProductionProfileTests(unittest.TestCase):
         package_config = (root / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('"production",', package_config)
         self.assertIn('"vendor" = "vendor"', package_config)
-        self.assertIn('"approximation/polygon/production.py",', package_config)
+        self.assertNotIn('"approximation",', package_config)
+        self.assertNotIn('"keyframes",', package_config)
+        self.assertNotIn('"gap_fill",', package_config)
         coordinator = (root / "production/polygon/runtime/run_phase2.py").read_text(
             encoding="utf-8"
         )

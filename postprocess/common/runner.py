@@ -104,6 +104,15 @@ class PipelineRunner:
                     output_dir=self.output_dir,
                     stage_dir=stage_dir,
                     artifacts=dict(artifacts),
+                    progress_callback=(
+                        None
+                        if progress is None
+                        else lambda detail, fraction, fps: progress.activity(
+                            detail,
+                            fraction,
+                            fps,
+                        )
+                    ),
                 )
                 started = time.perf_counter()
                 result = stage.run(context)

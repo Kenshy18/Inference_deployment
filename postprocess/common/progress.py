@@ -33,6 +33,8 @@ class StageGraphProgress:
         self.completed = 0
         self.detail = "preparing"
         self._active_started: float | None = None
+        self._active_fraction: float | None = None
+        self._active_fps: float | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -54,11 +56,23 @@ class StageGraphProgress:
             )
             self.detail = str(detail)
             self._active_started = time.monotonic()
+            self._active_fraction = None
+            self._active_fps = None
         self._emit(state="running")
 
-    def activity(self, detail: str) -> None:
+    def activity(
+        self,
+        detail: str,
+        stage_fraction: float | None = None,
+        fps: float | None = None,
+    ) -> None:
         with self._lock:
             self.detail = str(detail)
+            if stage_fraction is not None:
+                fraction = min(1.0, max(0.0, float(stage_fraction)))
+                self._active_fraction = max(self._active_fraction or 0.0, fraction)
+            if fps is not None:
+                self._active_fps = max(0.0, float(fps))
         self._emit(state="running")
 
     def finish_stage(self, completed: int, detail: str) -> None:
@@ -69,6 +83,8 @@ class StageGraphProgress:
             )
             self.detail = str(detail)
             self._active_started = None
+            self._active_fraction = None
+            self._active_fps = None
         self._emit(state="running")
 
     def update(self, completed: int, detail: str) -> None:
@@ -81,6 +97,8 @@ class StageGraphProgress:
             self.completed = self.total_units
             self.detail = "complete"
             self._active_started = None
+            self._active_fraction = None
+            self._active_fps = None
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=max(1.0, self.interval_seconds * 2))
@@ -107,24 +125,29 @@ class StageGraphProgress:
             if state == "running" and self._active_started is not None:
                 elapsed = max(0.0, time.monotonic() - self._active_started)
                 active_elapsed_seconds = elapsed
-                # The exact counter advances only when a stage completes.  A
-                # bounded asymptotic estimate keeps a long stage visibly alive
-                # without ever claiming its final 6% before completion.
-                stage_fraction = 0.94 * (1.0 - math.exp(-elapsed / 8.0))
+                # Prefer exact stage-owned progress. Fall back to a bounded
+                # elapsed-time estimate for stages that cannot report units.
+                stage_fraction = self._active_fraction
+                if stage_fraction is None:
+                    stage_fraction = 0.94 * (1.0 - math.exp(-elapsed / 8.0))
+                else:
+                    estimated = False
                 display_progress = min(
                     1.0,
                     (self.completed + stage_fraction) / self.total_units,
                 )
-                estimated = elapsed > 0.0
+                if self._active_fraction is None:
+                    estimated = elapsed > 0.0
             payload = {
                 "phase": "postprocess",
                 "state": state,
                 "completed": self.completed,
                 "total": self.total_units,
                 "display_progress": display_progress,
+                "stage_progress": self._active_fraction,
                 "estimated": estimated,
                 "detail": self.detail,
-                "fps": None,
+                "fps": self._active_fps,
                 "active_elapsed_seconds": active_elapsed_seconds,
             }
         print(

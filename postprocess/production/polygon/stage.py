@@ -95,6 +95,7 @@ class ProductionPolygonStage:
 
     def run(self, context: StageContext) -> StageResult:
         config = self._config()
+        context.report_progress("polygon:preparing", 0.01)
         stage_dir = Path(context.stage_dir).expanduser().resolve()
         tracked = Path(context.artifacts["tracked_sqlite"]).resolve()
         input_labels = _labels(tracked)
@@ -115,6 +116,7 @@ class ProductionPolygonStage:
             input_video=None if video is None else Path(video),
             config=config,
         )
+        context.report_progress("polygon:prepared", 0.12)
         policy = preparation.get("vertex_policy")
         if not isinstance(policy, dict) or not isinstance(policy.get("tracks"), dict):
             raise RuntimeError("Production adaptive vertex policy is missing")
@@ -134,7 +136,13 @@ class ProductionPolygonStage:
             max_tracks=max(0, int(self.options.get("max_tracks", 0))),
             force=bool(self.options.get("force", False)),
             config=config,
+            progress_callback=lambda detail, fraction, fps: context.report_progress(
+                detail,
+                None if fraction is None else 0.12 + 0.76 * fraction,
+                fps,
+            ),
         )
+        context.report_progress("polygon:materializing", 0.90)
         predictions = stage_dir / "predictions.sqlite"
         keyframes = stage_dir / "keyframes.sqlite"
         runtime = build_runtime_config(config)
@@ -146,6 +154,7 @@ class ProductionPolygonStage:
             config=config,
             runtime_profile=runtime.polygon_profile_id,
         )
+        context.report_progress("polygon:validating", 0.98)
         violations = sum(
             int(value["recall_violations"])
             for value in optimizer["exact_recall"].values()
