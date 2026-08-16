@@ -1,7 +1,7 @@
 # Production candidate 2026-08-14
 
-`production_candidate_20260814_v1` is the frozen, end-to-end postprocess
-candidate selected on 2026-08-14. It is intentionally **not** registered as
+`production_candidate_adaptive_vertices_v2` is the revised, end-to-end
+postprocess candidate. It is intentionally **not** registered as
 the default Production pipeline yet.
 
 The package gives the approved algorithms one explicit entry point and one
@@ -23,16 +23,20 @@ The software-facing run performs these stages in order:
    at most 50% of the other main's area.
 4. Track with the raw association geometry and remove tracks of at most 10
    frames. The cleaned mask remains the public output geometry.
-5. Split tracks into 女性器, 男性器, and 結合部分. Apply the approved border
-   expansion and five-frame endpoint extension independently to each class.
-6. Build track-consistent 14/16/18/20-point polygons. Select the smallest
-   native-exact quality-feasible count for the whole track segment and fail
-   closed if 20 points cannot satisfy Recall 0.97.
-7. Run the multistate CUDA-lazy-exact DP with exact per-frame Recall at least
+5. Before border preparation, measure each track's continuous foreground-mask
+   area q99.9 as a fraction of the real video frame. Assign 14/16/18/20 points
+   at strict 3%/10%/25% crossings and keep that count fixed for the track.
+6. Split tracks into 女性器, 男性器, and 結合部分. Apply border expansion with
+   a 16 px maximum/influence band and explicit two-axis screen-corner support,
+   followed by the five-frame endpoint extension independently per class.
+7. Build track-consistent polygons with the assigned point count. Apply the
+   same exact Recall repair at every count; point-count escalation is not a
+   quality fallback and unresolved frames are audited rather than stopping.
+8. Run the multistate CUDA-lazy-exact DP with exact per-frame Recall at least
    0.97 and a soft target interval of 6.
-8. With DP key positions fixed, run two per-key pair-vote coordinate sweeps to
+9. With DP key positions fixed, run two per-key pair-vote coordinate sweeps to
    maximize IoU under the same exact Recall and simple-polygon constraints.
-9. Export the unchanged unified V3/revision-5 software SQLite schema.
+10. Export the unchanged unified V3/revision-5 software SQLite schema.
 
 The exact evaluator short-circuits an interval as soon as one frame proves
 the hard Recall constraint impossible; feasible intervals still compute the
@@ -42,12 +46,11 @@ fallback that the validated baseline eventually selected. Pair-vote uses
 eight native threads, while the three class optimizers retain eight threads
 each so total CPU concurrency matches this 24-core deployment target.
 
-On the full KPI reference at target interval 6, these runtime-only changes
-reduced polygon/keyframe wall time from 435.004 s to 299.068 s (31.2%, 1.45x).
-All 4,582 keyframes, 25,090 dense polygons, and exact metric CSV rows matched
-the reference exactly; minimum Recall remained 0.970000095 with zero
-violations. This timing is hardware-specific and is not part of the semantic
-quality contract.
+The preceding fixed-14 profile was validated at target interval 6 with 4,582
+keyframes, minimum Recall 0.970000095, and zero violations. Those numbers are
+kept only as the regression baseline: adaptive vertices and the revised edge
+preparation intentionally change geometry and require a new KPI/full-V3
+quality and runtime report before Production promotion.
 
 Classes with no tracked instances are skipped by the optimizer and receive a
 validated zero-row export artifact. A video therefore does not need to contain
@@ -92,7 +95,7 @@ PYTHONPATH=postprocess "$PY" -m experimental.production_candidate_20260814.run \
   --input-video /absolute/path/to/source.mp4 \
   --cuts-json /absolute/path/to/cuts.json \
   --target-interval 6 \
-  --interval-evaluation cuda_lazy_exact \
+  --interval-evaluation native_exact \
   --output-root /absolute/path/to/new_candidate_run
 ```
 
@@ -100,12 +103,10 @@ PYTHONPATH=postprocess "$PY" -m experimental.production_candidate_20260814.run \
 candidate supports positive integer targets; interval-specific role palettes
 are selected deterministically while all quality constraints remain fixed.
 
-`cuda_lazy_exact` is the default interval evaluator. It screens the dense
-edge graph on CUDA, exactly validates the accepted path, and always runs the
-same final dense Recall audit. Use `--interval-evaluation native_exact` for
-the slower reference mode that evaluates every DP edge exactly on CPU. NMS,
-tracking, polygon candidates, pair-vote, topology gates, and export are
-unchanged between the two modes.
+`native_exact` is the default interval evaluator and evaluates every DP edge
+exactly on CPU. `cuda_lazy_exact` remains available as an explicit accelerated
+diagnostic; NMS, tracking, polygon candidates, pair-vote, topology gates, and
+export are unchanged between the two modes.
 
 The resumable full-V3 comparison used for interval 2 and 5 is:
 

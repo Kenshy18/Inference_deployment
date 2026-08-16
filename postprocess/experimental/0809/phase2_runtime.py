@@ -19,6 +19,7 @@ import math
 import os
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
 
@@ -43,6 +44,40 @@ from role_candidate_pool import ROLE_IDS, build_role_candidate
 
 HERE = Path(__file__).resolve().parent
 PROFILE_ENV = "MASK_PIPELINE_PHASE2_CANDIDATES"
+SPATIAL_VERTEX_POLICY_ENV = "MASK_PIPELINE_SPATIAL_VERTEX_POLICY_JSON"
+POLYGON_CONSTRAINED_PROFILES = {
+    "polygon14_keyframe_v1",
+    "polygon_adaptive_keyframe_v2",
+}
+
+
+@lru_cache(maxsize=4)
+def _load_spatial_vertex_policy(path_value: str) -> dict[str, object]:
+    path = Path(path_value).expanduser().resolve()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("polygon_profile_id") != "polygon_adaptive_keyframe_v2":
+        raise RuntimeError(f"unexpected spatial vertex policy profile: {path}")
+    tracks = payload.get("tracks")
+    if not isinstance(tracks, dict):
+        raise RuntimeError(f"spatial vertex policy has no track map: {path}")
+    return payload
+
+
+def _spatial_vertices_for_track(track_id: str) -> int:
+    path_value = os.environ.get(SPATIAL_VERTEX_POLICY_ENV, "").strip()
+    if not path_value:
+        raise RuntimeError(f"{SPATIAL_VERTEX_POLICY_ENV} is required")
+    payload = _load_spatial_vertex_policy(path_value)
+    tracks = payload["tracks"]
+    entry = tracks.get(str(track_id))
+    if not isinstance(entry, dict):
+        raise RuntimeError(f"spatial vertex policy has no track {track_id!r}")
+    vertices = int(entry.get("vertices_per_component", 0))
+    if vertices not in (14, 16, 18, 20):
+        raise RuntimeError(
+            f"invalid spatial vertex count for track {track_id!r}: {vertices}"
+        )
+    return vertices
 NATIVE_BATCH_ENV = "MASK_PIPELINE_PHASE2_NATIVE_BATCH"
 NATIVE_BATCH_THREADS_ENV = "MASK_PIPELINE_PHASE2_NATIVE_BATCH_THREADS"
 NATIVE_BATCH_EXACT_VERIFY_ENV = "MASK_PIPELINE_PHASE2_NATIVE_BATCH_EXACT_VERIFY"
@@ -374,6 +409,11 @@ CLASS_ROLE_STATE_PROFILES = {
         "男性器": (),
         "結合部分": (),
     },
+    "polygon_adaptive_keyframe_v2": {
+        "女性器": (),
+        "男性器": (),
+        "結合部分": (),
+    },
     "search_interval8_ls110": {
         "女性器": (),
         "男性器": (),
@@ -456,6 +496,7 @@ def _class_role_state_profile(
         "production_candidate_best_v4",
         "new_production_v1",
         "polygon14_keyframe_v1",
+        "polygon_adaptive_keyframe_v2",
         "search_interval8_ls110",
         "search_interval8_ls115",
         "search_interval8_inverse115",
@@ -479,7 +520,7 @@ def _class_role_state_profile(
     baseline = (
         "C02_125", "G02", "G04", "A06", "F3_P1", "D6_P1",
     )
-    if profile == "polygon14_keyframe_v1":
+    if profile in POLYGON_CONSTRAINED_PROFILES:
         return _class_role_state_profile(
             "new_production_v1", label, target_interval
         )
@@ -1130,14 +1171,14 @@ def _patch_phase2_candidates(module: ModuleType, profile: str) -> ModuleType:
         )
 
     def build_frame_candidates(run, contexts, eval_contexts, runtime_args):
-        if profile == "polygon14_keyframe_v1":
+        if profile in POLYGON_CONSTRAINED_PROFILES:
             from experimental.production_candidate_polygon14.integration import (
                 apply_spatial_candidate,
             )
 
             if not bool(getattr(module, "_phase1_native_interval_enabled", False)):
                 raise RuntimeError(
-                    "fixed-14 Production Recall repair requires native exact interval evaluation"
+                    "adaptive polygon Recall repair requires native exact interval evaluation"
                 )
             run._phase2_endpoint_evaluator = (
                 module._phase1_get_native_interval_evaluator(
@@ -1148,9 +1189,14 @@ def _patch_phase2_candidates(module: ModuleType, profile: str) -> ModuleType:
                 run,
                 pipeline_profile,
                 endpoint_evaluator=run._phase2_endpoint_evaluator,
+                vertices_per_component=(
+                    _spatial_vertices_for_track(str(run.track_id))
+                    if profile == "polygon_adaptive_keyframe_v2"
+                    else 14
+                ),
             )
         if (
-            profile != "polygon14_keyframe_v1"
+            profile not in POLYGON_CONSTRAINED_PROFILES
             and
             os.environ.get(PERSISTENT_LINE_FIT_BASE_ENV, "").strip() == "1"
             and not bool(getattr(run, "_persistent_line_fit_base_applied", False))
@@ -2922,7 +2968,7 @@ def _patch_phase2_candidates(module: ModuleType, profile: str) -> ModuleType:
         )
 
     module.build_frame_candidates = build_frame_candidates
-    if profile == "polygon14_keyframe_v1":
+    if profile in POLYGON_CONSTRAINED_PROFILES:
         from experimental.production_candidate_polygon14.topology_guard import (
             repair_decoded_path,
         )
@@ -2983,10 +3029,16 @@ def _write_audit(
     profile: str,
 ) -> dict[str, object]:
     candidate_contract = None
-    if profile == "polygon14_keyframe_v1":
+    if profile in POLYGON_CONSTRAINED_PROFILES:
         from experimental.production_candidate_polygon14 import CANDIDATE
+        if profile == "polygon_adaptive_keyframe_v2":
+            from experimental.production_candidate_20260814 import (
+                CANDIDATE as ADAPTIVE_CANDIDATE,
+            )
 
-        candidate_contract = CANDIDATE.to_dict()
+            candidate_contract = ADAPTIVE_CANDIDATE.to_dict()
+        else:
+            candidate_contract = CANDIDATE.to_dict()
     metrics_path = output_dir / "exact/keyframe_exact_metrics.csv"
     with metrics_path.open(encoding="utf-8", newline="") as handle:
         metric_rows = list(csv.DictReader(handle))
@@ -3108,6 +3160,17 @@ def _write_audit(
             if patched_module is not None
             else {}
         ),
+        "spatial_profile": (
+            dict(
+                getattr(
+                    patched_module,
+                    "_phase2_pipeline_profile",
+                    {},
+                )
+            )
+            if patched_module is not None
+            else {}
+        ),
         "pair_vote_acceleration": (
             dict(getattr(patched_module, "_phase2_pair_vote_fast_stats", {}))
             if patched_module is not None
@@ -3137,7 +3200,7 @@ def _write_audit(
                 "track-wise 14/16/18/20-point line-fit fallback with native "
                 "exact Recall repair; tracked source masks remain the exact "
                 "Recall reference"
-                if profile == "polygon14_keyframe_v1"
+                if profile in POLYGON_CONSTRAINED_PROFILES
                 else "unchanged"
             ),
             "candidate_positions": "all prepared observations and gap-filled frames",
@@ -3160,7 +3223,7 @@ def _write_audit(
             "topology": (
                 "lazy hard constraint on selected DP interpolation, "
                 "pair-vote keyframes, and final dense interpolation"
-                if profile == "polygon14_keyframe_v1"
+                if profile in POLYGON_CONSTRAINED_PROFILES
                 else "unchanged"
             ),
         },
@@ -3229,7 +3292,7 @@ def main() -> int:
         patched._phase2_pair_vote_fast_stats = pair_vote_fast_stats
 
         if constrained_pair_vote:
-            topology_guard_enabled = profile == "polygon14_keyframe_v1"
+            topology_guard_enabled = profile in POLYGON_CONSTRAINED_PROFILES
             if topology_guard_enabled:
                 from experimental.production_candidate_polygon14.topology_guard import (
                     local_key_update_is_simple,
@@ -3264,6 +3327,7 @@ def main() -> int:
                     if profile not in {
                         "new_production_v1",
                         "polygon14_keyframe_v1",
+                        "polygon_adaptive_keyframe_v2",
                     }:
                         raise RuntimeError(
                             "fast pair-vote is restricted to the frozen "

@@ -10,6 +10,7 @@ from pathlib import Path
 from common.registry import create_stage
 from experimental.production_candidate_20260814 import CANDIDATE
 from experimental.production_candidate_20260814.config import (
+    legacy_fixed14_candidate,
     with_interval_evaluation,
     with_target_interval,
 )
@@ -28,6 +29,11 @@ from experimental.production_candidate_20260814.polygon.engine import (
 from experimental.production_candidate_20260814.polygon.preparation import (
     _finalize_class_projection,
 )
+from experimental.production_candidate_20260814.polygon.vertex_policy import (
+    build_vertex_policy,
+    select_vertex_count,
+)
+from contracts.mask_sqlite import MaskRow, write_mask_sqlite
 from experimental.production_candidate_20260814.validation import (
     audit_sqlite,
     compare_canonical_jsonl,
@@ -39,9 +45,21 @@ from experimental.production_candidate_20260814.validation import (
 class ProductionCandidate20260814Tests(unittest.TestCase):
     def test_frozen_contract_and_policy_are_complete(self) -> None:
         CANDIDATE.validate()
-        self.assertEqual("production_candidate_20260814_v1", CANDIDATE.profile_id)
-        self.assertEqual(14, CANDIDATE.spatial.vertices_per_component)
-        self.assertFalse(hasattr(CANDIDATE.spatial, "vertex_fallbacks"))
+        self.assertEqual(
+            "production_candidate_adaptive_vertices_v2", CANDIDATE.profile_id
+        )
+        self.assertEqual(
+            (14, 16, 18, 20),
+            CANDIDATE.spatial.allowed_vertices_per_component,
+        )
+        self.assertEqual(0.999, CANDIDATE.spatial.track_area_quantile)
+        self.assertEqual(
+            (0.03, 0.10, 0.25),
+            CANDIDATE.spatial.screen_occupancy_thresholds,
+        )
+        self.assertEqual(16.0, CANDIDATE.preparation.border_max_expand_px)
+        self.assertEqual(16.0, CANDIDATE.preparation.border_influence_px)
+        self.assertTrue(CANDIDATE.preparation.border_corner_support)
         self.assertEqual(1.05, CANDIDATE.spatial.recall_repair_max_scale)
         self.assertEqual(0.97, CANDIDATE.temporal.recall_floor)
         self.assertEqual(6, CANDIDATE.temporal.target_interval)
@@ -51,13 +69,11 @@ class ProductionCandidate20260814Tests(unittest.TestCase):
         self.assertEqual(0.5, CANDIDATE.runtime.lazy_fallback_min_seconds)
         self.assertEqual(0.10, CANDIDATE.runtime.cuda_prefilter_deficit_budget)
         self.assertEqual(0.0, CANDIDATE.runtime.cuda_prefilter_small_area)
-        self.assertEqual(
-            0.10, CANDIDATE.runtime.cuda_prefilter_small_deficit_budget
-        )
+        self.assertEqual(0.10, CANDIDATE.runtime.cuda_prefilter_small_deficit_budget)
         self.assertEqual(1024, CANDIDATE.runtime.lazy_fallback_min_exact_edges)
         self.assertEqual(0.875, CANDIDATE.runtime.lazy_fallback_infeasible_ratio)
         self.assertEqual(1, CANDIDATE.runtime.candidate_frame_workers)
-        self.assertEqual("cuda_lazy_exact", CANDIDATE.runtime.interval_evaluation)
+        self.assertEqual("native_exact", CANDIDATE.runtime.interval_evaluation)
         policy = build_policy()
         self.assertEqual("adaptive_mask", policy.comparison_policy)
         self.assertEqual(0.20, policy.mask_iou_threshold)
@@ -69,6 +85,56 @@ class ProductionCandidate20260814Tests(unittest.TestCase):
         self.assertEqual(8.0, policy.mask_contain_ratio_max)
         self.assertEqual(5.0, policy.mask_small_contain_ratio_max)
         self.assertEqual(5.0, policy.mask_tiny_contain_ratio_max)
+
+    def test_vertex_policy_uses_strict_screen_occupancy_thresholds(self) -> None:
+        self.assertEqual(14, select_vertex_count(0.03))
+        self.assertEqual(16, select_vertex_count(0.030000001))
+        self.assertEqual(16, select_vertex_count(0.10))
+        self.assertEqual(18, select_vertex_count(0.100000001))
+        self.assertEqual(18, select_vertex_count(0.25))
+        self.assertEqual(20, select_vertex_count(0.250000001))
+
+    def test_vertex_policy_is_track_fixed_and_pre_border(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_mask_sqlite(
+                root / "tracked.sqlite",
+                [
+                    MaskRow(
+                        0,
+                        "1",
+                        json.dumps([[[0, 0], [30, 0], [30, 10], [0, 10]]]),
+                        "女性器",
+                        "polygon",
+                    ),
+                    MaskRow(
+                        1,
+                        "1",
+                        json.dumps([[[0, 0], [40, 0], [40, 10], [0, 10]]]),
+                        "女性器",
+                        "polygon",
+                    ),
+                    MaskRow(
+                        0,
+                        "2",
+                        json.dumps([[[0, 0], [40, 0], [40, 40], [0, 40]]]),
+                        "男性器",
+                        "polygon",
+                    ),
+                ],
+            )
+            output = root / "vertex_policy.json"
+            payload = build_vertex_policy(
+                source,
+                output,
+                width=100,
+                height=100,
+                track_labels={"1": "女性器", "2": "男性器"},
+            )
+            self.assertEqual("tracked_pre_border", payload["source_stage"])
+            self.assertEqual(16, payload["tracks"]["1"]["vertices_per_component"])
+            self.assertEqual(18, payload["tracks"]["2"]["vertices_per_component"])
+            self.assertTrue(output.is_file())
 
     def test_role_palette_and_runtime_bridge_match(self) -> None:
         self.assertEqual(
@@ -86,6 +152,17 @@ class ProductionCandidate20260814Tests(unittest.TestCase):
         self.assertEqual("D6_R5_P1", role_ids("男性器")[-1])
         self.assertEqual("VF8_P1", role_ids("結合部分")[-1])
         assert_runtime_bridge_contract()
+
+    def test_legacy_fixed14_profile_remains_reproducible(self) -> None:
+        legacy = legacy_fixed14_candidate()
+        self.assertEqual("production_candidate_20260814_v1", legacy.profile_id)
+        self.assertEqual("polygon14_keyframe_v1", legacy.polygon_profile_id)
+        self.assertFalse(legacy.spatial.adaptive_vertex_policy)
+        self.assertEqual(14, legacy.spatial.vertices_per_component)
+        self.assertEqual(40.0, legacy.preparation.border_max_expand_px)
+        self.assertEqual(24.0, legacy.preparation.border_influence_px)
+        self.assertFalse(legacy.preparation.border_corner_support)
+        assert_runtime_bridge_contract(legacy)
 
     def test_interval_specific_role_palettes_match_runtime(self) -> None:
         for interval in range(1, 7):

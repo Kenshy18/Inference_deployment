@@ -8,11 +8,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
+
 from approximation.polygon.production import (
     DEFAULT_NUM_WORKERS,
     _resolve_cpp_compiler,
 )
 from approximation.polygon.preparation import (
+    _expand_polygon,
     apply_border_expansion,
     apply_endpoint_extension,
 )
@@ -60,6 +63,28 @@ class PolygonProductionPreparationTests(unittest.TestCase):
             self.assertEqual(20, len(rows))
             self.assertEqual(5, rows[0].frame)
             self.assertEqual(24, rows[-1].frame)
+
+    def test_candidate_border_cap_and_corner_support(self) -> None:
+        polygon = np.asarray(
+            [[2.0, 24.0], [200.0, 2.0], [250.0, 100.0], [100.0, 250.0]],
+            dtype=np.float32,
+        )
+        expanded, changed = _expand_polygon(
+            polygon,
+            width=400,
+            height=400,
+            trigger_px=10.0,
+            expand_ratio=0.10,
+            min_expand_px=6.0,
+            max_expand_px=16.0,
+            influence_px=16.0,
+            corner_support=True,
+        )
+        self.assertTrue(changed)
+        self.assertAlmostEqual(-14.0, float(expanded[0, 0]), places=5)
+        self.assertAlmostEqual(8.0, float(expanded[0, 1]), places=5)
+        self.assertLessEqual(float(polygon[0, 0] - expanded[0, 0]), 16.0)
+        self.assertLessEqual(float(polygon[0, 1] - expanded[0, 1]), 16.0)
 
     def test_native_compiler_respects_explicit_environment(self) -> None:
         with mock.patch.dict(os.environ, {"CXX": "/test/compiler"}):

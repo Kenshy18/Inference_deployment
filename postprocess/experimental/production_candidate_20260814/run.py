@@ -18,7 +18,7 @@ from .pipeline import run_candidate
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the approved hole/island/Mask-NMS + polygon14 + minimum-"
+            "Run the approved hole/island/Mask-NMS + adaptive polygon + minimum-"
             "Recall DP + constrained pair-vote candidate."
         )
     )
@@ -41,10 +41,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--interval-evaluation",
         choices=INTERVAL_EVALUATION_MODES,
-        default="cuda_lazy_exact",
+        default="native_exact",
         help=(
-            "cuda_lazy_exact is the default accelerated evaluator; "
-            "native_exact evaluates every DP edge exactly on CPU"
+            "native_exact is the default quality-preserving CPU evaluator; "
+            "cuda_lazy_exact remains an explicit accelerated diagnostic"
         ),
     )
     return parser.parse_args()

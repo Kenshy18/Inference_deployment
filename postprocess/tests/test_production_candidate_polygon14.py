@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from experimental.production_candidate_polygon14 import CANDIDATE
 from experimental.production_candidate_polygon14.integration import (
@@ -29,14 +30,22 @@ from experimental.temporal_vertex_decimation_20260812.optimizer import (
 def _contour(offset_x: float, offset_y: float, scale: float = 1.0) -> np.ndarray:
     points = np.asarray(
         [
-            [0, 0], [40, 0], [40, 12], [28, 12], [28, 30], [40, 30],
-            [40, 42], [0, 42], [0, 30], [12, 30], [12, 12], [0, 12],
+            [0, 0],
+            [40, 0],
+            [40, 12],
+            [28, 12],
+            [28, 30],
+            [40, 30],
+            [40, 42],
+            [0, 42],
+            [0, 30],
+            [12, 30],
+            [12, 12],
+            [0, 12],
         ],
         dtype=np.float64,
     )
-    return resample_closed(
-        points * float(scale) + np.asarray([offset_x, offset_y]), 96
-    )
+    return resample_closed(points * float(scale) + np.asarray([offset_x, offset_y]), 96)
 
 
 def _two_component_track(frames: int = 6) -> list[list[np.ndarray]]:
@@ -115,6 +124,32 @@ def test_integration_replaces_only_anchors_and_preserves_recall_reference() -> N
     assert profile["polygon14_components"] == 2
     assert profile["polygon14_exact_repaired_frames"] == 0
     assert profile["polygon14_unresolved_recall_frames"] == 0
+
+
+@pytest.mark.parametrize("vertices", (14, 16, 18, 20))
+def test_integration_supports_track_fixed_adaptive_vertex_counts(vertices: int) -> None:
+    gt_polygons = _two_component_track(frames=3)
+    run = SimpleNamespace(
+        stream_id=f"adaptive-{vertices}",
+        track_id=str(vertices),
+        anchors_per_contour=20,
+        gt_polygons=gt_polygons,
+        anchors=np.zeros((3, 2, 20, 2), dtype=np.float32),
+        run_target_total_points=0,
+    )
+    profile: dict[str, object] = {}
+    evaluator = _ExactEvaluator(minimum_vertices=14)
+    apply_spatial_candidate(
+        run,
+        profile,
+        endpoint_evaluator=evaluator,
+        vertices_per_component=vertices,
+    )
+    assert run.anchors.shape == (3, 2, vertices, 2)
+    assert run.anchors_per_contour == vertices
+    assert run.run_target_total_points == 2 * vertices
+    assert set(evaluator.calls) == {vertices}
+    assert profile["spatial_tracks_by_vertex_count"] == {str(vertices): 1}
 
 
 class _ScaleSensitiveEvaluator:
@@ -277,9 +312,7 @@ def test_topology_guard_splits_only_the_invalid_selected_edge() -> None:
             (1.0 - alpha) * left + alpha * right
         ).astype(np.float32),
         split_vector_to_polygons=split,
-        interval_cost_from_vectors=lambda *_args, **_kwargs: SimpleNamespace(
-            cost=0.0
-        ),
+        interval_cost_from_vectors=lambda *_args, **_kwargs: SimpleNamespace(cost=0.0),
     )
     run = SimpleNamespace(
         contour_count=1,
@@ -325,9 +358,5 @@ def test_pair_vote_gate_rejects_only_the_crossing_trial() -> None:
     )
     run = SimpleNamespace(contour_count=1, anchors_per_contour=4)
     current = np.stack([valid, valid, valid], axis=0)
-    assert local_key_update_is_simple(
-        module, run, [0, 1, 2], current, 1, valid
-    )
-    assert not local_key_update_is_simple(
-        module, run, [0, 1, 2], current, 1, crossing
-    )
+    assert local_key_update_is_simple(module, run, [0, 1, 2], current, 1, valid)
+    assert not local_key_update_is_simple(module, run, [0, 1, 2], current, 1, crossing)

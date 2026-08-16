@@ -1,10 +1,11 @@
-"""Stable boundary around the approved track-consistent fixed-14 fitter."""
+"""Stable boundary around the approved track-consistent adaptive fitter."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
 import numpy as np
+from dataclasses import replace
 
 from experimental.production_candidate_polygon14.config import (
     CANDIDATE as APPROVED_SPATIAL_CONTRACT,
@@ -21,10 +22,6 @@ def _assert_same_contract(config: CandidateConfig) -> None:
     expected = APPROVED_SPATIAL_CONTRACT
     actual = config.spatial
     fields = {
-        "vertices_per_component": (
-            actual.vertices_per_component,
-            expected.vertices_per_component,
-        ),
         "recall_floor": (actual.recall_floor, expected.spatial_recall_floor),
         "recall_repair_max_scale": (
             actual.recall_repair_max_scale,
@@ -57,10 +54,22 @@ def _assert_same_contract(config: CandidateConfig) -> None:
 def build_spatial_track(
     frame_components: Iterable[Sequence[np.ndarray]],
     config: CandidateConfig = CANDIDATE,
+    *,
+    vertices_per_component: int = 14,
 ) -> tuple[np.ndarray, SpatialBuildStats]:
     config.validate()
     _assert_same_contract(config)
-    return _build_spatial_track(frame_components, APPROVED_SPATIAL_CONTRACT)
+    vertices = int(vertices_per_component)
+    if vertices not in config.spatial.allowed_vertices_per_component:
+        raise ValueError(
+            f"vertices_per_component must be one of "
+            f"{config.spatial.allowed_vertices_per_component}"
+        )
+    spatial_contract = replace(
+        APPROVED_SPATIAL_CONTRACT,
+        vertices_per_component=vertices,
+    )
+    return _build_spatial_track(frame_components, spatial_contract)
 
 
 __all__ = ("SpatialBuildStats", "build_spatial_track")

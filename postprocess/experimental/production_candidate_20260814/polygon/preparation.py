@@ -14,6 +14,7 @@ from approximation.polygon.preparation import (
 from classwise.sqlite import filter_tracked_sqlite, read_track_labels
 
 from ..config import CANDIDATE, CandidateConfig
+from .vertex_policy import build_vertex_policy
 
 
 def _finalize_class_projection(
@@ -113,6 +114,22 @@ def prepare_classwise_source(
     tracked = Path(tracked_sqlite).resolve()
     root = Path(output_root).resolve()
     track_labels = read_track_labels(tracked)
+    vertex_policy_path = root / "vertex_policy.json"
+    if config.spatial.adaptive_vertex_policy:
+        vertex_policy = build_vertex_policy(
+            tracked,
+            vertex_policy_path,
+            width=int(width),
+            height=int(height),
+            track_labels=track_labels,
+            config=config,
+        )
+    else:
+        vertex_policy = {
+            "enabled": False,
+            "reason": "legacy_fixed_14_profile",
+            "vertices_per_component": 14,
+        }
     tracks_by_label = {
         label: tuple(
             track_id
@@ -148,6 +165,7 @@ def prepare_classwise_source(
                 min_expand_px=settings.border_min_expand_px,
                 max_expand_px=settings.border_max_expand_px,
                 influence_px=settings.border_influence_px,
+                corner_support=settings.border_corner_support,
             )
             _, endpoint_stats = apply_endpoint_extension(
                 border,
@@ -178,6 +196,10 @@ def prepare_classwise_source(
         }
 
     source_root = root / "phase2_source"
+    source_root.mkdir(parents=True, exist_ok=True)
+    optimizer_vertex_policy = source_root / "vertex_policy.json"
+    if config.spatial.adaptive_vertex_policy:
+        shutil.copyfile(vertex_policy_path, optimizer_vertex_policy)
     work = source_root / "interval_10/production_raw/work/04_classwise_postprocess"
     work.mkdir(parents=True, exist_ok=True)
     groups: list[dict[str, object]] = []
@@ -234,6 +256,12 @@ def prepare_classwise_source(
         else str(Path(input_video).resolve()),
         "classes": classes,
         "active_labels": list(active_labels),
+        "vertex_policy": vertex_policy,
+        "vertex_policy_json": (
+            str(optimizer_vertex_policy)
+            if config.spatial.adaptive_vertex_policy
+            else None
+        ),
         "source_root": str(source_root),
         "classwise_manifest": str(classwise_manifest),
     }

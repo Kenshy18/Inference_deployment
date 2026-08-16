@@ -176,7 +176,11 @@ def command(source: Path, output: Path, args: argparse.Namespace) -> list[str]:
         "--evaluate-exact",
         "--write-pred-sqlite",
         "--gapfill-enabled",
-    ] + (["--adaptive-anchor-counts"] if args.adaptive_anchor_counts else [])
+    ] + (
+        ["--adaptive-anchor-counts"]
+        if args.adaptive_anchor_counts
+        else ["--no-adaptive-anchor-counts"]
+    )
 
 
 def run_cell(

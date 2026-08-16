@@ -6,8 +6,10 @@ from dataclasses import asdict, dataclass, field
 import math
 
 
-PROFILE_ID = "production_candidate_20260814_v1"
-POLYGON_PROFILE_ID = "polygon14_keyframe_v1"
+PROFILE_ID = "production_candidate_adaptive_vertices_v2"
+POLYGON_PROFILE_ID = "polygon_adaptive_keyframe_v2"
+LEGACY_PROFILE_ID = "production_candidate_20260814_v1"
+LEGACY_POLYGON_PROFILE_ID = "polygon14_keyframe_v1"
 LABELS = ("女性器", "男性器", "結合部分")
 INTERVAL_EVALUATION_MODES = ("cuda_lazy_exact", "native_exact")
 
@@ -40,7 +42,12 @@ class TrackingConfig:
 
 @dataclass(frozen=True, slots=True)
 class SpatialConfig:
-    vertices_per_component: int = 14
+    adaptive_vertex_policy: bool = True
+    allowed_vertices_per_component: tuple[int, ...] = (14, 16, 18, 20)
+    track_area_quantile: float = 0.999
+    screen_occupancy_thresholds: tuple[float, ...] = (0.03, 0.10, 0.25)
+    vertex_selection_source: str = "tracked_pre_border"
+    vertex_selection_comparison: str = "strictly_greater_than_threshold"
     recall_floor: float = 0.97
     recall_repair_max_scale: float = 1.05
     iou_floor: float = 0.95
@@ -49,14 +56,20 @@ class SpatialConfig:
     maximum_intersection_radius: float = 0.20
     intersection_regularization: float = 0.01
 
+    @property
+    def vertices_per_component(self) -> int:
+        """Compatibility minimum for the parity-frozen fixed-14 bridge."""
+        return int(self.allowed_vertices_per_component[0])
+
 
 @dataclass(frozen=True, slots=True)
 class PreparationConfig:
     border_trigger_px: float = 10.0
     border_expand_ratio: float = 0.10
     border_min_expand_px: float = 6.0
-    border_max_expand_px: float = 40.0
-    border_influence_px: float = 24.0
+    border_max_expand_px: float = 16.0
+    border_influence_px: float = 16.0
+    border_corner_support: bool = True
     endpoint_extend_frames: int = 5
     endpoint_motion_frames: int = 10
     endpoint_max_speed_px: float = 1000.0
@@ -98,7 +111,7 @@ class RuntimeConfig:
     max_run_frames: int = 30000
     run_overlap_frames: int = 900
     predictor_device: str = "cpu"
-    interval_evaluation: str = "cuda_lazy_exact"
+    interval_evaluation: str = "native_exact"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,10 +130,55 @@ class CandidateConfig:
     def validate(self) -> None:
         if self.labels != LABELS:
             raise ValueError(f"candidate labels are frozen to {LABELS}")
-        if self.polygon_profile_id != POLYGON_PROFILE_ID:
-            raise ValueError("polygon profile is part of the frozen contract")
-        if self.spatial.vertices_per_component != 14:
-            raise ValueError("candidate minimum vertex count must be 14")
+        adaptive_profile = (
+            self.profile_id == PROFILE_ID
+            and self.polygon_profile_id == POLYGON_PROFILE_ID
+            and self.spatial.adaptive_vertex_policy
+        )
+        legacy_profile = (
+            self.profile_id == LEGACY_PROFILE_ID
+            and self.polygon_profile_id == LEGACY_POLYGON_PROFILE_ID
+            and not self.spatial.adaptive_vertex_policy
+        )
+        if not (adaptive_profile or legacy_profile):
+            raise ValueError("candidate profile and polygon profile do not match")
+        if self.spatial.allowed_vertices_per_component != (14, 16, 18, 20):
+            raise ValueError("candidate vertex counts must be (14, 16, 18, 20)")
+        if self.spatial.screen_occupancy_thresholds != (0.03, 0.10, 0.25):
+            raise ValueError(
+                "candidate occupancy thresholds must be (0.03, 0.10, 0.25)"
+            )
+        if not (
+            math.isfinite(float(self.spatial.track_area_quantile))
+            and 0.0 < float(self.spatial.track_area_quantile) <= 1.0
+        ):
+            raise ValueError("track area quantile must be in (0, 1]")
+        if len(self.spatial.screen_occupancy_thresholds) + 1 != len(
+            self.spatial.allowed_vertices_per_component
+        ):
+            raise ValueError(
+                "vertex counts must have exactly one more entry than thresholds"
+            )
+        if any(
+            not math.isfinite(float(value)) or not 0.0 < float(value) < 1.0
+            for value in self.spatial.screen_occupancy_thresholds
+        ) or tuple(sorted(self.spatial.screen_occupancy_thresholds)) != (
+            self.spatial.screen_occupancy_thresholds
+        ):
+            raise ValueError(
+                "occupancy thresholds must be finite and strictly increasing"
+            )
+        if self.spatial.vertex_selection_source != "tracked_pre_border":
+            raise ValueError(
+                "vertex selection must use tracked masks before border expansion"
+            )
+        if (
+            self.spatial.vertex_selection_comparison
+            != "strictly_greater_than_threshold"
+        ):
+            raise ValueError(
+                "vertex threshold comparison is part of the frozen contract"
+            )
         for name, value in (
             ("spatial recall", self.spatial.recall_floor),
             ("spatial IoU", self.spatial.iou_floor),
@@ -136,6 +194,25 @@ class CandidateConfig:
             1.0 <= float(self.spatial.recall_repair_max_scale) <= 1.05
         ):
             raise ValueError("spatial Recall repair scale must be in [1, 1.05]")
+        if adaptive_profile:
+            if not (
+                math.isfinite(float(self.preparation.border_max_expand_px))
+                and 0.0 < float(self.preparation.border_max_expand_px) <= 16.0
+            ):
+                raise ValueError("candidate border expansion must be capped at 16 px")
+            if not (
+                math.isfinite(float(self.preparation.border_influence_px))
+                and float(self.preparation.border_influence_px) == 16.0
+            ):
+                raise ValueError("candidate border influence band must be 16 px")
+            if not self.preparation.border_corner_support:
+                raise ValueError("candidate border corner support must remain enabled")
+        elif (
+            self.preparation.border_max_expand_px != 40.0
+            or self.preparation.border_influence_px != 24.0
+            or self.preparation.border_corner_support
+        ):
+            raise ValueError("legacy fixed-14 border contract drift")
         if not (
             self.nms.mask_tiny_iou_threshold
             <= self.nms.mask_small_iou_threshold
@@ -213,12 +290,8 @@ class CandidateConfig:
         ):
             raise ValueError("CUDA prefilter small area must be non-negative")
         if not (
-            math.isfinite(
-                float(self.runtime.cuda_prefilter_small_deficit_budget)
-            )
-            and 0.0
-            <= float(self.runtime.cuda_prefilter_small_deficit_budget)
-            <= 1.0
+            math.isfinite(float(self.runtime.cuda_prefilter_small_deficit_budget))
+            and 0.0 <= float(self.runtime.cuda_prefilter_small_deficit_budget) <= 1.0
         ):
             raise ValueError("CUDA prefilter small budget must be in [0, 1]")
         if (
@@ -245,6 +318,26 @@ class CandidateConfig:
 
 CANDIDATE = CandidateConfig()
 CANDIDATE.validate()
+
+
+def legacy_fixed14_candidate() -> CandidateConfig:
+    """Return the exact pre-v2 contract used by the promoted stable profile."""
+    from dataclasses import replace
+
+    value = replace(
+        CANDIDATE,
+        profile_id=LEGACY_PROFILE_ID,
+        polygon_profile_id=LEGACY_POLYGON_PROFILE_ID,
+        spatial=replace(CANDIDATE.spatial, adaptive_vertex_policy=False),
+        preparation=replace(
+            CANDIDATE.preparation,
+            border_max_expand_px=40.0,
+            border_influence_px=24.0,
+            border_corner_support=False,
+        ),
+    )
+    value.validate()
+    return value
 
 
 def with_target_interval(

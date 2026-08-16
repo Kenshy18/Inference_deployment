@@ -46,6 +46,55 @@ def _smoothstep(values: np.ndarray) -> np.ndarray:
     return clipped * clipped * (3.0 - 2.0 * clipped)
 
 
+def _supported_screen_corners(
+    polygon: np.ndarray,
+    *,
+    width: int,
+    height: int,
+    trigger_px: float,
+    influence_px: float,
+) -> set[str]:
+    points = np.asarray(polygon, dtype=np.float32).reshape(-1, 2)
+    if len(points) < 3:
+        return set()
+    x0, y0 = np.min(points, axis=0)
+    x1, y1 = np.max(points, axis=0)
+    proximity = float(trigger_px) + max(float(influence_px), float(trigger_px) + 1.0)
+    specifications = (
+        ("top_left", x0 <= trigger_px and y0 <= trigger_px, 0.0, 0.0),
+        (
+            "top_right",
+            x1 >= width - 1 - trigger_px and y0 <= trigger_px,
+            float(width - 1),
+            0.0,
+        ),
+        (
+            "bottom_left",
+            x0 <= trigger_px and y1 >= height - 1 - trigger_px,
+            0.0,
+            float(height - 1),
+        ),
+        (
+            "bottom_right",
+            x1 >= width - 1 - trigger_px and y1 >= height - 1 - trigger_px,
+            float(width - 1),
+            float(height - 1),
+        ),
+    )
+    output: set[str] = set()
+    for name, touched, edge_x, edge_y in specifications:
+        if not touched:
+            continue
+        distance = np.abs(points[:, 0] - edge_x) + np.abs(points[:, 1] - edge_y)
+        index = int(np.argmin(distance))
+        if (
+            abs(float(points[index, 0]) - edge_x) <= proximity
+            and abs(float(points[index, 1]) - edge_y) <= proximity
+        ):
+            output.add(name)
+    return output
+
+
 def _expand_polygon(
     polygon: np.ndarray,
     *,
@@ -56,8 +105,10 @@ def _expand_polygon(
     min_expand_px: float,
     max_expand_px: float,
     influence_px: float,
+    corner_support: bool = False,
 ) -> tuple[np.ndarray, bool]:
-    expanded = np.asarray(polygon, dtype=np.float32).reshape(-1, 2).copy()
+    original = np.asarray(polygon, dtype=np.float32).reshape(-1, 2)
+    expanded = original.copy()
     if len(expanded) < 3:
         return expanded, False
     x0, y0 = np.min(expanded, axis=0)
@@ -66,32 +117,84 @@ def _expand_polygon(
     span_y = max(1.0, float(y1 - y0 + 1.0))
     influence = max(float(influence_px), float(trigger_px) + 1.0)
     changed = False
-    if float(x0) <= trigger_px:
-        amount = float(np.clip(span_x * expand_ratio, min_expand_px, max_expand_px))
+    left = float(x0) <= trigger_px
+    right = float(x1) >= float(width - 1) - trigger_px
+    top = float(y0) <= trigger_px
+    bottom = float(y1) >= float(height - 1) - trigger_px
+    amount_x = float(np.clip(span_x * expand_ratio, min_expand_px, max_expand_px))
+    amount_y = float(np.clip(span_y * expand_ratio, min_expand_px, max_expand_px))
+    if left:
+        amount = amount_x
         expanded[:, 0] -= amount * _smoothstep(
             ((trigger_px + influence) - expanded[:, 0]) / influence
         )
         changed = True
-    if float(x1) >= float(width - 1) - trigger_px:
-        amount = float(np.clip(span_x * expand_ratio, min_expand_px, max_expand_px))
+    if right:
+        amount = amount_x
         expanded[:, 0] += amount * _smoothstep(
-            (expanded[:, 0] - (float(width - 1) - trigger_px - influence))
-            / influence
+            (expanded[:, 0] - (float(width - 1) - trigger_px - influence)) / influence
         )
         changed = True
-    if float(y0) <= trigger_px:
-        amount = float(np.clip(span_y * expand_ratio, min_expand_px, max_expand_px))
+    if top:
+        amount = amount_y
         expanded[:, 1] -= amount * _smoothstep(
             ((trigger_px + influence) - expanded[:, 1]) / influence
         )
         changed = True
-    if float(y1) >= float(height - 1) - trigger_px:
-        amount = float(np.clip(span_y * expand_ratio, min_expand_px, max_expand_px))
+    if bottom:
+        amount = amount_y
         expanded[:, 1] += amount * _smoothstep(
-            (expanded[:, 1] - (float(height - 1) - trigger_px - influence))
-            / influence
+            (expanded[:, 1] - (float(height - 1) - trigger_px - influence)) / influence
         )
         changed = True
+
+    # A contour touching two perpendicular screen sides can have its x/y
+    # extrema on different vertices.  Independent smooth displacement then
+    # leaves a bevel at the actual screen corner, which a low-vertex polygon
+    # may omit.  Pin one already-near-corner source vertex in both axes.  The
+    # proximity gate prevents filling a large rectangle when a wide concave
+    # mask happens to touch the two sides at unrelated locations.
+    if corner_support:
+        corner_specs = (
+            (left, top, 0, -amount_x, 1, -amount_y, 0.0, 0.0),
+            (right, top, 0, amount_x, 1, -amount_y, float(width - 1), 0.0),
+            (left, bottom, 0, -amount_x, 1, amount_y, 0.0, float(height - 1)),
+            (
+                right,
+                bottom,
+                0,
+                amount_x,
+                1,
+                amount_y,
+                float(width - 1),
+                float(height - 1),
+            ),
+        )
+        proximity = float(trigger_px) + influence
+        for (
+            x_touched,
+            y_touched,
+            x_axis,
+            x_delta,
+            y_axis,
+            y_delta,
+            edge_x,
+            edge_y,
+        ) in corner_specs:
+            if not (x_touched and y_touched):
+                continue
+            distances = np.abs(original[:, 0] - edge_x) + np.abs(
+                original[:, 1] - edge_y
+            )
+            index = int(np.argmin(distances))
+            if (
+                abs(float(original[index, 0]) - edge_x) > proximity
+                or abs(float(original[index, 1]) - edge_y) > proximity
+            ):
+                continue
+            expanded[index, x_axis] = original[index, x_axis] + float(x_delta)
+            expanded[index, y_axis] = original[index, y_axis] + float(y_delta)
+            changed = True
     return expanded, changed
 
 
@@ -106,13 +209,32 @@ def apply_border_expansion(
     min_expand_px: float = 6.0,
     max_expand_px: float = 40.0,
     influence_px: float = 24.0,
+    corner_support: bool = False,
 ) -> tuple[Path, dict[str, object]]:
     rows: list[MaskRow] = []
     changed_rows = 0
     side_counts = {"left": 0, "right": 0, "top": 0, "bottom": 0}
+    corner_counts = {
+        "top_left": 0,
+        "top_right": 0,
+        "bottom_left": 0,
+        "bottom_right": 0,
+    }
     for row in read_mask_rows(source):
         polygons = _parse(row.polygons)
         before = _bbox(polygons)
+        supported_corners: set[str] = set()
+        if corner_support:
+            for polygon in polygons:
+                supported_corners.update(
+                    _supported_screen_corners(
+                        polygon,
+                        width=width,
+                        height=height,
+                        trigger_px=trigger_px,
+                        influence_px=influence_px,
+                    )
+                )
         changed = False
         expanded: list[np.ndarray] = []
         for polygon in polygons:
@@ -125,6 +247,7 @@ def apply_border_expansion(
                 min_expand_px=min_expand_px,
                 max_expand_px=max_expand_px,
                 influence_px=influence_px,
+                corner_support=corner_support,
             )
             expanded.append(value)
             changed = changed or item_changed
@@ -136,6 +259,8 @@ def apply_border_expansion(
                 side_counts["right"] += int(x1 >= width - 1 - trigger_px)
                 side_counts["top"] += int(y0 <= trigger_px)
                 side_counts["bottom"] += int(y1 >= height - 1 - trigger_px)
+                for corner in supported_corners:
+                    corner_counts[corner] += 1
         rows.append(
             MaskRow(
                 row.frame,
@@ -152,6 +277,13 @@ def apply_border_expansion(
         "changed_rows": changed_rows,
         "changed_ratio": changed_rows / max(len(rows), 1),
         "side_counts": side_counts,
+        "corner_counts": corner_counts,
+        "corner_support": bool(corner_support),
+        "trigger_px": float(trigger_px),
+        "expand_ratio": float(expand_ratio),
+        "min_expand_px": float(min_expand_px),
+        "max_expand_px": float(max_expand_px),
+        "influence_px": float(influence_px),
         "width": width,
         "height": height,
     }
@@ -196,7 +328,9 @@ def _compatible(sequence: list[list[np.ndarray]]) -> bool:
     )
 
 
-def _fit(sequence_frames: list[int], sequence: list[list[np.ndarray]], target: int) -> list[np.ndarray]:
+def _fit(
+    sequence_frames: list[int], sequence: list[list[np.ndarray]], target: int
+) -> list[np.ndarray]:
     times = np.asarray(sequence_frames, dtype=np.float32)
     centered = times - float(np.mean(times))
     denominator = float(np.sum(centered * centered))
@@ -207,10 +341,11 @@ def _fit(sequence_frames: list[int], sequence: list[list[np.ndarray]], target: i
         slope = (
             np.zeros_like(mean)
             if denominator <= 1e-6
-            else np.sum(centered[:, None, None] * (values - mean), axis=0)
-            / denominator
+            else np.sum(centered[:, None, None] * (values - mean), axis=0) / denominator
         )
-        output.append((mean + slope * (float(target) - float(np.mean(times)))).astype(np.float32))
+        output.append(
+            (mean + slope * (float(target) - float(np.mean(times)))).astype(np.float32)
+        )
     return output
 
 
@@ -272,7 +407,9 @@ def apply_endpoint_extension(
                     continue
                 polygons = _fit([row.frame for row in motion], sequence, target)
                 inserted.append(
-                    MaskRow(target, track_id, _dump(polygons), endpoint.label, "polygon")
+                    MaskRow(
+                        target, track_id, _dump(polygons), endpoint.label, "polygon"
+                    )
                 )
                 existing.add((target, track_id))
                 count += 1

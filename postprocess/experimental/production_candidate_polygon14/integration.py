@@ -81,8 +81,7 @@ def _repair_frame_exact_recall(
     # not assumed scale monotonicity, decides feasibility.
     coarse_scales = [1.0]
     coarse_scales.extend(
-        float(value)
-        for value in np.arange(1.001, float(maximum_scale) + 0.0005, 0.001)
+        float(value) for value in np.arange(1.001, float(maximum_scale) + 0.0005, 0.001)
     )
     for base in bases:
         best_scale_for_base = None
@@ -156,19 +155,32 @@ def apply_spatial_candidate(
     profile: dict[str, float | int],
     endpoint_evaluator=None,
     config: Polygon14CandidateConfig = CANDIDATE,
+    vertices_per_component: int | None = None,
 ) -> None:
-    """Build fixed 14-point anchors and apply a best-effort exact Recall repair."""
+    """Build track-fixed anchors and apply a best-effort exact Recall repair."""
     if bool(getattr(run, "_polygon14_candidate_applied", False)):
         return
     if endpoint_evaluator is None:
         raise RuntimeError("fixed-14 Recall repair requires native exact evaluator")
-    vertices = int(config.vertices_per_component)
-    if vertices != 14:
-        raise RuntimeError(f"unexpected fixed vertex contract: {vertices}")
+    vertices = int(
+        config.vertices_per_component
+        if vertices_per_component is None
+        else vertices_per_component
+    )
+    from .config import ALLOWED_ADAPTIVE_VERTICES
+
+    if vertices not in ALLOWED_ADAPTIVE_VERTICES:
+        raise RuntimeError(
+            f"unexpected adaptive vertex count: {vertices}; "
+            f"allowed={ALLOWED_ADAPTIVE_VERTICES}"
+        )
     # run.gt_polygons deliberately remains untouched. Both DP edge feasibility
     # and pair-vote use it as the exact source-mask reference.
     started = time.perf_counter()
-    anchors, stats = build_spatial_track(run.gt_polygons, config)
+    from dataclasses import replace
+
+    spatial_config = replace(config, vertices_per_component=vertices)
+    anchors, stats = build_spatial_track(run.gt_polygons, spatial_config)
     anchors, exact_repaired, repair_scale = _repair_sequence_exact_recall(
         run,
         endpoint_evaluator,
@@ -232,3 +244,6 @@ def apply_spatial_candidate(
         float(profile.get("polygon14_spatial_minimum_iou", 1.0)),
         float(minimum_iou),
     )
+    vertex_counts = profile.setdefault("spatial_tracks_by_vertex_count", {})
+    key = str(vertices)
+    vertex_counts[key] = int(vertex_counts.get(key, 0)) + 1

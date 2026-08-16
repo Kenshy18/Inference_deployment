@@ -31,8 +31,6 @@ def assert_runtime_bridge_contract(
     config.validate()
     approved = APPROVED_POLYGON_CONTRACT
     expected = {
-        "profile": config.polygon_profile_id,
-        "vertices": config.spatial.vertices_per_component,
         "spatial_recall": config.spatial.recall_floor,
         "spatial_recall_repair_max_scale": config.spatial.recall_repair_max_scale,
         "spatial_iou": config.spatial.iou_floor,
@@ -40,8 +38,6 @@ def assert_runtime_bridge_contract(
         "pair_vote_sweeps": config.temporal.pair_vote_sweeps,
     }
     actual = {
-        "profile": approved.profile_id,
-        "vertices": approved.vertices_per_component,
         "spatial_recall": approved.spatial_recall_floor,
         "spatial_recall_repair_max_scale": approved.spatial_recall_repair_max_scale,
         "spatial_iou": approved.spatial_iou_floor,
@@ -104,8 +100,7 @@ def assert_runtime_bridge_contract(
         "native_exact",
     }:
         raise RuntimeError(
-            "unsupported interval evaluator: "
-            f"{config.runtime.interval_evaluation!r}"
+            "unsupported interval evaluator: " f"{config.runtime.interval_evaluation!r}"
         )
 
 
@@ -134,7 +129,7 @@ def run_polygon_optimizer(
         manifest = {
             "schema_version": 1,
             "status": "experimental_production_candidate",
-            "candidate": APPROVED_POLYGON_CONTRACT.to_dict(),
+            "candidate": config.to_dict(),
             "privacy": "SQLite mask geometry only; no video frames were opened.",
             "sqlite_output_schema_changed": False,
             "source_root": str(Path(source_root).resolve()),
@@ -180,7 +175,14 @@ def run_polygon_optimizer(
         str(config.runtime.interval_evaluation),
         "--max-tracks",
         str(max(0, int(max_tracks))),
+        "--profile",
+        str(config.polygon_profile_id),
     ]
+    vertex_policy = Path(source_root).resolve() / "vertex_policy.json"
+    if config.spatial.adaptive_vertex_policy:
+        if not vertex_policy.is_file():
+            raise FileNotFoundError(vertex_policy)
+        command.extend(("--vertex-policy", str(vertex_policy)))
     if force:
         command.append("--force")
     environment = os.environ.copy()

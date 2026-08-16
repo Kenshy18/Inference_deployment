@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass
 
 
 PROFILE_ID = "polygon14_keyframe_v1"
+ADAPTIVE_PROFILE_ID = "polygon_adaptive_keyframe_v2"
+ALLOWED_ADAPTIVE_VERTICES = (14, 16, 18, 20)
 
 
 @dataclass(frozen=True)
