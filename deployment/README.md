@@ -113,7 +113,7 @@ Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は
 - `payload/backend.tar`: 検証済みLinux backendの標準WSL archive
 - `payload/Mask Pipeline Studio.exe`: Node.js不要のportable GUI
 - `payload/deployment-smoke.mp4`: 非センシティブな短尺fixture
-- `payload/deployment-manifest.json`: commit、asset世代、GPU/driver、全SHA256
+- `payload/deployment-manifest.json`: commit、asset世代、構築profile、GPU/driver、全SHA256
 
 デプロイヤーは同名の既存distributionを上書きしません。標準`wsl --import`で専用の
 ext4.vhdxを作成し、full-hash backend preflightとWindows GUI経由の120-frame E2Eを
@@ -133,6 +133,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deployment\windows\Bui
   -BackendArchive D:\release-input\backend.tar `
   -GuiPortable D:\release-input\MaskPipelineStudio.exe `
   -Fixture D:\release-input\deployment-smoke.mp4 `
+  -Profile core `
   -OutputRoot D:\MaskPipelineDeployment\release `
   -ReleaseCommit <backend-commit> `
   -GuiCommit <gui-commit> `

@@ -177,6 +177,7 @@ try {
     -GuiCommit $commit `
     -DeployerCommit $commit `
     -AssetCommit $commit `
+    -Profile $Profile `
     -GuiVersion $guiBuildManifest.version
   if ($LASTEXITCODE -ne 0) { throw "Deployer build failed" }
 
@@ -186,6 +187,9 @@ try {
     -Raw | ConvertFrom-Json
   if ($manifest.backend.release_commit -ne $commit -or $manifest.gui.commit -ne $commit) {
     throw "Release manifest does not match source commit $commit"
+  }
+  if ($manifest.profile -ne $Profile) {
+    throw "Release manifest profile does not match build profile $Profile"
   }
   foreach ($artifact in $manifest.artifacts) {
     $path = Join-Path (Join-Path $releaseDirectory "payload") $artifact.file

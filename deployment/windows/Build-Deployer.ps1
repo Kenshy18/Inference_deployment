@@ -9,6 +9,7 @@ param(
   [string]$GuiCommit,
   [string]$DeployerCommit,
   [string]$AssetCommit = "6f6823927eefc178a55a53c2615c011fc1ce0076",
+  [ValidateSet("core", "all")][string]$Profile = "all",
   [string]$GuiVersion = "0.1.3",
   [string]$GpuName = "NVIDIA GeForce RTX 5090",
   [string]$DriverVersion = "596.21"
@@ -56,9 +57,10 @@ $wslVersionText = ((& wsl.exe --version) -join "`n") -replace "`0", ""
 $wslVersionMatch = [regex]::Match($wslVersionText, '\d+\.\d+\.\d+\.\d+')
 $wslVersion = if ($wslVersionMatch.Success) { $wslVersionMatch.Value } else { "unknown" }
 $manifest = [ordered]@{
-  schema_version = 1
+  schema_version = 2
   release_id = $releaseId
   created_at_utc = [DateTime]::UtcNow.ToString("o")
+  profile = $Profile
   backend = [ordered]@{
     file=$backend.file
     format="wsl-tar"

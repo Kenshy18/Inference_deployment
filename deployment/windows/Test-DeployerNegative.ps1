@@ -36,8 +36,9 @@ function New-NegativePayload([string]$Name, [string]$FailureKind) {
   $expectedHash = if ($FailureKind -eq "hash") { "0" * 64 } else { $hash }
   $gpuName = if ($FailureKind -eq "gpu") { "Deliberately incompatible GPU" } else { $sourceManifest.compatibility.gpu_name }
   $manifest = [ordered]@{
-    schema_version = 1
+    schema_version = 2
     release_id = "negative-$Name"
+    profile = $sourceManifest.profile
     backend = [ordered]@{
       file="invalid.tar"; format="wsl-tar"; release_commit="negative"; asset_commit="negative"
     }

@@ -105,9 +105,13 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
   throw "Deployment manifest is missing: $manifestPath"
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.schema_version -ne 1) { throw "Unsupported deployment manifest" }
+if ($manifest.schema_version -ne 2) { throw "Unsupported deployment manifest" }
 if ($manifest.backend.format -ne "wsl-tar") {
   throw "Unsupported backend format: $($manifest.backend.format)"
+}
+$profile = [string]$manifest.profile
+if ($profile -notin @("core", "all")) {
+  throw "Unsupported deployment profile: '$profile'"
 }
 if ($DistributionName -notmatch '^[A-Za-z0-9_.-]+$') { throw "Unsafe distribution name" }
 
@@ -168,7 +172,7 @@ try {
   Invoke-Checked "wsl.exe" @(
     "-d", $DistributionName, "-u", "kenshin", "--cd", $BackendRoot, "--",
     $RuntimePython, "deployment/preflight.py", "--root", $BackendRoot,
-    "--profile", "all", "--runtime-python", $RuntimePython, "--full-hash"
+    "--profile", $profile, "--runtime-python", $RuntimePython, "--full-hash"
   )
 
   Write-Host "[6/8] Installing the Windows GUI and backend settings..." -ForegroundColor Cyan
@@ -232,6 +236,7 @@ try {
     distribution = $DistributionName
     install_root = $InstallRoot
     backend_format = $manifest.backend.format
+    profile = $profile
     backend_vhd = $installedVhd
     gui = $guiTarget
     gui_e2e = if ($SkipE2E) { "skipped" } else { $qaReport }
