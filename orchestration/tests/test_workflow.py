@@ -11,6 +11,7 @@ import cv2
 
 from orchestration.config import OrchestrationConfig
 from orchestration.contracts import PUBLIC_RESULT_SCHEMA_SIGNATURE
+from orchestration.rescale_result_sqlite import VideoGeometry
 from orchestration.runner import OrchestrationRunner
 
 from helpers import (
@@ -24,6 +25,15 @@ from helpers import (
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_16_by_9_analysis_workspace_is_always_1080p(self) -> None:
+        uses_proxy = OrchestrationRunner._uses_1080p_proxy
+
+        self.assertTrue(uses_proxy(VideoGeometry(1280, 720, 30.0, 10)))
+        self.assertFalse(uses_proxy(VideoGeometry(1920, 1080, 30.0, 10)))
+        self.assertTrue(uses_proxy(VideoGeometry(3840, 2160, 30.0, 10)))
+        self.assertFalse(uses_proxy(VideoGeometry(1440, 1080, 30.0, 10)))
+        self.assertFalse(uses_proxy(VideoGeometry(1080, 1920, 30.0, 10)))
+
     def test_zero_segmentation_with_faces_completes_full_postprocess(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

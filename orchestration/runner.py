@@ -26,7 +26,11 @@ from .contracts import (
     validate_mask_sqlite,
     validate_result_sqlite,
 )
-from .rescale_result_sqlite import VideoGeometry, rescale_result_sqlite
+from .rescale_result_sqlite import (
+    VideoGeometry,
+    rescale_inference_sqlite_for_postprocess,
+    rescale_result_sqlite,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -160,6 +164,10 @@ class OrchestrationRunner:
         self.overlay_manifest_dir = self.logs_dir / "overlay"
         self.proxy_video_path = self.preflight_dir / "analysis_proxy_1920x1080.mp4"
         self.proxy_result_path = self.preflight_dir / "result_1920x1080.sqlite"
+        self.canonical_inference_path = (
+            self.preflight_dir / "inference_1920x1080.sqlite"
+        )
+        self.inference_video = config.input_video
         self.analysis_video = config.input_video
         self.original_geometry: VideoGeometry | None = None
         self.analysis_geometry: VideoGeometry | None = None
@@ -213,20 +221,34 @@ class OrchestrationRunner:
 
     @staticmethod
     def _uses_1080p_proxy(geometry: VideoGeometry) -> bool:
+        """Return whether a 16:9 source needs the canonical 1080p workspace.
+
+        Model preprocessing remains unchanged.  The proxy only fixes the pixel
+        coordinate system used by inference outputs and every postprocessing
+        stage.  Results are rescaled back to the source geometry at publication.
+        """
+
         return (
-            geometry.width > 1920
-            and geometry.height > 1080
-            and geometry.width * 9 == geometry.height * 16
+            geometry.width * 9 == geometry.height * 16
+            and (geometry.width, geometry.height) != (1920, 1080)
         )
 
     def _prepare_analysis_video(self) -> None:
-        """Use a 1080p analysis proxy for larger 16:9 source videos."""
+        """Use one 1080p analysis/postprocess space for non-1080p 16:9 video."""
 
         self.original_geometry = self._probe_video(self.config.input_video)
         self.analysis_geometry = self._probe_video(self.processing_video)
+        self.inference_video = self.processing_video
+        needs_proxy = self._uses_1080p_proxy(self.original_geometry) and (
+            self.config.postprocess.enabled
+            or (
+                self.config.inference.enabled
+                and self.original_geometry.width > 1920
+                and self.original_geometry.height > 1080
+            )
+        )
         if (
-            not self.config.inference.enabled
-            or not self._uses_1080p_proxy(self.original_geometry)
+            not needs_proxy
         ):
             self.analysis_video = self.processing_video
             return
@@ -283,6 +305,14 @@ class OrchestrationRunner:
                 f"proxy={self.analysis_geometry.fps}"
             )
         self.analysis_video = self.proxy_video_path
+        # Downscale large sources before inference as before.  Small 16:9
+        # sources keep their original pixels for inference; only the emitted
+        # SQLite coordinates are enlarged for postprocessing.
+        if (
+            self.original_geometry.width > 1920
+            and self.original_geometry.height > 1080
+        ):
+            self.inference_video = self.proxy_video_path
         self._publish_artifacts(
             {"analysis_proxy_video": self.proxy_video_path},
             validation={
@@ -350,7 +380,7 @@ class OrchestrationRunner:
             str(self.config.execution.runtime_python),
             str(INFERENCE_CLI),
             "--input",
-            str(self.analysis_video),
+            str(self.inference_video),
             "--output",
             str(output),
             "--mode",
@@ -1103,6 +1133,78 @@ class OrchestrationRunner:
         )
         return WorkflowArtifacts(inference_sqlite=inference_sqlite)
 
+    @staticmethod
+    def _inference_coordinate_size(source: Path) -> tuple[int, int]:
+        resolved = source.expanduser().resolve()
+        with sqlite3.connect(f"file:{resolved}?mode=ro", uri=True) as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT width, height FROM frames LIMIT 2"
+            ).fetchall()
+        if len(rows) != 1:
+            raise OrchestrationError(
+                "inference SQLite must use one frame geometry for canonical "
+                f"postprocessing: {resolved}: {rows}"
+            )
+        return int(rows[0][0]), int(rows[0][1])
+
+    def _prepare_postprocess_input(self, source: Path) -> Path:
+        """Return inference data expressed in the analysis-video coordinates."""
+
+        if self.analysis_video != self.proxy_video_path:
+            return source
+        if self.analysis_geometry is None:
+            raise OrchestrationError("analysis geometry was not initialized")
+        width, height = self._inference_coordinate_size(source)
+        target = self.analysis_geometry
+        if (width, height) == (target.width, target.height):
+            return source
+        if width * target.height != height * target.width:
+            raise OrchestrationError(
+                "inference and postprocess workspace aspect ratios differ: "
+                f"inference={width}x{height}, workspace={target.width}x{target.height}"
+            )
+        expected = {"canonical_inference_sqlite": self.canonical_inference_path}
+        if not self._can_resume_stage("postprocess_coordinate_space", expected):
+            started = time.perf_counter()
+            transform = rescale_inference_sqlite_for_postprocess(
+                source,
+                self.canonical_inference_path,
+                inference=VideoGeometry(
+                    width,
+                    height,
+                    target.fps,
+                    target.frame_count,
+                ),
+                workspace=target,
+                workspace_video=self.analysis_video,
+            )
+            self._replace_stage_record(
+                {
+                    "name": "postprocess_coordinate_space",
+                    "status": "complete",
+                    "source": str(source),
+                    "artifact": str(self.canonical_inference_path),
+                    "coordinate_transform": transform,
+                    "elapsed_seconds": time.perf_counter() - started,
+                    "completed_at_utc": _utc_now(),
+                }
+            )
+        stats = validate_inference_sqlite(
+            self.canonical_inference_path,
+            require_segmentation=self.config.inference.uses_segmentation,
+            require_faces=self.config.inference.uses_faces,
+            expected_face_model=(
+                self.config.inference.face_model
+                if self.config.inference.uses_faces
+                else None
+            ),
+        )
+        self._publish_artifacts(
+            {"canonical_inference_sqlite": self.canonical_inference_path},
+            validation={"canonical_inference_sqlite": stats},
+        )
+        return self.canonical_inference_path
+
     def _run_postprocess(
         self,
         artifacts: WorkflowArtifacts,
@@ -1111,6 +1213,9 @@ class OrchestrationRunner:
     ) -> WorkflowArtifacts:
         settings = self.config.postprocess
         if settings.enabled:
+            postprocess_input = self._prepare_postprocess_input(
+                artifacts.inference_sqlite
+            )
             post_root = self.postprocess_dir
             manifest_path = post_root / "pipeline_manifest.json"
             resumed_postprocess = self._can_resume_stage(
@@ -1121,7 +1226,7 @@ class OrchestrationRunner:
                 tracked, final, legacy = read_postprocess_artifacts(manifest_path)
             else:
                 command = self.postprocess_command(
-                    artifacts.inference_sqlite,
+                    postprocess_input,
                     precomputed_cuts=precomputed_cuts,
                 )
                 self._execute(
@@ -1178,7 +1283,7 @@ class OrchestrationRunner:
             if resumed_postprocess:
                 _emit_phase_complete("postprocess", 1)
             return WorkflowArtifacts(
-                inference_sqlite=artifacts.inference_sqlite,
+                inference_sqlite=postprocess_input,
                 tracked_sqlite=tracked,
                 final_sqlite=final,
                 result_sqlite=final if integrated else None,
