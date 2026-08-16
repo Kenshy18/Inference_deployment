@@ -283,9 +283,14 @@ class OrchestrationRunner:
             # decoding a multi-hour source merely to repeat that metadata.  A
             # large disagreement with stream timing is the signature of the
             # malformed edit lists that produced phantom frames in practice.
-            tolerance = (
-                None if estimated_count is None else max(1.5, estimated_count * 0.001)
-            )
+            # Duration-derived counts are only a cheap consistency check.  A
+            # percentage tolerance is unsafe for long videos: at 24 fps a
+            # 15-minute MP4 can be wrong by twenty frames and still fall
+            # inside a 0.1% window.  Such files exist in the deployment
+            # corpus (the edit list advertises 21626 frames while FFprobe can
+            # decode 21602).  Permit only timestamp rounding noise here; any
+            # larger disagreement pays for one exact decoded-frame probe.
+            tolerance = None if estimated_count is None else 1.5
             if declared_count is not None and (
                 estimated_count is None
                 or abs(declared_count - estimated_count) <= tolerance

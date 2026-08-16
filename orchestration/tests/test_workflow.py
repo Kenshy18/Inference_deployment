@@ -105,6 +105,56 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(1, run.call_count)
         self.assertNotIn("-count_frames", run.call_args.args[0])
 
+    def test_video_probe_rejects_percentage_scaled_phantom_frame_tolerance(
+        self,
+    ) -> None:
+        """A long file must not hide dozens of phantom frames in a % window."""
+
+        with patch("orchestration.runner.subprocess.run") as run:
+            metadata = unittest.mock.Mock(
+                returncode=0,
+                stderr="",
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "width": 1280,
+                                "height": 720,
+                                "avg_frame_rate": "24/1",
+                                "duration": "900.229",
+                                "nb_frames": "21626",
+                            }
+                        ],
+                        "format": {"start_time": "0", "duration": "900.229"},
+                    }
+                ),
+            )
+            counted = unittest.mock.Mock(
+                returncode=0,
+                stderr="",
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "width": 1280,
+                                "height": 720,
+                                "avg_frame_rate": "24/1",
+                                "nb_read_frames": "21602",
+                            }
+                        ]
+                    }
+                ),
+            )
+            run.side_effect = [metadata, counted]
+
+            geometry = OrchestrationRunner._probe_video(
+                Path("/tools/ffprobe"), Path("long-edit-list.mp4")
+            )
+
+        self.assertEqual(21602, geometry.frame_count)
+        self.assertEqual(2, run.call_count)
+        self.assertIn("-count_frames", run.call_args_list[1].args[0])
+
     def test_video_probe_corrects_negative_audio_start_for_matroska(self) -> None:
         with patch("orchestration.runner.subprocess.run") as run:
             run.return_value = unittest.mock.Mock(
