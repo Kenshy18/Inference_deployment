@@ -35,6 +35,11 @@ make_fixture golden_1080p2997_h264_aac.mp4 \
   -i "$source_short" -t 176 -map 0:v:0 -map '0:a?' -c copy
 make_fixture golden_short.mp4 \
   -ss 60 -i "$source_short" -t 20 -map 0:v:0 -map '0:a?' -c copy
+make_fixture interlaced_1080i2997_h264.mp4 \
+  -ss 80 -i "$source_short" -t 20 -map 0:v:0 -map '0:a?' \
+  -vf 'fps=60000/1001,tinterlace=mode=interleave_top' -r 30000/1001 \
+  -c:v libx264 -preset veryfast -crf 18 -flags +ildct+ilme \
+  -x264-params tff=1 -pix_fmt yuv420p -c:a aac -b:a 128k
 make_fixture real_720p24_45s.mp4 \
   -ss 120 -i "$source_15m" -t 45 -map 0:v:0 -map '0:a?' -c copy
 make_fixture landscape_720p24_h265.mkv \

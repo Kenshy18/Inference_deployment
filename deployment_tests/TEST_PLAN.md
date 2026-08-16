@@ -48,11 +48,12 @@ V3のstress/soakは`S00_v3_120m_single_load`だけを許可し、入力はちょ
 ### P0: deployment blocker
 
 - `G00`: GUI全基本操作とInspector coverage。短いDry Runのみ。
-- `S00`: V3で2時間動画を1本だけ処理。分類、mixed後処理、性器簡易／詳細overlay。
+- `S00`: V3で2時間動画を1本だけ処理。分類、新Production polygon後処理、性器簡易／詳細overlay。
 - `G02`: V3-lite + Face V2の推奨構成。簡易・詳細、Liveあり。
 - `G03`: V3-lite、後処理なし、生出力詳細。
 - `G04`: Face V2のみでmaskなし、目元長方形、目元楕円、顔全体。
-- `M01`: MP4/MOV/MKV、H.264/H.265、24/29.97/30/60、縦横、音声有無を
+- `M01`: MP4/MOV/MKV、H.264/H.265、24/29.97/30/60、縦横、progressive/
+  interlaced、音声有無を
   同じ入力queueへ入れる短尺batch。
 - `M02`: 4K短尺で推論、後処理、詳細overlayまで通す。
 - `R01`: 性器推論、顔推論、後処理、overlayの各phaseでGUI停止。
@@ -83,6 +84,7 @@ P2を省略した場合はpassに含めず、最終レポートへ`not_run_due_t
 | fixture | 主目的 |
 | --- | --- |
 | `golden_1080p2997_h264_aac.mp4` | 顔・性器・cut・音声を含む短時間基準 |
+| `interlaced_1080i2997_h264.mp4` | TFF 1080i、bwdif正規化、frame/FPS維持 |
 | `landscape_720p24_h265.mkv` | H.265/MKV |
 | `portrait_720x1280_30_h264.mp4` | 縦動画・座標scale |
 | `uhd_2160p24_h265_noaudio.mp4` | 4K、音声なし、負荷 |
@@ -105,7 +107,7 @@ stream copyを優先し、fixture作成時間を20分のpreflight予算に含め
 2. 各model/backendの許可された組み合わせを少なくともDry Runする。
 3. P0構成はDry Runだけでなく実ジョブを完了させる。
 4. 各overlay presetを最低1本生成する。
-5. 各顔mask形状、各性器shape、異なるKF/max-gapを成果物SQLiteで確認する。
+5. 各顔mask形状、新Productionの可変頂点polygon、異なるKF間隔を成果物SQLiteで確認する。
 6. 無効な組み合わせが非表示、disabled、またはGUI検証エラーになることを確認する。
 7. Source、Inspector、Monitor STATUS/LIVE、Console、input/output queueを操作する。
 8. 深いInspector項目を操作してもdocument rootがscrollせず、black screenにならない。

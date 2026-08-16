@@ -27,9 +27,8 @@
     "model:face-v1",
     "pipeline:postprocess",
     "pipeline:no-postprocess",
-    "shape:polygon",
-    "shape:ellipse",
-    "shape:mixed",
+    "genital-shape:production-polygon",
+    "face-geometry:ellipse",
     "face-mask:none",
     "face-mask:eyes-rectangle",
     "face-mask:eyes-ellipse",
@@ -90,10 +89,10 @@
       "source_duration_minutes": 120,
       "max_frames": 216000,
       "segmentation_model": "dinov3_codino",
-      "description": "唯一のV3負荷試験。2時間動画でengine/classifier、mixed後処理、性器overlay、resource slopeとcleanupを確認",
+      "description": "唯一のV3負荷試験。2時間動画でengine/classifier、新Production polygon後処理、性器overlay、resource slopeとcleanupを確認",
       "settings": {
         "mode": "segmentation",
-        "postprocess": "mixed-polygon-ellipse",
+        "postprocess": "production-polygon",
         "face_mask": "none",
         "overlays": ["genital-simple", "genital-detailed"],
         "overlay_execution": "fast",
@@ -102,9 +101,7 @@
       "tags": [
         "model:v3",
         "pipeline:postprocess",
-        "shape:mixed",
-        "shape:polygon",
-        "shape:ellipse",
+        "genital-shape:production-polygon",
         "face-mask:none",
         "overlay:simple",
         "overlay:detailed",
@@ -131,7 +128,7 @@
       "description": "推奨v3-lite + Face V2、クラス別shape/KF/gap、簡易・詳細、LIVEを完走",
       "settings": {
         "mode": "segmentation-face",
-        "postprocess": "mixed-polygon-ellipse",
+        "postprocess": "production-polygon",
         "face_mask": "eyes-ellipse",
         "overlays": ["combined-simple", "combined-detailed"],
         "overlay_execution": "fast",
@@ -141,7 +138,8 @@
         "model:v3-lite",
         "model:face-v2",
         "pipeline:postprocess",
-        "shape:mixed",
+        "genital-shape:production-polygon",
+        "face-geometry:ellipse",
         "face-mask:eyes-ellipse",
         "overlay:simple",
         "overlay:detailed",
@@ -219,8 +217,8 @@
         "model:v2",
         "model:face-v1",
         "pipeline:postprocess",
-        "shape:polygon",
-        "shape:ellipse",
+        "genital-shape:production-polygon",
+        "face-geometry:ellipse",
         "quality:schema"
       ]
     },
@@ -254,9 +252,10 @@
       "pipeline_run": true,
       "segmentation_model": "dinov3_codino_mh0",
       "batch_size": 8,
-      "description": "短尺8本を同じGUI queueで処理し、container/codec/FPS/向き/audio/pathをpairwise網羅",
+      "description": "短尺9本を同じGUI queueで処理し、container/codec/FPS/向き/audio/pathをpairwise網羅",
       "fixtures": [
         "golden_1080p2997_h264_aac.mp4",
+        "interlaced_1080i2997_h264.mp4",
         "landscape_720p24_h265.mkv",
         "portrait_720x1280_30_h264.mp4",
         "vfr_pts_gap_h264.mp4",
@@ -267,7 +266,7 @@
       ],
       "settings": {
         "mode": "segmentation",
-        "postprocess": "mixed-polygon-ellipse",
+        "postprocess": "production-polygon",
         "overlays": ["genital-simple"],
         "overlay_execution": "fast"
       },
@@ -276,6 +275,7 @@
         "pipeline:postprocess",
         "media:portrait",
         "media:vfr",
+        "media:interlaced",
         "media:h264",
         "media:h265",
         "media:mp4",
@@ -298,7 +298,7 @@
       "description": "4K 20秒、音声なしで推論・後処理・顔・詳細overlayと座標scaleを確認",
       "settings": {
         "mode": "segmentation-face",
-        "postprocess": "mixed-polygon-ellipse",
+        "postprocess": "production-polygon",
         "face_mask": "full-face",
         "overlays": ["combined-detailed"],
         "overlay_execution": "fast"

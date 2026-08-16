@@ -11,6 +11,7 @@ metadata変種を事前作成する目的だけに使います。
 | --- | ---: | --- | --- | --- | --- |
 | `golden_1080p2997_h264_aac.mp4` | 6分以下 | 1920x1080, 30000/1001 CFR, yuv420p | MP4/H.264, B-frame | AAC | 短時間の顔・性器・cut基準 |
 | `golden_short.mp4` | 20秒 | 1920x1080, 30000/1001 | MP4/H.264 | AAC | negative queueの後続正常入力 |
+| `interlaced_1080i2997_h264.mp4` | 20秒 | 1920x1080, 30000/1001, TFF | MP4/H.264 | AAC | bwdif正規化 |
 | `landscape_720p24_h265.mkv` | 30秒 | 1280x720, 24 CFR, 10-bit | MKV/H.265 Main10 | AAC | 10-bit decodeとMKV |
 | `portrait_720x1280_30_h264.mp4` | 30秒 | 720x1280, 30 CFR | MP4/H.264 | AAC | portrait座標とoverlay |
 | `uhd_2160p24_h265_noaudio.mp4` | 20秒 | 3840x2160, 24 CFR | MP4/H.265 | なし | 4K full pipeline |

@@ -28,7 +28,7 @@ fs.mkdirSync(artifactRoot, { recursive: true });
 const data = (...parts) => path.join(repositoryRoot, "data", ...parts);
 const fixture = (name) => path.join(matrixRoot, "fixtures", name);
 
-const mixedRules = [
+const productionPolygonIntervals = [
   { className: "男性器", keyframeInterval: 2 },
   { className: "女性器", keyframeInterval: 3 },
   { className: "結合部分", keyframeInterval: 4 },
@@ -57,7 +57,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "eyes",
         eyeMaskShape: "rectangle",
         cutDetect: true,
@@ -75,7 +75,7 @@ const cases = [
     },
   },
   {
-    id: "02_v3_facev2_mixed_720p",
+    id: "02_v3_facev2_production_polygon_720p",
     videos: [fixture("real_720p24_45s.mp4")],
     live: false,
     timeoutMs: 8 * 60_000,
@@ -92,7 +92,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "eyes",
         eyeMaskShape: "ellipse",
         cutDetect: true,
@@ -123,7 +123,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "none",
         precomputeCutsDuringInference: true,
       },
@@ -151,7 +151,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "none",
         precomputeCutsDuringInference: false,
       },
@@ -214,7 +214,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "face",
         eyeMaskShape: "ellipse",
         precomputeCutsDuringInference: true,
@@ -247,7 +247,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "eyes",
         eyeMaskShape: "rectangle",
         precomputeCutsDuringInference: true,
@@ -308,7 +308,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "none",
         precomputeCutsDuringInference: false,
       },
@@ -366,7 +366,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "none",
         cutDetect: true,
         precomputeCutsDuringInference: true,
@@ -396,7 +396,7 @@ const cases = [
         maxFrames: 900,
         fastSqlite: true,
       },
-      postprocess: { enabled: true, classPostprocessRules: mixedRules },
+      postprocess: { enabled: true, classPostprocessRules: productionPolygonIntervals },
       overlay: { enabled: true, executionMode: "fast", presets: ["genital-simple"] },
     },
   },
@@ -438,7 +438,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "eyes",
         eyeMaskShape: "ellipse",
       },
@@ -460,7 +460,7 @@ const cases = [
         maxFrames: 3000,
         fastSqlite: true,
       },
-      postprocess: { enabled: true, classPostprocessRules: mixedRules },
+      postprocess: { enabled: true, classPostprocessRules: productionPolygonIntervals },
       overlay: {
         enabled: true,
         executionMode: "cpu",
@@ -497,7 +497,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "eyes",
         eyeMaskShape: "rectangle",
       },
@@ -526,7 +526,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "eyes",
         eyeMaskShape: "rectangle",
       },
@@ -578,7 +578,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "eyes",
         eyeMaskShape: "rectangle",
       },
@@ -608,7 +608,7 @@ const cases = [
       },
       postprocess: {
         enabled: true,
-        classPostprocessRules: mixedRules,
+        classPostprocessRules: productionPolygonIntervals,
         faceMaskTarget: "eyes",
         eyeMaskShape: "rectangle",
       },
@@ -620,6 +620,88 @@ const cases = [
       },
     },
   },
+  {
+    id: "22_v3lite_interlaced_1080i",
+    videos: [fixture("interlaced_1080i2997_h264.mp4")],
+    live: false,
+    timeoutMs: 8 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        maxFrames: 600,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        classPostprocessRules: productionPolygonIntervals,
+        faceMaskTarget: "none",
+        precomputeCutsDuringInference: true,
+      },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["genital-simple"],
+        faceMaskTarget: "none",
+      },
+    },
+  },
+  {
+    id: "23_v3lite_h265_main10_720p",
+    videos: [fixture("landscape_720p24_h265.mkv")],
+    live: false,
+    timeoutMs: 8 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        maxFrames: 720,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        classPostprocessRules: productionPolygonIntervals,
+        faceMaskTarget: "none",
+      },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["genital-simple"],
+        faceMaskTarget: "none",
+      },
+    },
+  },
+  ...[
+    ["24_v3lite_unicode_corrupt_frame_metadata", "unicode_日本語 space.mp4"],
+    ["25_v3lite_noaudio_corrupt_frame_metadata", "h264_noaudio.mp4"],
+  ].map(([id, video]) => ({
+    id,
+    videos: [fixture(video)],
+    live: false,
+    timeoutMs: 8 * 60_000,
+    patch: {
+      inference: {
+        mode: "segmentation",
+        segmentationModel: "dinov3_codino_mh0",
+        segmentationBackend: "tensorrt-fast",
+        maxFrames: 482,
+        fastSqlite: true,
+      },
+      postprocess: {
+        enabled: true,
+        classPostprocessRules: productionPolygonIntervals,
+        faceMaskTarget: "none",
+      },
+      overlay: {
+        enabled: true,
+        executionMode: "fast",
+        presets: ["genital-simple"],
+        faceMaskTarget: "none",
+      },
+    },
+  })),
 ];
 
 function merge(base, patch) {

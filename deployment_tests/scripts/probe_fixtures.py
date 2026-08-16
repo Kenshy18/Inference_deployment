@@ -16,7 +16,7 @@ def probe(ffprobe: Path, source: Path) -> dict[str, object]:
             "error",
             "-count_packets",
             "-show_entries",
-            "format=format_name,duration,size,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,r_frame_rate,avg_frame_rate,time_base,start_time,duration,nb_read_packets",
+            "format=format_name,duration,size,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,r_frame_rate,avg_frame_rate,time_base,start_time,duration,nb_read_packets",
             "-of",
             "json",
             str(source),
