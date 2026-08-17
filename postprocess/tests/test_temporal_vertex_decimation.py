@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from experimental.temporal_vertex_decimation_20260812.optimizer import (
+from production.polygon.runtime.spatial_support.optimizer import (
     DecimationConfig,
     align_temporal_dense,
     current_equal_arc_baseline,

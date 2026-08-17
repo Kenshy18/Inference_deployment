@@ -29,7 +29,7 @@ The refactor replaced the former mixed legacy/experimental layout with a product
 
 The promoted polygon implementation is split by responsibility under `postprocess/production/polygon/`: input preparation, spatial approximation, candidate configuration, DP, pair-vote, topology validation, materialization, diagnostics, and the native interval evaluator are separate modules. The retired ellipse/keyframe/gap-fill packages and old benchmark profiles were removed from the production surface. The former 15,202-line vendor kernel is no longer the runtime implementation.
 
-The release preflight confirmed that no retired option, retired stage, or forbidden experimental module was loaded. Image finalization records and removes eight development-only paths, including `postprocess/experimental`, `postprocess/tentative`, and test trees. This preserves experiment history in the source checkout while keeping deployment runtime-only.
+The release preflight confirmed that no retired option, retired stage, or development-only research module was loaded. Historical experiment sources were subsequently removed from the checkout and remain recoverable from Git history. Image finalization still records and removes the remaining development-only paths, including `postprocess/tentative` and test trees, so the deployed image stays runtime-only.
 
 Across the cleanup from the previous main checkpoint, 200 tracked files changed, with 22,339 inserted and 28,733 removed lines. The net reduction is intentional: duplicate implementations, retired configurations, and development-only paths were removed while the promoted runtime was modularized.
 
@@ -86,11 +86,11 @@ The deployable artifact described above remains pinned to `bfb125e`. After that 
 
 Before publishing the source checkpoint, the only three untracked files were audited and removed:
 
-- `postprocess/experimental/production_candidate_20260814/analyze_v3_intervals.py` — 20,134 bytes; SHA-256 `0553f6ca3026c438783aeec73c792b3673d4fd7f52098e4c014707a8ec787170`
-- `postprocess/experimental/production_candidate_20260814/build_v3_interval_sweep_report.py` — 25,550 bytes; SHA-256 `d5d157833ccbe0097e47da39ff99c5e8df54377b958d8dfadfc6051497961021`
-- `postprocess/experimental/production_candidate_20260814/render_suspicious_v3_review.py` — 42,244 bytes; SHA-256 `3bec43bc2a7f47a82895a7c9fb396126d2779d95eaff532382b78e5e503c083a`
+- `analyze_v3_intervals.py` — 20,134 bytes; SHA-256 `0553f6ca3026c438783aeec73c792b3673d4fd7f52098e4c014707a8ec787170`
+- `build_v3_interval_sweep_report.py` — 25,550 bytes; SHA-256 `d5d157833ccbe0097e47da39ff99c5e8df54377b958d8dfadfc6051497961021`
+- `render_suspicious_v3_review.py` — 42,244 bytes; SHA-256 `3bec43bc2a7f47a82895a7c9fb396126d2779d95eaff532382b78e5e503c083a`
 
-They were standalone, never-tracked audit/report/render helpers. No tracked source imported or invoked them, they contained no embedded video, mask, SQLite, binary, credential, or unique result data, and they were excluded from both the postprocess wheel and finalized WSL image. Their already-generated numerical and visual outputs remain under the ignored `output/` tree. This cleanup therefore changes neither runtime behavior nor the validated result artifacts; it only removes the ability to regenerate those particular reports from the three disposable helper scripts.
+They were standalone, never-tracked audit/report/render helpers. No tracked source imported or invoked them, they contained no embedded video, mask, SQLite, binary, credential, or unique result data, and they were excluded from both the postprocess wheel and finalized WSL image. Their already-generated numerical and visual outputs remain under the ignored `output/` tree. The remaining tracked research tree was then removed after its active pair-vote, spatial-placement, topology, NMS, and adaptive-vertex tests were redirected to the promoted Production modules. Retired-algorithm-only tests were removed. After that removal, the Production postprocess suite passed 175 tests plus 69 subtests, and the architecture guard passed with the research tree physically absent. The all-assets full-hash deployment preflight also passed, including the native exact polygon evaluator. This cleanup changes neither runtime behavior nor validated result artifacts.
 
 This newer source checkpoint is eligible for a fresh release build, but it is not the same artifact as the already imported and end-to-end-tested `bfb125e` release. A new external deployment should rebuild the WSL archive and Windows deployer from the published source checkpoint and repeat the isolated-distribution acceptance test.
 

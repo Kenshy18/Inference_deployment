@@ -1,45 +1,26 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
-import pytest
 
-from experimental.humanlike_vertex_placement_20260812.candidate import (
-    quality_guarded_vertex_placement,
-)
-from experimental.humanlike_vertex_placement_20260812.native_dp import (
-    native_temporal_dp_sequence,
-)
-from experimental.humanlike_vertex_placement_20260812.persistent_line_fit import (
+from production.polygon.runtime.spatial_support.persistent_line_fit import (
     _fit_line,
     _fit_lines,
     persistent_line_fit_sequence,
 )
-from experimental.humanlike_vertex_placement_20260812.quality_repair import (
+from production.polygon.runtime.spatial_support.quality_repair import (
     persistent_line_fit_quality_guarded,
 )
-from experimental.humanlike_vertex_placement_20260812.spatial import (
+from production.polygon.runtime.spatial_support.placement import (
     align_polygon_sequence,
     rdp_fixed_count,
 )
-from experimental.temporal_vertex_decimation_20260812.optimizer import (
+from production.polygon.runtime.spatial_support.optimizer import (
     RasterSequenceEvaluator,
     _best_phase,
     evaluate_sequence,
     has_self_intersection,
     resample_closed,
 )
-
-
-NATIVE_BUILD = (
-    Path(__file__).resolve().parents[1]
-    / "experimental/humanlike_vertex_placement_20260812/native_temporal/build"
-)
-
-
-def _native_available() -> bool:
-    return any(NATIVE_BUILD.glob("native_temporal_polygon*.so"))
 
 
 def _concave_contour(shift_x: float = 0.0) -> np.ndarray:
@@ -112,63 +93,6 @@ def test_translation_phase_removes_cyclic_start_offset() -> None:
     midpoint = 0.5 * (aligned[0] + aligned[1])
     assert not has_self_intersection(midpoint)
     assert np.mean(np.linalg.norm(aligned[1] - aligned[0], axis=1)) < 5.0
-
-
-@pytest.mark.skipif(not _native_available(), reason="native experiment has not been built")
-def test_native_densifies_a_contour_with_fewer_points_than_target() -> None:
-    square = np.asarray([[0, 0], [40, 0], [40, 40], [0, 40]], dtype=np.float64)
-    source = [square + np.asarray([float(frame), 0.0]) for frame in range(5)]
-    result = native_temporal_dp_sequence(source, 20, frame_indices=range(5))
-    evaluator = RasterSequenceEvaluator(source)
-    metrics = evaluate_sequence(
-        evaluator,
-        result,
-        initial_vertices=48,
-        temporal_weight=0.05,
-        vertex_weight=0.02,
-    )
-    assert result.shape == (5, 20, 2)
-    assert metrics.minimum_recall >= 0.99
-    assert metrics.self_intersections == 0
-
-
-@pytest.mark.skipif(not _native_available(), reason="native experiment has not been built")
-def test_native_temporal_dp_is_fixed_count_and_recall_guarded() -> None:
-    source = [_concave_contour(float(frame)) for frame in range(9)]
-    result = native_temporal_dp_sequence(
-        source,
-        12,
-        frame_indices=range(9),
-        temporal_weight=0.003,
-        distance_weight=2.0,
-        missing_area_weight=1.0,
-    )
-    evaluator = RasterSequenceEvaluator(source)
-    metrics = evaluate_sequence(
-        evaluator,
-        result,
-        initial_vertices=48,
-        temporal_weight=0.05,
-        vertex_weight=0.02,
-    )
-    assert result.shape == (9, 12, 2)
-    assert metrics.minimum_recall >= 0.98
-    assert metrics.self_intersections == 0
-
-
-@pytest.mark.skipif(not _native_available(), reason="native experiment has not been built")
-def test_quality_guard_keeps_one_count_for_entire_track() -> None:
-    source = [_concave_contour(float(frame)) for frame in range(7)]
-    result = quality_guarded_vertex_placement(
-        source,
-        frame_indices=range(7),
-        candidate_counts=(12, 16, 20),
-        recall_floor=0.97,
-        minimum_iou_floor=0.95,
-    )
-    assert result.polygons.shape == (7, result.vertices, 2)
-    assert result.vertices in {12, 16, 20}
-    assert result.attempts[-1].metrics.minimum_recall >= 0.97
 
 
 def test_persistent_line_fit_is_deterministic_simple_and_fixed_count() -> None:

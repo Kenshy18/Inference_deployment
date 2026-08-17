@@ -101,8 +101,8 @@ python run_pipeline.py \
   2 sweep pair-vote、全補間フレームtopology検査、CPU `native_exact`区間評価
 - 既定の努力目標キーフレーム間隔は6。`--keyframe-interval`で変更可能
 
-旧NMS・旧ポリゴン実装と候補比較は`experimental/`の研究履歴に限定され、runnerへ
-登録されず、配布wheelにも含まれません。本番経路は`nms.production_v3`と
+旧NMS・旧ポリゴン実装と候補比較はGit履歴と保存済み監査成果物だけに残し、
+開発ソースツリーからも撤去しました。本番経路は`nms.production_v3`と
 `production.polygon_v3_cpu`だけです。未対応ラベルや凍結契約と異なる設定で旧実装へ
 暗黙に戻ることはありません。昇格版の責務と凍結条件は
 `production/README.md`を参照してください。

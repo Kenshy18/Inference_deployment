@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 
-from experimental.new_production.fast_pair_vote import ExactPairVoteEvaluator
+from production.polygon.runtime.pair_vote import ExactPairVoteEvaluator
 
 
 def _interpolate(left: np.ndarray, right: np.ndarray, alpha: float) -> np.ndarray:

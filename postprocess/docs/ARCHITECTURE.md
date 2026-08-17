@@ -35,7 +35,7 @@ run_pipeline.py
 ## Production polygon runtimeの内部境界
 
 Production後処理は`production/polygon/runtime`だけで完結し、
-`experimental`をimportしません。数値処理は次の責務に分けています。
+開発専用・研究専用パッケージをimportしません。数値処理は次の責務に分けています。
 
 ```text
 optimizer_factory.py       adapterを組み立てるcomposition root
@@ -56,7 +56,7 @@ phase2_runtime.py           pair-vote、audit、Phase-2実行
 ```
 
 公開stage、SQLite schema、profile ID、数値アルゴリズムはこの分割の前後で
-同一です。`tests/test_architecture.py`はProductionから`experimental`への
+同一です。`tests/test_architecture.py`はProductionから開発専用パッケージへの
 依存禁止、composition rootの肥大化、必須責務モジュールの存在を検査します。
 
 ## Repository orchestrationとGUI

@@ -64,7 +64,6 @@ runuser -u kenshin -- "$runtime_root/bin/python3.10" \
 # all image-construction tests have passed.  Production imports are guarded by
 # postprocess/tests/test_engine_imports.py before this point.
 pruned_paths=(
-  "$repository_root/postprocess/experimental"
   "$repository_root/postprocess/tentative"
   "$repository_root/postprocess/tests"
   "$repository_root/orchestration/tests"

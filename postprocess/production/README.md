@@ -22,8 +22,8 @@ never falls back to the retired polygon optimizer: unsupported semantic labels
 or contract options fail with an actionable error. The parity-frozen
 compatibility engine is reached only through
 `production/polygon/runtime_bridge.py`; deployed code does not import
-`postprocess.experimental`. Historical experiment identifiers are never
-emitted by Production manifests.
+development-only research packages. Historical experiment identifiers are
+never emitted by Production manifests.
 
 Polygon gap filling is fixed at 15 frames. The supported user quality control
 is the soft target keyframe interval; Production preparation, Recall floors,

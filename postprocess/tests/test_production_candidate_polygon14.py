@@ -1,29 +1,36 @@
 from __future__ import annotations
 
 import argparse
-import importlib
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from experimental.production_candidate_polygon14 import CANDIDATE
-from experimental.production_candidate_polygon14.integration import (
+from production.polygon.runtime.spatial_config import CANDIDATE
+from production.polygon.runtime.spatial_integration import (
     apply_spatial_candidate,
 )
-from experimental.production_candidate_polygon14.run import build_command
-from experimental.production_candidate_polygon14.spatial import build_spatial_track
-from experimental.production_candidate_polygon14.topology_guard import (
+from production.polygon.runtime.run import build_command
+from production.polygon.runtime.spatial_builder import build_spatial_track
+from production.polygon.runtime.topology import (
     first_invalid_edge_frame,
     local_key_update_is_simple,
     polygon_is_simple,
     repair_decoded_path,
 )
-from experimental.temporal_vertex_decimation_20260812.optimizer import (
+from production.polygon.runtime.spatial_support.optimizer import (
     has_self_intersection,
     resample_closed,
+)
+from production.polygon.runtime.candidate_config import (
+    CANDIDATE as ADAPTIVE_CANDIDATE,
+    with_target_interval,
+)
+from production.polygon.runtime.candidate_palette import role_ids
+from production.polygon.runtime.phase2_config import (
+    VALID_PROFILES,
+    _class_role_state_profile,
 )
 
 
@@ -216,23 +223,17 @@ def test_integration_audits_unresolved_recall_without_stopping() -> None:
 
 
 def test_candidate_temporal_palette_is_exactly_the_frozen_baseline() -> None:
-    experiment = Path(__file__).resolve().parents[1] / "experimental/0809"
-    sys.path.insert(0, str(experiment))
-    try:
-        runtime = importlib.import_module("phase2_runtime")
-        assert CANDIDATE.profile_id in runtime.VALID_PROFILES
-        for interval in (1.0, 3.0, 6.0, 8.0):
-            for label in ("女性器", "男性器", "結合部分"):
-                assert runtime._class_role_state_profile(
-                    CANDIDATE.profile_id, label, interval
-                ) == runtime._class_role_state_profile(
-                    "new_production_v1", label, interval
-                )
-    finally:
-        sys.path.remove(str(experiment))
+    assert CANDIDATE.profile_id in VALID_PROFILES
+    for interval in (1.0, 3.0, 6.0, 8.0):
+        value = int(interval)
+        config = with_target_interval(value, ADAPTIVE_CANDIDATE)
+        for label in ("女性器", "男性器", "結合部分"):
+            assert _class_role_state_profile(
+                CANDIDATE.profile_id, label, interval
+            ) == role_ids(label, value, config)
 
 
-def test_runner_fixes_polygon_count_and_uses_selected_edge_exact_validation(
+def test_runner_fixes_polygon_count_and_uses_native_exact_validation(
     tmp_path: Path,
 ) -> None:
     args = argparse.Namespace(
@@ -249,7 +250,7 @@ def test_runner_fixes_polygon_count_and_uses_selected_edge_exact_validation(
     assert "--anchors-per-contour 14" in joined
     assert "--min-anchors-per-contour 14" in joined
     assert "--no-adaptive-anchor-counts" in command
-    assert "--cuda-lazy-exact" in command
+    assert "--native-exact" in command
     assert "--pair-vote-per-key" in command
 
 

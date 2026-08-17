@@ -44,6 +44,10 @@ class FixedCutStage:
 
 
 class ArchitectureTests(unittest.TestCase):
+    def test_retired_research_tree_is_absent(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        self.assertFalse((root / "experimental").exists())
+
     def test_production_runtime_has_no_experimental_dependency(self) -> None:
         root = Path(__file__).resolve().parents[1]
         violations: list[str] = []
