@@ -41,7 +41,25 @@ RUNTIME_MODULES = (
     "production.polygon.runtime.engine",
     "production.polygon.runtime.optimizer_factory",
     "production.polygon.runtime.optimizer_kernel",
+    "production.polygon.runtime.kernel.artifacts",
+    "production.polygon.runtime.kernel.candidates",
+    "production.polygon.runtime.kernel.defaults",
+    "production.polygon.runtime.kernel.evaluation",
+    "production.polygon.runtime.kernel.geometry",
+    "production.polygon.runtime.kernel.interpolation",
+    "production.polygon.runtime.kernel.model",
+    "production.polygon.runtime.kernel.solver",
+    "production.polygon.runtime.kernel.stream",
+    "production.polygon.runtime.kernel.types",
+    "production.polygon.runtime.optimizer_adapters.artifacts",
+    "production.polygon.runtime.optimizer_adapters.geometry",
+    "production.polygon.runtime.optimizer_adapters.native_dp",
+    "production.polygon.runtime.optimizer_adapters.python_dp",
+    "production.polygon.runtime.optimizer_adapters.resources",
     "production.polygon.runtime.phase1_runtime",
+    "production.polygon.runtime.phase2_candidates",
+    "production.polygon.runtime.phase2_config",
+    "production.polygon.runtime.phase2_hard_dp",
     "production.polygon.runtime.phase2_runtime",
     "production.polygon.runtime.run_phase2",
     "production.polygon.stage",
@@ -55,6 +73,29 @@ class EngineImportTests(unittest.TestCase):
         for module_name in RUNTIME_MODULES:
             with self.subTest(module=module_name):
                 importlib.import_module(module_name)
+
+    def test_refactored_composition_roots_keep_compatibility_symbols(self) -> None:
+        expected = {
+            "production.polygon.runtime.optimizer_kernel": {
+                "build_track_streams",
+                "run_multistate_penalty_path",
+                "repair_keyframe_vectors_for_exact_recall",
+                "process_single_run",
+            },
+            "production.polygon.runtime.phase2_runtime": {
+                "_class_role_state_profile",
+                "_patch_phase2_candidates",
+                "_build_dense_edge_array",
+                "main",
+            },
+        }
+        for module_name, symbols in expected.items():
+            with self.subTest(module=module_name):
+                module = importlib.import_module(module_name)
+                self.assertEqual(
+                    [],
+                    sorted(symbol for symbol in symbols if not hasattr(module, symbol)),
+                )
 
     def test_production_nms_does_not_load_historical_policies(self) -> None:
         script = (

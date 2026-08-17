@@ -44,6 +44,62 @@ class FixedCutStage:
 
 
 class ArchitectureTests(unittest.TestCase):
+    def test_production_runtime_has_no_experimental_dependency(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        violations: list[str] = []
+        for path in (root / "production").rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                modules: list[str] = []
+                if isinstance(node, ast.Import):
+                    modules = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    modules = [node.module or ""]
+                for module in modules:
+                    if module == "experimental" or module.startswith("experimental."):
+                        violations.append(f"{path.relative_to(root)} -> {module}")
+        self.assertEqual([], violations)
+
+    def test_large_composition_roots_stay_split_by_responsibility(self) -> None:
+        repository = Path(__file__).resolve().parents[2]
+        limits = {
+            "postprocess/production/polygon/runtime/optimizer_factory.py": 150,
+            "postprocess/production/polygon/runtime/optimizer_kernel.py": 1200,
+            "postprocess/production/polygon/runtime/phase2_runtime.py": 1100,
+            "orchestration/runner.py": 1100,
+            "gui/src/components/InspectorPanel.tsx": 100,
+        }
+        for relative, limit in limits.items():
+            with self.subTest(module=relative):
+                line_count = len(
+                    (repository / relative).read_text(encoding="utf-8").splitlines()
+                )
+                self.assertLessEqual(line_count, limit)
+
+        required_modules = [
+            "postprocess/production/polygon/runtime/kernel/geometry.py",
+            "postprocess/production/polygon/runtime/kernel/stream.py",
+            "postprocess/production/polygon/runtime/kernel/candidates.py",
+            "postprocess/production/polygon/runtime/kernel/interpolation.py",
+            "postprocess/production/polygon/runtime/kernel/solver.py",
+            "postprocess/production/polygon/runtime/phase2_candidates.py",
+            "postprocess/production/polygon/runtime/phase2_hard_dp.py",
+            "orchestration/runner_media.py",
+            "orchestration/runner_commands.py",
+            "gui/src/components/inspector/InferenceSection.tsx",
+            "gui/src/components/inspector/PostprocessSection.tsx",
+            "gui/src/components/inspector/OverlaySection.tsx",
+            "gui/src/components/inspector/RuntimeSection.tsx",
+        ]
+        self.assertEqual(
+            [],
+            [
+                relative
+                for relative in required_modules
+                if not (repository / relative).is_file()
+            ],
+        )
+
     def test_feature_packages_do_not_import_each_other(self) -> None:
         root = Path(__file__).resolve().parents[1]
         violations: list[str] = []

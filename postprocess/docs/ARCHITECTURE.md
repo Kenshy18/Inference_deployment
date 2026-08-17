@@ -32,6 +32,46 @@ run_pipeline.py
 `pipeline_manifest.json`に実行履歴が残るため、途中成果物の確認と再現が
 容易です。
 
+## Production polygon runtimeの内部境界
+
+Production後処理は`production/polygon/runtime`だけで完結し、
+`experimental`をimportしません。数値処理は次の責務に分けています。
+
+```text
+optimizer_factory.py       adapterを組み立てるcomposition root
+optimizer_adapters/        native DP、Python DP、geometry、artifact、resource制御
+kernel/model.py             点数予測器とdescriptor
+kernel/geometry.py          輪郭・raster・similarity geometry
+kernel/stream.py            SQLite streaming、gapfill、長尺track分割
+kernel/candidates.py        candidate frame pool
+kernel/evaluation.py        frame/interval評価
+kernel/interpolation.py     補間とpair-vote基礎処理
+kernel/solver.py            penalty DPとexact Recall repair
+kernel/artifacts.py         JSON/CSV/SQLite成果物
+optimizer_kernel.py         1 track処理とCLIの組み立て
+phase2_config.py            frozen profileと環境変数契約
+phase2_candidates.py        shape candidate生成
+phase2_hard_dp.py           hard-min-Recall multistate DP
+phase2_runtime.py           pair-vote、audit、Phase-2実行
+```
+
+公開stage、SQLite schema、profile ID、数値アルゴリズムはこの分割の前後で
+同一です。`tests/test_architecture.py`はProductionから`experimental`への
+依存禁止、composition rootの肥大化、必須責務モジュールの存在を検査します。
+
+## Repository orchestrationとGUI
+
+repository-level workflowも責務別です。
+
+- `orchestration/runner_media.py`: ffprobe、インターレース解除、1080p proxy、座標変換
+- `orchestration/runner_commands.py`: subprocess commandとdry-run plan
+- `orchestration/runner_support.py`: 共有型、固定path、原子的publish helper
+- `orchestration/runner.py`: stage lifecycle、resume、cleanup、artifact publish
+
+GUIのInspectorは`components/inspector/`配下で、推論、後処理、オーバーレイ、
+実行環境を別componentとして所有します。`InspectorPanel.tsx`は表示順と
+簡単/詳細モードの切替だけを担当します。
+
 ## cut detectionを交換する例
 
 新しい`CutDetector`だけを追加する場合は、`cut_detection/`内で`name`と
