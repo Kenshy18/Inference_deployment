@@ -80,6 +80,20 @@ The output `logs/work` tree is removed after successful publication. During the 
 
 The packaged Windows executable was also exercised previously on a 3,000-frame MH0 path at 104.56 inference FPS, including the promoted postprocess. Portable and installed-GUI cancellation tests left no child processes. Queue/batch behavior is covered by GUI and orchestration regression tests; a final one-hour multi-item production batch was not rerun after the deployment-profile-only fix.
 
+## Source checkpoint after the validated release
+
+The deployable artifact described above remains pinned to `bfb125e`. After that artifact was built, the production polygon runtime and workflow runner were split further by responsibility through source commit `3c00b9d`. These changes were revalidated without modifying the promoted algorithm: postprocess passed 240 tests plus 69 subtests; orchestration, deployment, and native-overlay coverage passed 67 tests plus 14 subtests; overlay passed 49 tests plus 2 subtests; inference passed 74 tests with 2 platform skips plus 2 subtests; and the GUI passed 69 tests and a production build. Both `core` and `all` full-hash deployment preflight profiles passed on the current source tree.
+
+Before publishing the source checkpoint, the only three untracked files were audited and removed:
+
+- `postprocess/experimental/production_candidate_20260814/analyze_v3_intervals.py` — 20,134 bytes; SHA-256 `0553f6ca3026c438783aeec73c792b3673d4fd7f52098e4c014707a8ec787170`
+- `postprocess/experimental/production_candidate_20260814/build_v3_interval_sweep_report.py` — 25,550 bytes; SHA-256 `d5d157833ccbe0097e47da39ff99c5e8df54377b958d8dfadfc6051497961021`
+- `postprocess/experimental/production_candidate_20260814/render_suspicious_v3_review.py` — 42,244 bytes; SHA-256 `3bec43bc2a7f47a82895a7c9fb396126d2779d95eaff532382b78e5e503c083a`
+
+They were standalone, never-tracked audit/report/render helpers. No tracked source imported or invoked them, they contained no embedded video, mask, SQLite, binary, credential, or unique result data, and they were excluded from both the postprocess wheel and finalized WSL image. Their already-generated numerical and visual outputs remain under the ignored `output/` tree. This cleanup therefore changes neither runtime behavior nor the validated result artifacts; it only removes the ability to regenerate those particular reports from the three disposable helper scripts.
+
+This newer source checkpoint is eligible for a fresh release build, but it is not the same artifact as the already imported and end-to-end-tested `bfb125e` release. A new external deployment should rebuild the WSL archive and Windows deployer from the published source checkpoint and repeat the isolated-distribution acceptance test.
+
 ## Media and path compatibility
 
 The local media matrix passed ten representative cases covering 720p, 1080p, 4K, portrait material, H.264, H.265 Main10, MP4, MKV, MOV, CFR, VFR, 60 fps, Unicode paths, audio/no-audio, and 1080i input. The interlaced case was deinterlaced before analysis, and the resulting overlay was progressive. For 16:9 sources, postprocess coordinates are normalized to the validated 1920×1080 workspace and then transformed back to source coordinates at publication.
@@ -100,7 +114,7 @@ Windows drive paths are translated through the GUI's WSL bridge. Local `C:` path
 1. Preserve `mask-pipeline-20260817-032049` as the only release candidate and deploy it to one controlled target.
 2. At that target, run one authenticated `O:`-drive input/output acceptance job and a one-hour multi-item batch.
 3. Sign the GUI and deployer before distributing outside the controlled group.
-4. Tag and push commit `bfb125e` only after the on-site drive check, since this session did not push.
+4. Keep the validated `bfb125e` artifact immutable; for the newer source checkpoint, build a fresh release and repeat isolated import plus GUI-to-WSL acceptance before taking it off-site.
 5. Monitor process-tree PSS, swap, file descriptors, job work directories, and recall-violation counts during the first production batch.
 
 ## Further questions
@@ -108,4 +122,3 @@ Windows drive paths are translated through the GUI's WSL bridge. Local `C:` path
 - Does the deployment fleet use only RTX 5090/SM120, or must separate TensorRT engine profiles be packaged?
 - Does the customer's mapped drive require credentials that are unavailable to non-interactive WSL sessions?
 - Is code signing required before the first controlled deployment, or only before wider distribution?
-
