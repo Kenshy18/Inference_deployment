@@ -89,7 +89,7 @@ def default_polygon_pipeline(*, include_preprocess: bool) -> PipelineConfig:
                 "production.polygon_v3_cpu",
                 {
                     "target_interval": 6,
-                    "interval_evaluation": "native_exact",
+                    "interval_evaluation": "cuda_lazy_exact",
                 },
             ),
             StageSpec("exact_evaluation", "evaluation.mask_iou"),

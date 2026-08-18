@@ -86,7 +86,7 @@ def assert_runtime_bridge_contract(
             "optimizer bridge runtime drift: "
             f"declared={declared_runtime}, bridge={fixed_runtime}"
         )
-    if config.runtime.interval_evaluation != "native_exact":
+    if config.runtime.interval_evaluation not in {"cuda_lazy_exact", "native_exact"}:
         raise RuntimeError(
             "unsupported interval evaluator: " f"{config.runtime.interval_evaluation!r}"
         )
@@ -222,20 +222,27 @@ def run_polygon_optimizer(
             bufsize=1,
         )
         assert process.stdout is not None
-        for line in process.stdout:
-            log.write(line)
-            log.flush()
-            if not line.startswith("[production-progress] "):
-                continue
-            try:
-                payload = json.loads(line.split(" ", 1)[1])
-                detail = str(payload.get("detail", "polygon:optimizer"))
-                fraction = float(payload["fraction"])
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                continue
-            if progress_callback is not None:
-                progress_callback(detail, fraction, None)
-        returncode = process.wait()
+        try:
+            with process.stdout:
+                for line in process.stdout:
+                    log.write(line)
+                    log.flush()
+                    if not line.startswith("[production-progress] "):
+                        continue
+                    try:
+                        payload = json.loads(line.split(" ", 1)[1])
+                        detail = str(payload.get("detail", "polygon:optimizer"))
+                        fraction = float(payload["fraction"])
+                    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                        continue
+                    if progress_callback is not None:
+                        progress_callback(detail, fraction, None)
+            returncode = process.wait()
+        except BaseException:
+            if process.poll() is None:
+                process.terminate()
+            process.wait()
+            raise
     wall = time.perf_counter() - started
     if returncode:
         raise RuntimeError(

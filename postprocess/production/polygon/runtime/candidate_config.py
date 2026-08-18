@@ -11,7 +11,7 @@ POLYGON_PROFILE_ID = "polygon_adaptive_keyframe_v2"
 LEGACY_PROFILE_ID = "production_candidate_20260814_v1"
 LEGACY_POLYGON_PROFILE_ID = "polygon14_keyframe_v1"
 LABELS = ("女性器", "男性器", "結合部分")
-INTERVAL_EVALUATION_MODES = ("native_exact",)
+INTERVAL_EVALUATION_MODES = ("cuda_lazy_exact", "native_exact")
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +112,7 @@ class RuntimeConfig:
     max_run_frames: int = 30000
     run_overlap_frames: int = 900
     predictor_device: str = "cpu"
-    interval_evaluation: str = "native_exact"
+    interval_evaluation: str = "cuda_lazy_exact"
 
 
 @dataclass(frozen=True, slots=True)

@@ -64,7 +64,7 @@ class ProductionCandidate20260814Tests(unittest.TestCase):
         self.assertEqual(1024, CANDIDATE.runtime.lazy_fallback_min_exact_edges)
         self.assertEqual(0.875, CANDIDATE.runtime.lazy_fallback_infeasible_ratio)
         self.assertEqual(1, CANDIDATE.runtime.candidate_frame_workers)
-        self.assertEqual("native_exact", CANDIDATE.runtime.interval_evaluation)
+        self.assertEqual("cuda_lazy_exact", CANDIDATE.runtime.interval_evaluation)
         policy = ProductionVirtualComponentNms(**PRODUCTION_OPTIONS)
         self.assertEqual("adaptive_mask", policy.comparison_policy)
         self.assertEqual(0.20, policy.mask_iou_threshold)

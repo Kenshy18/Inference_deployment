@@ -228,6 +228,15 @@ class ClassPostprocessTests(unittest.TestCase):
             classwise_manifest = Path(manifest["artifacts"]["classwise_manifest"])
             classwise = json.loads(classwise_manifest.read_text(encoding="utf-8"))
             self.assertEqual(2, len(classwise["groups"]))
+            self.assertEqual(
+                {1, 2},
+                {
+                    int(group["settings"]["keyframe_interval"])
+                    for group in classwise["groups"]
+                },
+            )
+            self.assertEqual(2, classwise["execution"]["classwise_workers"])
+            self.assertTrue(classwise["execution"]["parallel"])
             self.assertEqual(12, classwise["merge"]["gap_filled_masks"])
 
     def test_pipeline_config_and_class_policy_are_mutually_exclusive(self) -> None:

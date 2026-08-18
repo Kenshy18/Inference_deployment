@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-PROFILE_ID = "production_polygon_adaptive_recall_cpu_exact_v3"
+PROFILE_ID = "production_polygon_adaptive_recall_cuda_lazy_exact_v4"
 RUNTIME_CANDIDATE_PROFILE_ID = "production_candidate_adaptive_vertices_v2"
 RUNTIME_POLYGON_PROFILE_ID = "polygon_adaptive_keyframe_v2"
 LABELS = ("女性器", "男性器", "結合部分")
@@ -32,7 +32,7 @@ class ProductionConfig:
     spatial_recall_repair_max_scale: float = 1.05
     spatial_iou_floor: float = 0.95
     temporal_recall_floor: float = 0.97
-    interval_evaluation: str = "native_exact"
+    interval_evaluation: str = "cuda_lazy_exact"
     pair_vote_sweeps: int = 2
     remove_short_tracks_max_frames: int = 10
     gapfill_max_gap: int = 15
@@ -65,8 +65,11 @@ class ProductionConfig:
             raise ValueError("Production track-area quantile must be 0.999")
         if self.vertex_selection_source != "tracked_pre_border":
             raise ValueError("Production vertex selection must use pre-border masks")
-        if self.interval_evaluation != "native_exact":
-            raise ValueError("Production interval evaluation is CPU native_exact")
+        if self.interval_evaluation not in {"cuda_lazy_exact", "native_exact"}:
+            raise ValueError(
+                "Production interval evaluation must be cuda_lazy_exact or "
+                "native_exact"
+            )
         if not 1.0 <= float(self.spatial_recall_repair_max_scale) <= 1.05:
             raise ValueError("Production Recall repair scale must be in [1, 1.05]")
         if self.border_max_expand_px != 16.0:

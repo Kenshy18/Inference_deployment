@@ -54,8 +54,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--native-batch-threads", type=int, default=8)
     parser.add_argument(
         "--interval-evaluation",
-        choices=("native_exact",),
-        default="native_exact",
+        choices=("cuda_lazy_exact", "native_exact"),
+        default="cuda_lazy_exact",
     )
     parser.add_argument("--max-tracks", type=int, default=0)
     parser.add_argument("--force", action="store_true")
@@ -103,7 +103,6 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
         str(max(0, int(args.max_tracks))),
         "--predictor-device",
         "cpu",
-        "--native-exact",
         "--native-batch-threads",
         str(max(1, int(getattr(args, "native_batch_threads", 8)))),
         "--gc-interval",
@@ -112,6 +111,12 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
         "--pair-vote-sweeps",
         str(CANDIDATE.pair_vote_sweeps),
     ]
+    command.append(
+        "--cuda-lazy-exact"
+        if str(getattr(args, "interval_evaluation", "cuda_lazy_exact"))
+        == "cuda_lazy_exact"
+        else "--native-exact"
+    )
     if args.force:
         command.append("--force")
     return command

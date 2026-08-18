@@ -1,6 +1,7 @@
 # Production post-processing
 
-The default polygon pipeline uses the promoted adaptive CPU-exact profile:
+The default polygon pipeline uses the promoted adaptive CUDA-lazy profile
+with exact validation of every selected edge and final mask:
 
 - `nms.production_v3`: fills true holes, removes owner-relative islands of at
   most 1%, and runs virtual-component adaptive Mask NMS. Bounding boxes are a
@@ -15,7 +16,12 @@ The default polygon pipeline uses the promoted adaptive CPU-exact profile:
   track point count. Exact Recall is at least 0.97, the keyframe interval is a
   soft target, and the final topology guard rejects invalid optimization
   trials without stopping the complete video.
-- Interval evaluation uses the native CPU-exact implementation by default.
+- Interval screening uses CUDA by default. Every selected edge and every
+  final mask is then audited with the native exact evaluator, so the Recall
+  floor and topology gates remain exact. `native_exact` remains available as
+  a slower diagnostic reference path.
+- Independent semantic classes run concurrently (three workers by default).
+  Different target intervals do not serialize the class jobs.
 
 The default runner exposes only the promoted NMS and polygon stage IDs. It
 never falls back to the retired polygon optimizer: unsupported semantic labels

@@ -100,10 +100,10 @@ class PromotedProductionProfileTests(unittest.TestCase):
         )
         self.assertTrue(all("v22" not in value for value in identifiers))
 
-    def test_public_contract_forces_native_exact_cpu(self) -> None:
+    def test_public_contract_defaults_to_cuda_with_exact_final_audit(self) -> None:
         PRODUCTION.validate()
         runtime = build_runtime_config(PRODUCTION)
-        self.assertEqual("native_exact", runtime.runtime.interval_evaluation)
+        self.assertEqual("cuda_lazy_exact", runtime.runtime.interval_evaluation)
         self.assertTrue(runtime.spatial.adaptive_vertex_policy)
         self.assertEqual(
             (14, 16, 18, 20),
@@ -148,7 +148,7 @@ class PromotedProductionProfileTests(unittest.TestCase):
         polygon = create_stage("production.polygon_v3_cpu", {})
         self.assertEqual("production_virtual_component_mask_nms_v1", nms.name)
         self.assertEqual(
-            "production_polygon_adaptive_recall_cpu_exact_v3", polygon.name
+            "production_polygon_adaptive_recall_cuda_lazy_exact_v4", polygon.name
         )
 
     def test_nms_thresholds_cannot_be_changed_from_pipeline_json(self) -> None:
@@ -170,9 +170,21 @@ class PromotedProductionProfileTests(unittest.TestCase):
                     )
                 )
 
-    def test_polygon_stage_rejects_cuda_evaluator(self) -> None:
-        with self.assertRaisesRegex(ValueError, "CPU native_exact"):
-            ProductionPolygonStage({"interval_evaluation": "cuda_lazy_exact"})._config()
+    def test_polygon_stage_supports_cuda_default_and_cpu_diagnostic(self) -> None:
+        self.assertEqual(
+            "cuda_lazy_exact",
+            ProductionPolygonStage({})._config().interval_evaluation,
+        )
+        self.assertEqual(
+            "native_exact",
+            ProductionPolygonStage(
+                {"interval_evaluation": "native_exact"}
+            )._config().interval_evaluation,
+        )
+        with self.assertRaisesRegex(ValueError, "must be cuda_lazy_exact"):
+            ProductionPolygonStage(
+                {"interval_evaluation": "approximate_only"}
+            )._config()
 
     def test_materialized_keyframes_declare_index_interpolation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

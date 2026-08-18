@@ -32,6 +32,18 @@ if [[ ! -x "$runtime_python" ]]; then
   exit 1
 fi
 
+"$runtime_python" - <<'PY'
+import importlib.util
+
+required = ("cupy", "fastrlock")
+missing = [name for name in required if importlib.util.find_spec(name) is None]
+if missing:
+    raise SystemExit(
+        "Production runtime is missing CUDA postprocess dependencies: "
+        + ", ".join(missing)
+    )
+PY
+
 MASK_PIPELINE_NATIVE_ROOT="$native_interval_root" \
 INFERENCE_RUNTIME_PYTHON="$runtime_python" \
   "$repo_root/postprocess/production/polygon/runtime/native_interval/bootstrap_and_build.sh"

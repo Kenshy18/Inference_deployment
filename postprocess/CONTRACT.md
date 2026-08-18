@@ -112,10 +112,13 @@ Mask IoUまたは方向付き被覆率で比較し、bboxはbroad phaseだけに
 `nms.production_v3`は、このv4の検証済み閾値を凍結した正式入口です。任意の閾値変更を
 受理せず、bboxはbroad-phase、最終判定はnative画素Maskだけで行います。
 
-`production.polygon_v3_cpu`はクラスごとに独立して14頂点空間近似、複数形状DP、
-pair-vote、topology検査を実行します。区間評価は`native_exact`に固定し、CUDA近似経路を
-Productionから選択できません。最終Recall監査結果は
-`production_polygon_manifest`へ全件記録されます。
+`production.polygon_v3_cpu`は互換stage IDであり、クラスごとに独立して
+14/16/18/20頂点の適応空間近似、複数形状DP、pair-vote、topology検査を実行します。
+区間候補のスクリーニングは既定で`cuda_lazy_exact`を使いますが、選択された辺と最終
+マスクはnative exact評価を必ず通します。`native_exact`は低速な診断用参照経路として
+残します。クラス別処理は既定3 workerで並列実行され、クラスごとに異なる目標間隔を
+指定しても直列化されません。最終Recall監査結果は`production_polygon_manifest`へ
+全件記録されます。
 
 ### 未追跡の検出SQLite
 

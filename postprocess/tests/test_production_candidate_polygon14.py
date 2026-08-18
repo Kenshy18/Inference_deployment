@@ -233,7 +233,7 @@ def test_candidate_temporal_palette_is_exactly_the_frozen_baseline() -> None:
             ) == role_ids(label, value, config)
 
 
-def test_runner_fixes_polygon_count_and_uses_native_exact_validation(
+def test_runner_fixes_polygon_count_and_uses_cuda_lazy_exact_validation(
     tmp_path: Path,
 ) -> None:
     args = argparse.Namespace(
@@ -250,7 +250,7 @@ def test_runner_fixes_polygon_count_and_uses_native_exact_validation(
     assert "--anchors-per-contour 14" in joined
     assert "--min-anchors-per-contour 14" in joined
     assert "--no-adaptive-anchor-counts" in command
-    assert "--native-exact" in command
+    assert "--cuda-lazy-exact" in command
     assert "--pair-vote-per-key" in command
 
 

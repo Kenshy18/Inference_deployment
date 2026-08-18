@@ -6,7 +6,7 @@
       "implementation": "production.polygon_v3_cpu",
       "options": {
         "target_interval": 6,
-        "interval_evaluation": "native_exact"
+        "interval_evaluation": "cuda_lazy_exact"
       }
     },
     {

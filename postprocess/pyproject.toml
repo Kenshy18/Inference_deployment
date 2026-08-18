@@ -13,6 +13,8 @@ dependencies = [
   "opencv-python-headless",
   "scipy",
   "torch",
+  "cupy-cuda12x==13.6.0",
+  "fastrlock>=0.8",
   "orjson",
 ]
 

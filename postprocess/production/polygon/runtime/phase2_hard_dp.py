@@ -251,7 +251,9 @@ def build_hard_multistate_penalty_path(module):
                 os.environ.get(CUDA_PREFILTER_VERIFY_ENV, "").strip() == "1"
             )
             if os.environ.get(CUDA_PREFILTER_ENV, "").strip() == "1":
-                from cuda_interval_raster import evaluate_cached_intervals
+                from production.polygon.runtime.cuda_interval_raster import (
+                    evaluate_cached_intervals,
+                )
 
                 requested_prefilter_budget = max(
                     0.0,
@@ -415,7 +417,9 @@ def build_hard_multistate_penalty_path(module):
                 and not cuda_approx_only_requested
             )
             if use_cuda_shape:
-                from cuda_shape_distance import compute_shape_distances
+                from production.polygon.runtime.cuda_shape_distance import (
+                    compute_shape_distances,
+                )
 
                 # Approximate/lazy CUDA constructs costs for the complete
                 # graph. A prefilter may make batch_edge_array smaller, so
@@ -459,7 +463,9 @@ def build_hard_multistate_penalty_path(module):
                 # on every accepted path without rasterizing the entire dense
                 # graph on the CPU.
                 if precomputed_shape_distances is None:
-                    from cuda_shape_distance import compute_shape_distances
+                    from production.polygon.runtime.cuda_shape_distance import (
+                        compute_shape_distances,
+                    )
 
                     (
                         precomputed_shape_distances,

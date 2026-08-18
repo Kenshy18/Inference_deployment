@@ -125,6 +125,11 @@ def main() -> int:
                     "import json,sys;"
                     f"sys.path.insert(0,{str(root / 'postprocess')!r});"
                     "import run_pipeline,nms.production,production.polygon;"
+                    "from production.polygon.runtime.cuda_interval_raster "
+                    "import _import_cupy;"
+                    "cp=_import_cupy();"
+                    "cuda_probe=int(cp.arange(8).sum().get());"
+                    "assert cuda_probe==28,cuda_probe;"
                     "from common.registry import stage_implementations;"
                     "forbidden_modules={'nms.adaptive','nms.component_aware',"
                     "'nms.stages'};"
@@ -150,7 +155,8 @@ def main() -> int:
                     "assert not retired_stages,retired_stages;"
                     "print(json.dumps({'stages':stages,'retired_options':"
                     "retired_options,'retired_stages':retired_stages,"
-                    "'loaded_forbidden':loaded}))"
+                    "'loaded_forbidden':loaded,"
+                    "'cuda_postprocess_sum':cuda_probe}))"
                 ),
             ],
             cwd=root,

@@ -1,4 +1,4 @@
-"""Pipeline stage for the promoted adaptive-vertex CPU-exact implementation."""
+"""Pipeline stage for the promoted adaptive-vertex Production implementation."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def _dimensions(
 @dataclass(frozen=True)
 class ProductionPolygonStage:
     options: dict[str, Any] = field(default_factory=dict)
-    name: str = "production_polygon_adaptive_recall_cpu_exact_v3"
+    name: str = "production_polygon_adaptive_recall_cuda_lazy_exact_v4"
     requires: frozenset[str] = frozenset({"tracked_sqlite"})
     provides: frozenset[str] = frozenset(
         {
@@ -88,9 +88,11 @@ class ProductionPolygonStage:
             target_interval=interval,
         )
         config.validate()
-        evaluator = str(self.options.get("interval_evaluation", "native_exact"))
-        if evaluator != "native_exact":
-            raise ValueError("Production supports only CPU native_exact evaluation")
+        evaluator = str(
+            self.options.get("interval_evaluation", PRODUCTION.interval_evaluation)
+        )
+        config = replace(config, interval_evaluation=evaluator)
+        config.validate()
         return config
 
     def run(self, context: StageContext) -> StageResult:

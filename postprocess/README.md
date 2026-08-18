@@ -96,9 +96,10 @@ python run_pipeline.py \
 
 - `nms.production_v3`: 全穴埋め、所有本体比1%以下の島削除、仮想連結成分、
   Mask版Adaptive NMS、島対本体80%/50%判定
-- `production.polygon_v3_cpu`: トラック面積に応じた14/16/18/20頂点ポリゴン、
-  最小Recall制約付き多状態DP、
-  2 sweep pair-vote、全補間フレームtopology検査、CPU `native_exact`区間評価
+- `production.polygon_v3_cpu`: 互換stage ID。トラック面積に応じた
+  14/16/18/20頂点ポリゴン、最小Recall制約付き多状態DP、2 sweep pair-vote、
+  全補間フレームtopology検査、CUDA lazy screeningと採用辺・最終出力の
+  厳密監査
 - 既定の努力目標キーフレーム間隔は6。`--keyframe-interval`で変更可能
 
 旧NMS・旧ポリゴン実装と候補比較はGit履歴と保存済み監査成果物だけに残し、

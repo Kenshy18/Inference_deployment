@@ -222,7 +222,12 @@ def run_cell(
         max(1, int((os.cpu_count() or 1) / max(1, args.label_workers)))
     )
     python_paths = [str(POSTPROCESS)]
-    if args.native_exact:
+    if (
+        args.native_exact
+        or args.cuda_lazy_exact
+        or args.cuda_fast
+        or args.cuda_hint_exact
+    ):
         python_paths.insert(0, str(HERE / "native_interval/build"))
         environment.update(
             {
@@ -236,6 +241,32 @@ def run_cell(
                 "MASK_PIPELINE_PHASE2_GC_INTERVAL": str(args.gc_interval),
             }
         )
+    if args.cuda_fast or args.cuda_lazy_exact or args.cuda_hint_exact:
+        environment.update(
+            {
+                "MASK_PIPELINE_PHASE2_CUDA_SHAPE": "1",
+                "MASK_PIPELINE_PHASE2_CUDA_PREFILTER": "1",
+                "MASK_PIPELINE_PHASE2_CUDA_PREFILTER_BUDGET": (
+                    environment.get(
+                        "MASK_PIPELINE_PHASE2_CUDA_PREFILTER_BUDGET",
+                        "0.10",
+                    )
+                    if args.cuda_lazy_exact
+                    else "0"
+                ),
+            }
+        )
+        if args.cuda_hint_exact:
+            environment["MASK_PIPELINE_PHASE2_CUDA_EXACT_HINT"] = "1"
+        elif args.cuda_lazy_exact:
+            environment.update(
+                {
+                    "MASK_PIPELINE_PHASE2_CUDA_LAZY_EXACT": "1",
+                    "MASK_PIPELINE_PHASE2_CUDA_LAZY_MIN_RETAINED_RATIO": "0",
+                }
+            )
+        else:
+            environment["MASK_PIPELINE_PHASE2_CUDA_APPROX_ONLY"] = "1"
     environment["PYTHONPATH"] = os.pathsep.join(
         [*python_paths, environment.get("PYTHONPATH", "")]
     ).rstrip(os.pathsep)
@@ -291,27 +322,19 @@ def main() -> int:
         raise ValueError("recall-floor must be in (0, 1]")
     if args.target_interval < 1:
         raise ValueError("target-interval must be >= 1")
-    if args.cuda_fast or args.cuda_lazy_exact or args.cuda_hint_exact:
-        raise ValueError(
-            "the deployed Production runtime supports CPU native_exact only"
+    evaluator_count = sum(
+        bool(value)
+        for value in (
+            args.cuda_fast,
+            args.cuda_lazy_exact,
+            args.cuda_hint_exact,
+            args.native_exact,
         )
-    if not args.native_exact:
-        raise ValueError("the deployed Production runtime requires --native-exact")
-    if (
-        sum(
-            bool(value)
-            for value in (
-                args.cuda_fast,
-                args.cuda_lazy_exact,
-                args.cuda_hint_exact,
-                args.native_exact,
-            )
-        )
-        > 1
-    ):
+    )
+    if evaluator_count != 1:
         raise ValueError(
-            "--cuda-fast, --cuda-lazy-exact, --cuda-hint-exact, and "
-            "--native-exact are mutually exclusive"
+            "exactly one of --cuda-fast, --cuda-lazy-exact, "
+            "--cuda-hint-exact, or --native-exact is required"
         )
     if args.anchors_per_contour < 1 or args.min_anchors_per_contour < 1:
         raise ValueError("anchor counts must be >= 1")

@@ -137,7 +137,8 @@ def _polygon_stage_options(
     initial: dict[str, object] | None = None,
 ) -> dict[str, object]:
     options = {} if initial is None else dict(initial)
-    # Production polygon geometry and its exact CPU evaluator are frozen.
+    # Geometry semantics are frozen. CUDA screens the graph while every
+    # selected edge and the final dense output remain exact-audited.
     return options
 
 
@@ -216,9 +217,10 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             if args.keyframe_interval is not None:
                 options["target_interval"] = int(args.keyframe_interval)
             options = _polygon_stage_options(args, options)
-            # The promoted profile intentionally ignores the inference device:
-            # interval evaluation is exact native CPU by contract.
-            options["interval_evaluation"] = "native_exact"
+            options.setdefault(
+                "interval_evaluation",
+                "cuda_lazy_exact",
+            )
         stages.append(
             StageSpec(
                 stage.id,
@@ -252,6 +254,7 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                         else int(args.keyframe_interval)
                     ),
                     "polygon_options": _polygon_stage_options(args),
+                    "classwise_workers": 3,
                 },
             )
         )

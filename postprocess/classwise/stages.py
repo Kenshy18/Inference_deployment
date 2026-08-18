@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,7 +40,9 @@ def _nested_pipeline(
             {
                 **polygon_options,
                 "target_interval": settings.keyframe_interval,
-                "interval_evaluation": "native_exact",
+                "interval_evaluation": str(
+                    polygon_options.get("interval_evaluation", "cuda_lazy_exact")
+                ),
             },
         ),
         StageSpec("exact_evaluation", "evaluation.mask_iou"),
@@ -86,8 +90,6 @@ class ClasswisePostprocessStage:
             tracks_by_group.setdefault((label, settings), []).append(track_id)
 
         polygon_options = dict(self.options.get("polygon_options", {}))
-        routed: list[RoutedGroup] = []
-        group_manifests: list[dict[str, object]] = []
         ordered_groups = sorted(
             tracks_by_group,
             key=lambda value: (
@@ -96,7 +98,37 @@ class ClasswisePostprocessStage:
             ),
         )
         group_count = max(1, len(ordered_groups))
-        for index, (label, settings) in enumerate(ordered_groups):
+        workers = min(
+            max(1, int(self.options.get("classwise_workers", 3))),
+            group_count,
+        )
+        progress_lock = threading.Lock()
+        progress_by_index = {index: 0.0 for index in range(len(ordered_groups))}
+
+        def report_group_progress(
+            index: int,
+            label: str,
+            detail: str,
+            fraction: float | None,
+            fps: float | None,
+        ) -> None:
+            with progress_lock:
+                if fraction is not None:
+                    progress_by_index[index] = max(
+                        progress_by_index[index],
+                        min(1.0, max(0.0, float(fraction))),
+                    )
+                aggregate = sum(progress_by_index.values()) / group_count
+                context.report_progress(
+                    f"classwise:{label}:{detail}",
+                    0.02 + 0.94 * aggregate,
+                    fps,
+                )
+
+        def run_group(
+            item: tuple[int, tuple[str, ClassPostprocessSettings]],
+        ) -> tuple[RoutedGroup, dict[str, object]]:
+            index, (label, settings) = item
             group_started = time.perf_counter()
             group_id = f"{index:02d}_polygon_k{settings.keyframe_interval}"
             group_root = context.stage_dir / "groups" / group_id
@@ -122,15 +154,12 @@ class ClasswisePostprocessStage:
                 ),
                 nested_root,
                 progress_callback=(
-                    lambda detail, fraction, fps, *, index=index, label=label: (
-                        context.report_progress(
-                            f"classwise:{label}:{detail}",
-                            0.02
-                            + 0.94
-                            * (index + (0.0 if fraction is None else fraction))
-                            / group_count,
-                            fps,
-                        )
+                    lambda detail, fraction, fps: report_group_progress(
+                        index,
+                        label,
+                        detail,
+                        fraction,
+                        fps,
                     )
                 ),
             ).run(nested_inputs)
@@ -139,37 +168,43 @@ class ClasswisePostprocessStage:
                 .expanduser()
                 .resolve()
             )
-            routed.append(
-                RoutedGroup(
-                    group_id=group_id,
-                    labels=(label,),
-                    track_ids=track_ids,
-                    settings=settings,
-                    predictions_sqlite=predictions,
-                )
+            routed_group = RoutedGroup(
+                group_id=group_id,
+                labels=(label,),
+                track_ids=track_ids,
+                settings=settings,
+                predictions_sqlite=predictions,
             )
             output_masks = 0
             for stage in manifest["stages"]:
                 if stage["id"] == "output_validation":
                     output_masks = int(stage["metadata"]["masks"])
                     break
-            group_manifests.append(
-                {
-                    "id": group_id,
-                    "labels": [label],
-                    "track_ids": list(track_ids),
-                    "settings": settings.as_dict(),
-                    "input_masks": input_masks,
-                    "output_masks": output_masks,
-                    "pipeline_manifest": str(nested_root / "pipeline_manifest.json"),
-                    "predictions_sqlite": str(predictions),
-                    "elapsed_seconds": time.perf_counter() - group_started,
-                }
-            )
-            context.report_progress(
-                f"classwise:{label}:complete",
-                0.02 + 0.94 * (index + 1) / group_count,
-            )
+            group_manifest = {
+                "id": group_id,
+                "labels": [label],
+                "track_ids": list(track_ids),
+                "settings": settings.as_dict(),
+                "input_masks": input_masks,
+                "output_masks": output_masks,
+                "pipeline_manifest": str(nested_root / "pipeline_manifest.json"),
+                "predictions_sqlite": str(predictions),
+                "elapsed_seconds": time.perf_counter() - group_started,
+            }
+            report_group_progress(index, label, "complete", 1.0, None)
+            return routed_group, group_manifest
+
+        indexed_groups = list(enumerate(ordered_groups))
+        if workers == 1:
+            results = [run_group(item) for item in indexed_groups]
+        else:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="classwise-postprocess",
+            ) as executor:
+                results = list(executor.map(run_group, indexed_groups))
+        routed = [result[0] for result in results]
+        group_manifests = [result[1] for result in results]
 
         output = context.stage_dir / "predictions.sqlite"
         context.report_progress("classwise:merging", 0.97)
@@ -189,6 +224,10 @@ class ClasswisePostprocessStage:
             "tracked_sqlite": str(tracked),
             "predictions_sqlite": str(output),
             "groups": group_manifests,
+            "execution": {
+                "classwise_workers": workers,
+                "parallel": workers > 1,
+            },
             "merge": merge_summary,
             "elapsed_seconds": elapsed,
         }
@@ -205,6 +244,7 @@ class ClasswisePostprocessStage:
             {
                 "policy": policy.as_dict(),
                 "groups": len(group_manifests),
+                "classwise_workers": workers,
                 "group_summaries": group_manifests,
                 **merge_summary,
                 "elapsed_seconds": elapsed,
