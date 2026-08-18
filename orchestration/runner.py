@@ -21,7 +21,7 @@ from .contracts import (
     validate_mask_sqlite,
     validate_result_sqlite,
 )
-from .rescale_result_sqlite import VideoGeometry
+from .rescale_result_sqlite import VideoGeometry, rescale_result_sqlite
 
 
 from .runner_support import (

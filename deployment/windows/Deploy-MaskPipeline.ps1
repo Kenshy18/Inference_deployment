@@ -26,6 +26,7 @@ $backendDirectory = $null
 $logPath = $null
 $installRootExisted = $false
 $removeInstallRootOnFailure = $false
+$archiveFailureLog = $false
 
 function Assert-SafeDirectory([string]$Value, [string]$Name) {
   $resolved = [IO.Path]::GetFullPath($Value)
@@ -290,11 +291,27 @@ try {
     if ($backendDirectory -and (Test-Path -LiteralPath $backendDirectory)) {
       Remove-Item -LiteralPath $backendDirectory -Recurse -Force
     }
-    if (-not $installRootExisted) { $script:removeInstallRootOnFailure = $true }
+    if (-not $installRootExisted) {
+      $script:archiveFailureLog = $true
+      $script:removeInstallRootOnFailure = $true
+    }
   }
   throw
 } finally {
   Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+  if ($archiveFailureLog -and $logPath -and (Test-Path -LiteralPath $logPath)) {
+    try {
+      $failureLogDirectory = Join-Path $env:LOCALAPPDATA "MaskPipeline\deployment-logs"
+      New-Item -ItemType Directory -Path $failureLogDirectory -Force | Out-Null
+      $failureLogPath = Join-Path $failureLogDirectory (
+        "{0}-{1}" -f $releaseToken, [IO.Path]::GetFileName($logPath)
+      )
+      Copy-Item -LiteralPath $logPath -Destination $failureLogPath -Force
+      Write-Host "Failure log preserved: $failureLogPath" -ForegroundColor Yellow
+    } catch {
+      Write-Warning "Could not preserve the failure log: $($_.Exception.Message)"
+    }
+  }
   if ($removeInstallRootOnFailure -and (Test-Path -LiteralPath $InstallRoot)) {
     Remove-Item -LiteralPath $InstallRoot -Recurse -Force
   }

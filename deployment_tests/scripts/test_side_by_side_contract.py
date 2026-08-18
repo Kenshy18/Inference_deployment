@@ -29,6 +29,13 @@ class SideBySideDeploymentContractTests(unittest.TestCase):
         self.assertIn("Release install directory already exists", text)
         self.assertNotIn("--unregister", text.split("try {", 1)[0])
 
+    def test_failed_install_preserves_diagnostics_outside_rollback_root(self) -> None:
+        text = (ROOT / "deployment/windows/Deploy-MaskPipeline.ps1").read_text()
+        archive = text.index('"MaskPipeline\\deployment-logs"')
+        removal = text.index("Remove-Item -LiteralPath $InstallRoot -Recurse -Force")
+        self.assertLess(archive, removal)
+        self.assertIn("Failure log preserved", text)
+
     def test_release_id_contains_source_commit(self) -> None:
         text = (ROOT / "deployment/windows/Build-Release.ps1").read_text()
         self.assertIn('$commit.Substring(0, 8)', text)

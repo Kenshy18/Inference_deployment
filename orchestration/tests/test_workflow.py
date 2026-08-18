@@ -10,9 +10,10 @@ from unittest.mock import patch
 
 import cv2
 
+from orchestration import runner as runner_module
 from orchestration.config import OrchestrationConfig
 from orchestration.contracts import PUBLIC_RESULT_SCHEMA_SIGNATURE
-from orchestration.rescale_result_sqlite import VideoGeometry
+from orchestration.rescale_result_sqlite import VideoGeometry, rescale_result_sqlite
 from orchestration.runner import OrchestrationRunner
 
 from helpers import (
@@ -26,6 +27,11 @@ from helpers import (
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_proxy_publication_has_the_result_rescaler_wired(self) -> None:
+        """Guard the real 16:9 proxy path against a missing runtime import."""
+
+        self.assertIs(rescale_result_sqlite, runner_module.rescale_result_sqlite)
+
     def test_video_probe_uses_decoded_frames_not_packets_or_container_duration(
         self,
     ) -> None:

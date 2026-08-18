@@ -175,3 +175,6 @@ distribution、GUI、`%APPDATA%\mask-pipeline-studio-windows`設定、ショー�
 同じrelease IDの再導入と既存distributionの上書きは拒否されます。導入失敗時は今回
 作成したdistributionと専用install rootだけをrollbackします。旧版を削除するのは、
 新しい版で実データとネットワークドライブを確認した後の明示的な保守操作です。
+失敗時の診断ログはrollback対象外の
+`%LOCALAPPDATA%\MaskPipeline\deployment-logs`へ退避されるため、現地で導入先が
+消えた後も原因を回収できます。
