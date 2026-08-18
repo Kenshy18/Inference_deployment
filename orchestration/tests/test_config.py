@@ -236,7 +236,7 @@ class ConfigTests(unittest.TestCase):
                 policy.resolve(),
                 config.postprocess.class_postprocess_policy_json,
             )
-            self.assertFalse(config.postprocess.uses_gpu)
+            self.assertTrue(config.postprocess.uses_gpu)
             self.assertEqual(
                 str(policy.resolve()),
                 command[command.index("--class-postprocess-policy-json") + 1],

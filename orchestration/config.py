@@ -207,8 +207,8 @@ class PostprocessConfig:
 
     @property
     def uses_gpu(self) -> bool:
-        """The promoted exact optimizer is CPU-only by contract."""
-        return False
+        """Production postprocessing uses CUDA screening with exact audits."""
+        return self.enabled
 
 
 @dataclass(frozen=True)

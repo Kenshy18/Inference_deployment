@@ -1174,11 +1174,15 @@ class WorkflowTests(unittest.TestCase):
                 self.assertTrue(capture.isOpened())
                 self.assertEqual(8, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
                 capture.release()
+            postprocess_stages = [
+                stage for stage in manifest["stages"] if stage["name"] == "postprocess"
+            ]
+            self.assertEqual(1, len(postprocess_stages))
+            self.assertFalse(postprocess_stages[0]["cpu_only"])
             cpu_stages = [
                 stage
                 for stage in manifest["stages"]
-                if stage["name"] == "postprocess"
-                or stage["name"].startswith("overlay_")
+                if stage["name"].startswith("overlay_")
             ]
             self.assertTrue(cpu_stages)
             self.assertTrue(all(stage["cpu_only"] for stage in cpu_stages))
