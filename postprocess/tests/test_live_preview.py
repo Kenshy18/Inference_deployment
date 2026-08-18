@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -89,3 +90,46 @@ def test_preview_queue_coalesces_by_stage(tmp_path: Path) -> None:
     assert sink._dropped >= 900
     control.unlink()
     sink.close()
+
+
+def test_close_waits_for_in_flight_native_preview_work(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    video = tmp_path / "source.avi"
+    _video(video)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_write(*_args, **_kwargs) -> None:
+        started.set()
+        assert release.wait(timeout=2.0)
+
+    monkeypatch.setattr(PostprocessPreviewSink, "_write", slow_write)
+    sink = PostprocessPreviewSink(
+        tmp_path / "latest.jpg",
+        video,
+        width=160,
+        height=90,
+        max_fps=100.0,
+    )
+    sink.submit(
+        PreviewGeometry(
+            0,
+            "tracking",
+            "tracking",
+            preview_image=np.zeros((90, 160, 3), dtype=np.uint8),
+        )
+    )
+    assert started.wait(timeout=2.0)
+
+    closer = threading.Thread(target=sink.close)
+    closer.start()
+    time.sleep(0.25)
+    assert closer.is_alive()
+    assert sink._thread.is_alive()
+    release.set()
+    closer.join(timeout=2.0)
+
+    assert not closer.is_alive()
+    assert not sink._thread.is_alive()

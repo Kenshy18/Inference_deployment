@@ -400,7 +400,15 @@ class PostprocessPreviewSink:
             # not delay postprocess completion to render stale queued frames.
             self._pending.clear()
             self._condition.notify()
-        self._thread.join(timeout=0.2)
+        # The worker can still be inside an OpenCV seek/JPEG encode when the
+        # queue is closed.  Returning while that native call is active lets
+        # interpreter shutdown tear OpenCV down underneath the daemon thread;
+        # libstdc++ then aborts with "terminate called without an active
+        # exception" even though every pipeline artifact was written.  The
+        # queue is empty and no new work is accepted at this point, so waiting
+        # for the single in-flight preview is both bounded in normal operation
+        # and required for a clean process exit.
+        self._thread.join()
 
     def _sample_artifacts(
         self, stage: str, label: str, artifacts: Mapping[str, Path]
