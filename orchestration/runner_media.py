@@ -93,12 +93,24 @@ class RunnerMediaMixin:
             return parsed if parsed > 0 else None
 
         payload = run_probe()
+        variable_rate_mismatch: tuple[float, float] | None = None
         try:
             stream = payload["streams"][0]
+            average_rate_text = str(stream.get("avg_frame_rate") or "0/1")
+            nominal_rate_text = str(stream.get("r_frame_rate") or "0/1")
             rate_text = str(
                 stream.get("avg_frame_rate") or stream.get("r_frame_rate") or "0/1"
             )
             rate = float(Fraction(rate_text))
+            average_rate = float(Fraction(average_rate_text))
+            nominal_rate = float(Fraction(nominal_rate_text))
+            if (
+                average_rate > 0.0
+                and nominal_rate > 0.0
+                and abs(average_rate - nominal_rate)
+                > max(0.02, average_rate * 0.05)
+            ):
+                variable_rate_mismatch = (average_rate, nominal_rate)
             declared_count = positive_int(stream.get("nb_frames"))
             stream_duration = positive_float(stream.get("duration"))
             if stream_duration is None:
@@ -162,6 +174,14 @@ class RunnerMediaMixin:
             or geometry.fps <= 0
         ):
             raise OrchestrationError(f"video has invalid geometry: {path}: {geometry}")
+        if variable_rate_mismatch is not None:
+            average_rate, nominal_rate = variable_rate_mismatch
+            raise OrchestrationError(
+                "variable-frame-rate input is not supported because inference "
+                "and overlay frame timestamps must remain one-to-one; transcode "
+                "the video to a constant frame rate before processing: "
+                f"average={average_rate:.6f}, nominal={nominal_rate:.6f}: {path}"
+            )
         return geometry
 
     @staticmethod

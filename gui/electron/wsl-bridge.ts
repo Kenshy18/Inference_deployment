@@ -109,13 +109,49 @@ def _cleanup_stale_staging(current: Path | None) -> None:
             shutil.rmtree(candidate, ignore_errors=True)
 
 
+def _copy_file_contents(source: Path, destination: Path) -> None:
+    """Copy bytes without requiring POSIX metadata support at the target.
+
+    DrvFS targets backed by cloud/network providers (for example Google Drive)
+    can create and write files while rejecting chmod/utime operations.  The
+    default shutil.copy2/copytree path treats those optional metadata failures
+    as fatal even though every output byte was copied successfully.
+    """
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("rb") as source_file, destination.open("wb") as target_file:
+        shutil.copyfileobj(source_file, target_file, length=1024 * 1024)
+
+
+def _copy_directory_contents(
+    source: Path,
+    destination: Path,
+    *,
+    ignore: object = None,
+) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    entries = list(source.iterdir())
+    ignored = (
+        set(ignore(str(source), [entry.name for entry in entries]))
+        if callable(ignore)
+        else set()
+    )
+    for entry in entries:
+        if entry.name in ignored:
+            continue
+        target = destination / entry.name
+        if entry.is_dir():
+            _copy_directory_contents(entry, target)
+        elif entry.is_file():
+            _copy_file_contents(entry, target)
+
+
 def _copy_path(source: Path, destination: Path) -> None:
     if source.is_dir():
         ignore = shutil.ignore_patterns("work") if source.name == "logs" else None
-        shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore)
+        _copy_directory_contents(source, destination, ignore=ignore)
         return
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
+    _copy_file_contents(source, destination)
 
 
 def _copy_published_output(source: Path, destination: Path) -> bool:
@@ -232,7 +268,7 @@ def main() -> int:
                 copy_target = sync_pending
             compact = _copy_published_output(sync_from, copy_target)
             if not compact:
-                shutil.copytree(sync_from, copy_target, dirs_exist_ok=True)
+                _copy_directory_contents(sync_from, copy_target)
             else:
                 print("[gui-sync] omitted reproducible intermediate files", flush=True)
             source_text = str(sync_from)
@@ -245,9 +281,10 @@ def main() -> int:
                 replaced = text.replace(source_text, target_text)
                 if replaced == text:
                     continue
-                temporary_json = json_path.with_suffix(json_path.suffix + ".tmp")
-                temporary_json.write_text(replaced, encoding="utf-8")
-                os.replace(temporary_json, json_path)
+                # This output is still private to the sync operation, so a
+                # direct rewrite is safe and avoids network filesystems whose
+                # rename visibility is delayed until the WSL process exits.
+                json_path.write_text(replaced, encoding="utf-8")
             if sync_pending is not None:
                 os.replace(sync_pending, sync_to)
             print("[gui-sync] Windows output copy complete", flush=True)

@@ -15,6 +15,7 @@ from orchestration.config import OrchestrationConfig
 from orchestration.contracts import PUBLIC_RESULT_SCHEMA_SIGNATURE
 from orchestration.rescale_result_sqlite import VideoGeometry, rescale_result_sqlite
 from orchestration.runner import OrchestrationRunner
+from orchestration.runner_support import OrchestrationError
 
 from helpers import (
     clear_instance_segmentation_detections,
@@ -110,6 +111,38 @@ class WorkflowTests(unittest.TestCase):
         self.assertAlmostEqual(23.99968444859336, geometry.fps)
         self.assertEqual(1, run.call_count)
         self.assertNotIn("-count_frames", run.call_args.args[0])
+
+    def test_video_probe_rejects_variable_frame_rate_before_processing(self) -> None:
+        with patch("orchestration.runner.subprocess.run") as run:
+            run.return_value = unittest.mock.Mock(
+                returncode=0,
+                stderr="",
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "width": 1920,
+                                "height": 1080,
+                                "avg_frame_rate": "3750/149",
+                                "r_frame_rate": "60/1",
+                                "duration": "4.966667",
+                                "nb_frames": "125",
+                            }
+                        ],
+                        "format": {"start_time": "0", "duration": "4.966667"},
+                    }
+                ),
+            )
+
+            with self.assertRaisesRegex(
+                OrchestrationError,
+                "variable-frame-rate input is not supported",
+            ):
+                OrchestrationRunner._probe_video(
+                    Path("/tools/ffprobe"), Path("variable.mov")
+                )
+
+        self.assertEqual(1, run.call_count)
 
     def test_video_probe_rejects_percentage_scaled_phantom_frame_tolerance(
         self,

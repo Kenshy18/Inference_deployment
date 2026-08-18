@@ -207,7 +207,10 @@ describe("Windows/WSL bridge", () => {
     );
     try {
       const bootstrap =
-        "import sys; source=sys.stdin.read(); " +
+        "import shutil,sys; " +
+        "reject=lambda *a,**k: (_ for _ in ()).throw(PermissionError('metadata')); " +
+        "shutil.copy2=reject; shutil.copystat=reject; " +
+        "source=sys.stdin.read(); " +
         "exec(compile(source, '<wsl-runner>', 'exec'), {'__name__':'__main__'})";
       const result = spawnSync(
         "python3",
