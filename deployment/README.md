@@ -76,7 +76,7 @@ production manifestとasset packを更新します。
 
 この入口は、アセットとproduction runtimeのステージング、隔離されたUbuntu 24.04
 build distributionの作成、portable Windows GUIのビルド、WSL archiveの構築・検証、
-`MaskPipelineDeployer.exe`の作成、成果物hash検証までを順番に実行します。build
+版別`MaskPipelineDeployer-<release-token>.exe`の作成、成果物hash検証までを順番に実行します。build
 distributionは一意な一時名を使い、成功・失敗にかかわらず既存distributionを変更しません。
 成功した成果物は`D:\MaskPipelineDeployment\release\mask-pipeline-*`へ候補として保存され、
 実デプロイ試験に合格するまでは`LATEST`へ昇格させません。
@@ -108,10 +108,10 @@ overlay runtimeの構築は`latest` URLの可用性に依存しません。asset
 
 Windows配布物は`windows/Build-Deployer.ps1`で作成します。成果物は次です。
 
-- `MaskPipelineDeployer.exe`: ユーザー単位の導入を開始する入口
+- `MaskPipelineDeployer-<release-token>.exe`: ユーザー単位の導入を開始する入口
 - `Deploy-MaskPipeline.ps1`: hash検証、WSL import、GUI配置、rollback
-- `payload/backend.tar`: 検証済みLinux backendの標準WSL archive
-- `payload/Mask Pipeline Studio.exe`: Node.js不要のportable GUI
+- `payload/backend-<release-token>.tar`: 検証済みLinux backendの標準WSL archive
+- `payload/Mask Pipeline Studio <release-token>.exe`: Node.js不要のportable GUI
 - `payload/deployment-smoke.mp4`: 非センシティブな短尺fixture
 - `payload/deployment-manifest.json`: commit、asset世代、構築profile、GPU/driver、全SHA256
 
@@ -141,7 +141,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deployment\windows\Bui
   -AssetCommit <asset-commit>
 ```
 
-通常の現地導入は生成された`MaskPipelineDeployer.exe`をダブルクリックします。
+通常の現地導入は生成された版別`MaskPipelineDeployer-<release-token>.exe`をダブルクリックします。
 既に同名distributionがある場合は上書きせず停止します。配布前の異常系試験は、隔離された
 書込み可能ディレクトリに対して次で実行できます。
 
@@ -154,3 +154,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 この試験は、hash改ざん、GPU不一致、既存distribution、壊れたarchiveをすべて拒否し、
 新規distribution・部分backend・既存GUI設定を残さないことを検証します。
+
+### 版別の並行導入
+
+現在のリリースは`mask-pipeline-YYYYMMDD-HHMMSS-<commit8>`を一意なIDとし、
+導入用EXE、GUI、WSL distribution、設定、ジョブ履歴、ショートカットを版別に分離します。
+たとえば次の2世代は同じWindowsユーザー内で共存できます。
+
+```text
+MaskPipelineProduction
+MaskPipelineProduction-20260818-210000-c86cbbf
+```
+
+新しい導入用EXEを通常起動すると、manifest内のIDから専用distributionと
+`%LOCALAPPDATA%\MaskPipeline\releases\<release-token>`を自動選択します。旧版の
+distribution、GUI、`%APPDATA%\mask-pipeline-studio-windows`設定、ショートカットは
+変更しません。版別GUIの隣にある`deployment-profile.json`が専用user-dataとWSL名を
+固定するため、GUIのEXEを直接開いた場合も対応する版へ接続します。
+
+同じrelease IDの再導入と既存distributionの上書きは拒否されます。導入失敗時は今回
+作成したdistributionと専用install rootだけをrollbackします。旧版を削除するのは、
+新しい版で実データとネットワークドライブを確認した後の明示的な保守操作です。

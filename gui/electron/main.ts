@@ -23,10 +23,22 @@ import { parseRuntimeOptions } from "./runtime-options";
 import { runQaE2e } from "./qa-e2e";
 import { readSettings, writeSettings } from "./settings";
 import { runtimePathToHost } from "./wsl-bridge";
+import {
+  bindDeploymentSettings,
+  loadDeploymentProfile,
+} from "./deployment-profile";
 
 let mainWindow: BrowserWindow | null = null;
 let jobManager: JobManager;
 const runtimeOptions = parseRuntimeOptions(process.argv, process.env);
+const deploymentProfile = loadDeploymentProfile(
+  process.argv,
+  process.env,
+  process.execPath,
+);
+if (deploymentProfile) {
+  app.setPath("userData", deploymentProfile.userDataPath);
+}
 const execFileAsync = promisify(execFile);
 const hardwareSampler = new HardwareSampler();
 let pendingPreview: LivePreviewFileEvent | null = null;
@@ -69,7 +81,7 @@ function queuePreview(frame: LivePreviewFileEvent): void {
 }
 
 async function openOutputFolder(targetPath: string): Promise<string> {
-  const settings = readSettings(settingsPath());
+  const settings = readAppSettings();
   const hostPath = runtimePathToHost(targetPath, settings);
   const resolved = path.resolve(hostPath);
   if (process.env.MASK_STUDIO_AUTOMATION_NO_EXTERNAL === "1") {
@@ -123,6 +135,17 @@ if (runtimeOptions.automationPort !== null) {
 
 function settingsPath(): string {
   return path.join(app.getPath("userData"), "settings.json");
+}
+
+function readAppSettings(): AppSettings {
+  return bindDeploymentSettings(readSettings(settingsPath()), deploymentProfile);
+}
+
+function writeAppSettings(settings: AppSettings): AppSettings {
+  return writeSettings(
+    settingsPath(),
+    bindDeploymentSettings(settings, deploymentProfile),
+  );
 }
 
 function filePickerOptions(kind: FilePickerKind): OpenDialogOptions {
@@ -189,7 +212,7 @@ function createWindow(): void {
 function registerIpc(): void {
   ipcMain.handle("app:bootstrap", () => ({
     platform: process.platform,
-    settings: readSettings(settingsPath()),
+    settings: readAppSettings(),
     job: jobManager.snapshot(),
   }));
 
@@ -240,7 +263,7 @@ function registerIpc(): void {
   ipcMain.handle(
     "settings:save",
     (_event, settings: AppSettings) =>
-      writeSettings(settingsPath(), settings),
+      writeAppSettings(settings),
   );
 
   ipcMain.handle(
@@ -274,7 +297,8 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   console.log(
     `[gui] software-rendering=${runtimeOptions.softwareRendering} ` +
-      `automation-port=${runtimeOptions.automationPort ?? "off"}`,
+      `automation-port=${runtimeOptions.automationPort ?? "off"} ` +
+      `release=${deploymentProfile?.releaseId ?? "development"}`,
   );
   jobManager = new JobManager(path.join(app.getPath("userData"), "jobs"));
   jobManager.on("update", (job) => {

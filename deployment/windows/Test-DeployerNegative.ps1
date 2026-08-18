@@ -36,7 +36,7 @@ function New-NegativePayload([string]$Name, [string]$FailureKind) {
   $expectedHash = if ($FailureKind -eq "hash") { "0" * 64 } else { $hash }
   $gpuName = if ($FailureKind -eq "gpu") { "Deliberately incompatible GPU" } else { $sourceManifest.compatibility.gpu_name }
   $manifest = [ordered]@{
-    schema_version = 2
+    schema_version = 3
     release_id = "negative-$Name"
     profile = $sourceManifest.profile
     backend = [ordered]@{
@@ -44,6 +44,15 @@ function New-NegativePayload([string]$Name, [string]$FailureKind) {
     }
     gui = [ordered]@{ file="gui.exe"; version="negative"; commit="negative" }
     fixture = [ordered]@{ file="fixture.mp4" }
+    installation = [ordered]@{
+      release_token = "negative-$Name"
+      default_distribution = "MaskPipelineNegative-$Name"
+      install_directory = "negative-$Name"
+      gui_filename = "Mask Pipeline Studio negative-$Name.exe"
+      shortcut_name = "Mask Pipeline Studio negative-$Name"
+      deployment_profile = "deployment-profile.json"
+      deployer_filename = "MaskPipelineDeployer-negative-$Name.exe"
+    }
     compatibility = [ordered]@{
       gpu_name = $gpuName
       driver_version = $sourceManifest.compatibility.driver_version

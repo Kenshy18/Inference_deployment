@@ -21,6 +21,11 @@ $releaseId = if ($ReleaseId) { $ReleaseId } else { "mask-pipeline-{0}" -f (Get-D
 if ($releaseId -notmatch '^mask-pipeline-[A-Za-z0-9_.-]+$') {
   throw "Unsafe release id: $releaseId"
 }
+$releaseToken = $releaseId -replace '^mask-pipeline-', ''
+$defaultDistribution = "MaskPipelineProduction-$releaseToken"
+$guiFileName = "Mask Pipeline Studio $releaseToken.exe"
+$shortcutName = "Mask Pipeline Studio $releaseToken"
+$deployerFileName = "MaskPipelineDeployer-$releaseToken.exe"
 $target = Join-Path $OutputRoot $releaseId
 $payload = Join-Path $target "payload"
 if (Test-Path -LiteralPath $target) { throw "Release already exists: $target" }
@@ -34,8 +39,8 @@ if (-not $DeployerCommit) {
   $DeployerCommit = (& wsl.exe -d Ubuntu-24.04 -- git -C /home/kenshin/inference_backend2 rev-parse HEAD).Trim()
 }
 $files = @(
-  @{ source=$BackendArchive; target="backend.tar"; role="backend" },
-  @{ source=$GuiPortable; target="Mask Pipeline Studio.exe"; role="gui" },
+  @{ source=$BackendArchive; target="backend-$releaseToken.tar"; role="backend" },
+  @{ source=$GuiPortable; target=$guiFileName; role="gui" },
   @{ source=$Fixture; target="deployment-smoke.mp4"; role="fixture" }
 )
 $artifacts = @()
@@ -57,7 +62,7 @@ $wslVersionText = ((& wsl.exe --version) -join "`n") -replace "`0", ""
 $wslVersionMatch = [regex]::Match($wslVersionText, '\d+\.\d+\.\d+\.\d+')
 $wslVersion = if ($wslVersionMatch.Success) { $wslVersionMatch.Value } else { "unknown" }
 $manifest = [ordered]@{
-  schema_version = 2
+  schema_version = 3
   release_id = $releaseId
   created_at_utc = [DateTime]::UtcNow.ToString("o")
   profile = $Profile
@@ -70,6 +75,15 @@ $manifest = [ordered]@{
   gui = [ordered]@{ file=$gui.file; version=$GuiVersion; commit=$GuiCommit }
   deployer = [ordered]@{ commit=$DeployerCommit }
   fixture = [ordered]@{ file=$fixtureRecord.file }
+  installation = [ordered]@{
+    release_token = $releaseToken
+    default_distribution = $defaultDistribution
+    install_directory = $releaseToken
+    gui_filename = $guiFileName
+    shortcut_name = $shortcutName
+    deployment_profile = "deployment-profile.json"
+    deployer_filename = $deployerFileName
+  }
   compatibility = [ordered]@{
     windows_build = [Environment]::OSVersion.Version.ToString()
     wsl_version = $wslVersion
@@ -91,7 +105,7 @@ Copy-Item -LiteralPath (Join-Path $scriptRoot "Deploy-MaskPipeline.ps1") -Destin
 
 $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path -LiteralPath $csc)) { throw "C# compiler was not found: $csc" }
-$deployerExe = Join-Path $target "MaskPipelineDeployer.exe"
+$deployerExe = Join-Path $target $deployerFileName
 & $csc /nologo /target:exe /optimize+ "/out:$deployerExe" (Join-Path $scriptRoot "MaskPipelineDeployer.cs")
 if ($LASTEXITCODE -ne 0) { throw "Deployer compilation failed" }
 

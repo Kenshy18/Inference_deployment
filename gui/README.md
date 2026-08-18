@@ -173,6 +173,12 @@ buildは行いません。WSL側のGUIソースを変更して新しいexeが必
 正式配布では未コミット状態からのbuildを禁止し、テストしたexeと配布するexeの
 SHA-256を一致させます。Windowsコード署名は配布前に追加してください。
 
+配布されたGUIは、同じディレクトリの`deployment-profile.json`を自動検出します。
+このprofileはリリース専用のuser-data、WSL distribution、backend root、runtime Pythonを
+固定します。そのため新旧のGUIを同時にインストールしても、設定とジョブ履歴を共有せず、
+それぞれ対応するWSLへ接続します。profileなしで起動した開発用GUIは従来どおり共通の
+Electron user-dataを使用します。
+
 ## Windows + WSL2
 
 Inspectorの`Runtime`セクションで次を指定します。

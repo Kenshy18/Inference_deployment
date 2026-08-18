@@ -9,8 +9,9 @@ class ReleaseProfileContractTests(unittest.TestCase):
     def test_builder_records_versioned_profile(self) -> None:
         text = (ROOT / "deployment/windows/Build-Deployer.ps1").read_text()
         self.assertIn('[ValidateSet("core", "all")][string]$Profile', text)
-        self.assertIn("schema_version = 2", text)
+        self.assertIn("schema_version = 3", text)
         self.assertIn("profile = $Profile", text)
+        self.assertIn("default_distribution = $defaultDistribution", text)
 
     def test_release_forwards_and_verifies_profile(self) -> None:
         text = (ROOT / "deployment/windows/Build-Release.ps1").read_text()

@@ -46,7 +46,8 @@ cat > "$report_root/release.json" <<EOF
   "release_commit": "$release_commit",
   "asset_commit": "$asset_commit",
   "profile": "$profile",
-  "distribution": "MaskPipelineProduction",
+  "distribution": null,
+  "distribution_policy": "assigned-by-versioned-wsl-import",
   "backend_root": "$repository_root",
   "runtime_python": "$runtime_root/bin/python3.10",
   "fixture": "$fixture_root/deployment-smoke.mp4"

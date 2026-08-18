@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-  [string]$DistributionName = "MaskPipelineProduction",
-  [string]$InstallRoot = "$env:LOCALAPPDATA\MaskPipeline",
+  [string]$DistributionName,
+  [string]$InstallRoot,
   [string]$PayloadRoot,
   [switch]$SkipE2E,
   [switch]$NoLaunch,
@@ -21,11 +21,11 @@ if ([string]::IsNullOrWhiteSpace($PayloadRoot)) {
 $BackendRoot = "/home/kenshin/inference_backend2"
 $RuntimePython = "/home/kenshin/.local/share/video-mask-runtime/envs/production/bin/python3.10"
 $importStarted = $false
-$settingsBackup = $null
-$guiBackup = $null
 $installedVhd = $null
 $backendDirectory = $null
 $logPath = $null
+$installRootExisted = $false
+$removeInstallRootOnFailure = $false
 
 function Assert-SafeDirectory([string]$Value, [string]$Name) {
   $resolved = [IO.Path]::GetFullPath($Value)
@@ -63,15 +63,10 @@ function Write-Utf8Json([string]$Path, [object]$Value, [int]$Depth = 5) {
   [IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, $encoding)
 }
 
-function Write-Settings([string]$Distro) {
-  $settingsDirectory = Join-Path $env:APPDATA "mask-pipeline-studio-windows"
+function Write-Settings([string]$Distro, [string]$UserDataRoot) {
+  $settingsDirectory = $UserDataRoot
   $settingsPath = Join-Path $settingsDirectory "settings.json"
   New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
-  if (Test-Path -LiteralPath $settingsPath) {
-    $script:settingsBackup = Join-Path $InstallRoot "rollback\settings.json"
-    New-Item -ItemType Directory -Path (Split-Path $script:settingsBackup) -Force | Out-Null
-    Copy-Item -LiteralPath $settingsPath -Destination $script:settingsBackup -Force
-  }
   $settings = [ordered]@{
     backendMode = "wsl"
     backendRoot = $BackendRoot
@@ -82,30 +77,22 @@ function Write-Settings([string]$Distro) {
   return $settingsPath
 }
 
-function Restore-Settings([string]$SettingsPath) {
-  if ($script:settingsBackup -and (Test-Path -LiteralPath $script:settingsBackup)) {
-    Copy-Item -LiteralPath $script:settingsBackup -Destination $SettingsPath -Force
-  } elseif (Test-Path -LiteralPath $SettingsPath) {
-    Remove-Item -LiteralPath $SettingsPath -Force
-  }
-}
-
-function New-Shortcut([string]$Target, [string]$Path) {
+function New-Shortcut([string]$Target, [string]$Path, [string]$Arguments) {
   $shell = New-Object -ComObject WScript.Shell
   $shortcut = $shell.CreateShortcut($Path)
   $shortcut.TargetPath = $Target
+  $shortcut.Arguments = $Arguments
   $shortcut.WorkingDirectory = Split-Path $Target
   $shortcut.Save()
 }
 
-$InstallRoot = Assert-SafeDirectory $InstallRoot "InstallRoot"
 $PayloadRoot = Assert-SafeDirectory $PayloadRoot "PayloadRoot"
 $manifestPath = Join-Path $PayloadRoot "deployment-manifest.json"
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
   throw "Deployment manifest is missing: $manifestPath"
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.schema_version -ne 2) { throw "Unsupported deployment manifest" }
+if ($manifest.schema_version -ne 3) { throw "Unsupported deployment manifest" }
 if ($manifest.backend.format -ne "wsl-tar") {
   throw "Unsupported backend format: $($manifest.backend.format)"
 }
@@ -113,7 +100,35 @@ $profile = [string]$manifest.profile
 if ($profile -notin @("core", "all")) {
   throw "Unsupported deployment profile: '$profile'"
 }
+$installation = $manifest.installation
+if (-not $installation) { throw "Deployment manifest has no installation contract" }
+$releaseToken = [string]$installation.release_token
+$defaultDistribution = [string]$installation.default_distribution
+$installDirectory = [string]$installation.install_directory
+$guiFileName = [string]$installation.gui_filename
+$shortcutName = [string]$installation.shortcut_name
+$deploymentProfileName = [string]$installation.deployment_profile
+foreach ($identifier in @($releaseToken, $defaultDistribution, $installDirectory)) {
+  if ($identifier -notmatch '^[A-Za-z0-9_.-]+$') { throw "Unsafe installation identifier" }
+}
+foreach ($fileName in @($guiFileName, $deploymentProfileName)) {
+  if ([string]::IsNullOrWhiteSpace($fileName) -or [IO.Path]::GetFileName($fileName) -ne $fileName) {
+    throw "Unsafe installation file name: '$fileName'"
+  }
+}
+if ([string]::IsNullOrWhiteSpace($shortcutName) -or $shortcutName.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+  throw "Unsafe shortcut name"
+}
+if ([string]::IsNullOrWhiteSpace($DistributionName)) { $DistributionName = $defaultDistribution }
+if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
+  $InstallRoot = Join-Path $env:LOCALAPPDATA "MaskPipeline\releases\$installDirectory"
+}
 if ($DistributionName -notmatch '^[A-Za-z0-9_.-]+$') { throw "Unsafe distribution name" }
+$InstallRoot = Assert-SafeDirectory $InstallRoot "InstallRoot"
+$installRootExisted = Test-Path -LiteralPath $InstallRoot
+if ($installRootExisted) {
+  throw "Release install directory already exists: $InstallRoot"
+}
 
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
 $logPath = Join-Path $InstallRoot ("deploy-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -179,14 +194,21 @@ try {
   $guiSource = Join-Path $PayloadRoot $manifest.gui.file
   $guiDirectory = Join-Path $InstallRoot "gui"
   New-Item -ItemType Directory -Path $guiDirectory -Force | Out-Null
-  $guiTarget = Join-Path $guiDirectory "Mask Pipeline Studio.exe"
-  if (Test-Path -LiteralPath $guiTarget) {
-    $script:guiBackup = Join-Path $InstallRoot "rollback\Mask Pipeline Studio.exe"
-    New-Item -ItemType Directory -Path (Split-Path $script:guiBackup) -Force | Out-Null
-    Copy-Item -LiteralPath $guiTarget -Destination $script:guiBackup -Force
-  }
+  $guiTarget = Join-Path $guiDirectory $guiFileName
   Copy-Item -LiteralPath $guiSource -Destination $guiTarget -Force
-  $settingsPath = Write-Settings $DistributionName
+  $userDataDirectory = Join-Path $InstallRoot "user-data"
+  $settingsPath = Write-Settings $DistributionName $userDataDirectory
+  $deploymentProfilePath = Join-Path $guiDirectory $deploymentProfileName
+  $deploymentProfile = [ordered]@{
+    schema_version = 1
+    release_id = $manifest.release_id
+    user_data_path = $userDataDirectory
+    backend_root = $BackendRoot
+    runtime_python = $RuntimePython
+    wsl_distribution = $DistributionName
+  }
+  Write-Utf8Json $deploymentProfilePath $deploymentProfile 5
+  $profileArgument = '--deployment-profile="{0}"' -f $deploymentProfilePath
 
   Write-Host "[7/8] Running the Windows GUI to WSL end-to-end smoke test..." -ForegroundColor Cyan
   $fixtureSource = Join-Path $PayloadRoot $manifest.fixture.file
@@ -199,8 +221,8 @@ try {
   $qaReport = Join-Path $qaRoot "gui-e2e.json"
   $qaOutput = Join-Path $qaRoot "output"
   if (-not $SkipE2E) {
-    Get-Process "Mask Pipeline Studio" -ErrorAction SilentlyContinue | Stop-Process -Force
     $arguments = @(
+      $profileArgument,
       "--software-rendering",
       "--qa-e2e-input=$fixtureTarget",
       "--qa-e2e-output=$qaOutput",
@@ -224,8 +246,10 @@ try {
   # must remain per-user even when the launcher is started by an administrator.
   $desktop = [Environment]::GetFolderPath("DesktopDirectory")
   $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-  New-Shortcut $guiTarget (Join-Path $desktop "Mask Pipeline Studio.lnk")
-  New-Shortcut $guiTarget (Join-Path $programs "Mask Pipeline Studio.lnk")
+  $desktopShortcut = Join-Path $desktop "$shortcutName.lnk"
+  $programShortcut = Join-Path $programs "$shortcutName.lnk"
+  New-Shortcut $guiTarget $desktopShortcut $profileArgument
+  New-Shortcut $guiTarget $programShortcut $profileArgument
   $report = [ordered]@{
     schema_version = 1
     status = "passed"
@@ -239,13 +263,19 @@ try {
     profile = $profile
     backend_vhd = $installedVhd
     gui = $guiTarget
+    gui_profile = $deploymentProfilePath
+    gui_user_data = $userDataDirectory
+    desktop_shortcut = $desktopShortcut
+    start_menu_shortcut = $programShortcut
     gui_e2e = if ($SkipE2E) { "skipped" } else { $qaReport }
     gpu = $gpuName
     driver = $driverVersion
   }
   Write-Utf8Json (Join-Path $InstallRoot "deployment-report.json") $report 5
   Write-Host "Deployment passed: $InstallRoot" -ForegroundColor Green
-  if (-not $NoLaunch) { Start-Process -FilePath $guiTarget | Out-Null }
+  if (-not $NoLaunch) {
+    Start-Process -FilePath $guiTarget -ArgumentList @($profileArgument) | Out-Null
+  }
 } catch {
   # With ErrorActionPreference=Stop, Write-Error would itself terminate the
   # catch block and skip rollback. Report without raising, clean up first,
@@ -257,15 +287,15 @@ try {
       & wsl.exe --terminate $DistributionName 2>$null | Out-Null
       & wsl.exe --unregister $DistributionName 2>$null | Out-Null
     }
-    if ($settingsPath) { Restore-Settings $settingsPath }
-    if ($guiBackup -and (Test-Path -LiteralPath $guiBackup)) {
-      Copy-Item -LiteralPath $guiBackup -Destination (Join-Path $InstallRoot "gui\Mask Pipeline Studio.exe") -Force
-    }
     if ($backendDirectory -and (Test-Path -LiteralPath $backendDirectory)) {
       Remove-Item -LiteralPath $backendDirectory -Recurse -Force
     }
+    if (-not $installRootExisted) { $script:removeInstallRootOnFailure = $true }
   }
   throw
 } finally {
   Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+  if ($removeInstallRootOnFailure -and (Test-Path -LiteralPath $InstallRoot)) {
+    Remove-Item -LiteralPath $InstallRoot -Recurse -Force
+  }
 }

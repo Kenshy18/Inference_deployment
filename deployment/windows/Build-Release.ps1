@@ -68,8 +68,14 @@ function Restore-WslInterop([string]$Distribution, [string]$Root) {
   if ($LASTEXITCODE -ne 0) { throw "Could not restore WSLInterop" }
 }
 
+$commit = (& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $commit) { throw "Could not resolve source commit" }
+& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot diff-index --quiet HEAD --
+if ($LASTEXITCODE -eq 1) { throw "Release builds require committed tracked files" }
+if ($LASTEXITCODE -gt 1) { throw "Could not verify the source worktree" }
+
 $releaseStamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$releaseId = "mask-pipeline-$releaseStamp"
+$releaseId = "mask-pipeline-$releaseStamp-$($commit.Substring(0, 8))"
 if (-not $BuildDistribution) { $BuildDistribution = "MaskPipelineBuild-$releaseStamp" }
 if ($BuildDistribution -notmatch '^[A-Za-z0-9_.-]+$') {
   throw "Unsafe build distribution name: $BuildDistribution"
@@ -77,12 +83,6 @@ if ($BuildDistribution -notmatch '^[A-Za-z0-9_.-]+$') {
 if ((Get-Distros) -contains $BuildDistribution) {
   throw "Build distribution already exists: $BuildDistribution"
 }
-
-$commit = (& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or -not $commit) { throw "Could not resolve source commit" }
-& wsl.exe -d $SourceDistribution --cd / -- git -C $RepositoryRoot diff-index --quiet HEAD --
-if ($LASTEXITCODE -eq 1) { throw "Release builds require committed tracked files" }
-if ($LASTEXITCODE -gt 1) { throw "Could not verify the source worktree" }
 
 $workDirectory = Join-Path $WorkRoot $releaseId
 $stageDirectory = Join-Path $workDirectory "stage"
@@ -191,6 +191,9 @@ try {
   if ($manifest.profile -ne $Profile) {
     throw "Release manifest profile does not match build profile $Profile"
   }
+  if ($manifest.schema_version -ne 3 -or -not $manifest.installation.default_distribution) {
+    throw "Release manifest does not contain the side-by-side installation contract"
+  }
   foreach ($artifact in $manifest.artifacts) {
     $path = Join-Path (Join-Path $releaseDirectory "payload") $artifact.file
     $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -198,6 +201,10 @@ try {
   }
 
   Write-Host "[8/8] Recording the candidate release..." -ForegroundColor Cyan
+  $deployerPath = Join-Path $releaseDirectory $manifest.installation.deployer_filename
+  if (-not (Test-Path -LiteralPath $deployerPath -PathType Leaf)) {
+    throw "Versioned deployer was not created: $deployerPath"
+  }
   $report = [ordered]@{
     schema_version = 1
     status = "candidate"
@@ -209,7 +216,8 @@ try {
     profile = $Profile
     build_distribution = $BuildDistribution
     release_directory = $releaseDirectory
-    deployer = (Join-Path $releaseDirectory "MaskPipelineDeployer.exe")
+    deployer = $deployerPath
+    default_distribution = $manifest.installation.default_distribution
     backend_format = "wsl-tar"
     backend_archive_sha256 = (Get-FileHash -LiteralPath $backendArchive -Algorithm SHA256).Hash.ToLowerInvariant()
   }
