@@ -229,10 +229,10 @@ class PostprocessPreviewSink:
         max_fps: float = 5.0,
         control_path: Path | None = None,
     ) -> None:
-        # Preview-only OpenCV operations must not borrow every host core from
-        # tracking/approximation. OpenCV defaults to all 24 cores on the target
-        # workstation, which caused visible desktop stalls for tiny JPEGs.
-        cv2.setNumThreads(2)
+        # Do not call cv2.setNumThreads() here. OpenCV's thread limit is
+        # process-global, not local to this preview worker; changing it here
+        # also throttles NMS, tracking, and face-mask generation. Preview CPU
+        # usage is bounded by the queue and max_fps instead.
         self.path = path.resolve()
         self.video = video.resolve()
         self.width = width

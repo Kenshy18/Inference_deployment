@@ -278,7 +278,10 @@ export class JobManager extends EventEmitter {
       MASK_PIPELINE_PREVIEW_HEIGHT: "540",
       MASK_PIPELINE_PREVIEW_JPEG_QUALITY: "85",
       MASK_PIPELINE_INFERENCE_PREVIEW_FPS: "10",
-      MASK_PIPELINE_POSTPROCESS_PREVIEW_FPS: "10",
+      // Postprocess preview is observational only. Two visual updates per
+      // second keep the monitor responsive without competing with exact mask
+      // geometry work for CPU and video-decoder time.
+      MASK_PIPELINE_POSTPROCESS_PREVIEW_FPS: "2",
       PYTHONUNBUFFERED: "1",
       PYTHONDONTWRITEBYTECODE: "1",
     };

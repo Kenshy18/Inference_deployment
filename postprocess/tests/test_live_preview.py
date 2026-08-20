@@ -72,6 +72,23 @@ def test_postprocess_preview_is_exact_size_and_emits_stage_metadata(
     assert payload["detail"] == "active 1"
 
 
+def test_preview_does_not_change_process_wide_opencv_threads(tmp_path: Path) -> None:
+    video = tmp_path / "source.avi"
+    _video(video)
+    before = cv2.getNumThreads()
+    sink = PostprocessPreviewSink(
+        tmp_path / "preview" / "latest.jpg",
+        video,
+        width=160,
+        height=90,
+        max_fps=2.0,
+    )
+    try:
+        assert cv2.getNumThreads() == before
+    finally:
+        sink.close()
+
+
 def test_preview_queue_coalesces_by_stage(tmp_path: Path) -> None:
     video = tmp_path / "source.avi"
     _video(video)
