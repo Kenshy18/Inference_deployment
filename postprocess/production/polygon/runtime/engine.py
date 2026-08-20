@@ -76,7 +76,7 @@ def assert_runtime_bridge_contract(
         "cuda_prefilter_small_deficit_budget": 0.10,
         "lazy_fallback_min_seconds": 0.5,
         "lazy_fallback_min_exact_edges": 1024,
-        "lazy_fallback_infeasible_ratio": 0.875,
+        "lazy_fallback_infeasible_ratio": 1.0,
         "gc_interval": 8,
         "predictor_device": "cpu",
     }

@@ -295,10 +295,15 @@ ExactMetricCounts exact_metric_counts_from_reference(
       if (start_x >= end_x) {
         continue;
       }
-      const std::uint8_t* row = pred_mask.ptr<std::uint8_t>(local_y);
-      for (int x = start_x - pred_origin_x; x < end_x - pred_origin_x; ++x) {
-        output.intersection += static_cast<std::int64_t>(row[x]);
-      }
+      // OpenCV's countNonZero uses the platform SIMD kernels.  The previous
+      // scalar byte loop dominated exact Recall/IoU evaluation for large
+      // masks even though the reference was already compressed into row
+      // runs.  Counting the identical half-open slice preserves every pixel
+      // decision while vectorizing the hot intersection reduction.
+      output.intersection += static_cast<std::int64_t>(cv::countNonZero(
+          pred_mask.row(local_y).colRange(
+              start_x - pred_origin_x,
+              end_x - pred_origin_x)));
     }
   }
   output.union_area = output.gt_area + output.pred_area - output.intersection;
@@ -312,70 +317,6 @@ ExactMetricCounts exact_metric_counts_from_reference(
       ? static_cast<double>(output.intersection) / output.union_area
       : 1.0;
   return output;
-}
-
-struct ExactMetricValues {
-  double recall = 1.0;
-  double iou = 1.0;
-};
-
-ExactMetricValues exact_metric_values(
-    const std::vector<Polygon>& gt_polygons,
-    const std::vector<Polygon>& pred_polygons) {
-  bool has_valid_polygon = false;
-  float min_x = std::numeric_limits<float>::infinity();
-  float min_y = std::numeric_limits<float>::infinity();
-  float max_x = -std::numeric_limits<float>::infinity();
-  float max_y = -std::numeric_limits<float>::infinity();
-  const auto include_bounds = [&](const std::vector<Polygon>& polygons) {
-    for (const auto& polygon : polygons) {
-      if (polygon.size() < 3) {
-        continue;
-      }
-      has_valid_polygon = true;
-      for (const auto& point : polygon) {
-        if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
-          throw std::invalid_argument("polygon coordinates must be finite");
-        }
-        min_x = std::min(min_x, point.x);
-        min_y = std::min(min_y, point.y);
-        max_x = std::max(max_x, point.x);
-        max_y = std::max(max_y, point.y);
-      }
-    }
-  };
-  include_bounds(gt_polygons);
-  include_bounds(pred_polygons);
-  if (!has_valid_polygon) {
-    return {};
-  }
-  const int min_x_i = static_cast<int>(std::floor(min_x));
-  const int min_y_i = static_cast<int>(std::floor(min_y));
-  const int max_x_i = static_cast<int>(std::ceil(max_x));
-  const int max_y_i = static_cast<int>(std::ceil(max_y));
-  const std::int64_t width64 = static_cast<std::int64_t>(max_x_i) - min_x_i + 1;
-  const std::int64_t height64 = static_cast<std::int64_t>(max_y_i) - min_y_i + 1;
-  if (width64 <= 0 || height64 <= 0 ||
-      width64 > std::numeric_limits<int>::max() ||
-      height64 > std::numeric_limits<int>::max()) {
-    throw std::invalid_argument("polygon bounds produce an invalid raster size");
-  }
-  const cv::Mat gt_mask = rasterize(
-      gt_polygons, static_cast<int>(height64), static_cast<int>(width64),
-      static_cast<float>(min_x_i), static_cast<float>(min_y_i));
-  const cv::Mat pred_mask = rasterize(
-      pred_polygons, static_cast<int>(height64), static_cast<int>(width64),
-      static_cast<float>(min_x_i), static_cast<float>(min_y_i));
-  const std::int64_t gt_area = cv::countNonZero(gt_mask);
-  const std::int64_t pred_area = cv::countNonZero(pred_mask);
-  cv::Mat intersection_mask;
-  cv::bitwise_and(gt_mask, pred_mask, intersection_mask);
-  const std::int64_t intersection = cv::countNonZero(intersection_mask);
-  const std::int64_t union_area = gt_area + pred_area - intersection;
-  return {
-      gt_area > 0 ? static_cast<double>(intersection) / gt_area : 1.0,
-      union_area > 0 ? static_cast<double>(intersection) / union_area : 1.0,
-  };
 }
 
 py::array_t<double> pair_vote_local_metrics_batch(
@@ -415,24 +356,32 @@ py::array_t<double> pair_vote_local_metrics_batch(
   if (start_frame < 0 || end_frame >= static_cast<int>(gt_sequence.size())) {
     throw py::value_error("chosen frame range exceeds GT sequence");
   }
-  std::vector<std::vector<Polygon>> gt_frames;
-  gt_frames.reserve(static_cast<std::size_t>(end_frame - start_frame + 1));
+  std::vector<ExactFrameReference> gt_references;
+  gt_references.reserve(static_cast<std::size_t>(end_frame - start_frame + 1));
   for (int frame = start_frame; frame <= end_frame; ++frame) {
-    gt_frames.push_back(parse_polygons(
-        py::reinterpret_borrow<py::iterable>(gt_sequence[frame])));
+    gt_references.push_back(build_exact_frame_reference(parse_polygons(
+        py::reinterpret_borrow<py::iterable>(gt_sequence[frame]))));
   }
   const float* current_ptr = static_cast<const float*>(current_values.data());
   const float* trial_ptr = static_cast<const float*>(trial_values.data());
   const py::ssize_t trial_count = trial_values.shape(0);
   py::array_t<double> output({trial_count, static_cast<py::ssize_t>(2)});
   double* output_ptr = static_cast<double*>(output.mutable_data());
+  const int thread_count = threads > 0 ? threads : 1;
+  std::vector<ExactRasterScratch> thread_scratch(
+      static_cast<std::size_t>(thread_count));
 
   {
     py::gil_scoped_release release;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) num_threads(threads > 0 ? threads : 1)
+#pragma omp parallel for schedule(static) num_threads(thread_count)
 #endif
     for (py::ssize_t trial_index = 0; trial_index < trial_count; ++trial_index) {
+#ifdef _OPENMP
+      const int thread_index = omp_get_thread_num();
+#else
+      const int thread_index = 0;
+#endif
       double iou_sum = 0.0;
       double minimum_recall = 1.0;
       const float* trial = trial_ptr + static_cast<std::size_t>(trial_index) * vector_size;
@@ -480,10 +429,12 @@ py::array_t<double> pair_vote_local_metrics_batch(
             polygon.emplace_back(x, y);
           }
         }
-        const ExactMetricValues values = exact_metric_values(
-            gt_frames[static_cast<std::size_t>(frame - start_frame)], pred_polygons);
-        iou_sum += values.iou;
-        minimum_recall = std::min(minimum_recall, values.recall);
+        const ExactMetricCounts metrics = exact_metric_counts_from_reference(
+            gt_references[static_cast<std::size_t>(frame - start_frame)],
+            pred_polygons,
+            &thread_scratch[static_cast<std::size_t>(thread_index)]);
+        iou_sum += metrics.iou;
+        minimum_recall = std::min(minimum_recall, metrics.recall);
       }
       output_ptr[trial_index * 2] = iou_sum;
       output_ptr[trial_index * 2 + 1] = minimum_recall;
@@ -521,22 +472,30 @@ py::array_t<double> pair_vote_full_metrics_batch(
   }
   const py::sequence gt_sequence = py::reinterpret_borrow<py::sequence>(gt_values);
   const int frame_count = static_cast<int>(gt_sequence.size());
-  std::vector<std::vector<Polygon>> gt_frames;
-  gt_frames.reserve(static_cast<std::size_t>(frame_count));
+  std::vector<ExactFrameReference> gt_references;
+  gt_references.reserve(static_cast<std::size_t>(frame_count));
   for (int frame = 0; frame < frame_count; ++frame) {
-    gt_frames.push_back(parse_polygons(
-        py::reinterpret_borrow<py::iterable>(gt_sequence[frame])));
+    gt_references.push_back(build_exact_frame_reference(parse_polygons(
+        py::reinterpret_borrow<py::iterable>(gt_sequence[frame]))));
   }
   const float* trial_ptr = static_cast<const float*>(trial_values.data());
   py::array_t<double> output({trial_count, static_cast<py::ssize_t>(2)});
   double* output_ptr = static_cast<double*>(output.mutable_data());
+  const int thread_count = threads > 0 ? threads : 1;
+  std::vector<ExactRasterScratch> thread_scratch(
+      static_cast<std::size_t>(thread_count));
 
   {
     py::gil_scoped_release release;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) num_threads(threads > 0 ? threads : 1)
+#pragma omp parallel for schedule(static) num_threads(thread_count)
 #endif
     for (py::ssize_t trial_index = 0; trial_index < trial_count; ++trial_index) {
+#ifdef _OPENMP
+      const int thread_index = omp_get_thread_num();
+#else
+      const int thread_index = 0;
+#endif
       const float* keys = trial_ptr +
           static_cast<std::size_t>(trial_index) *
               static_cast<std::size_t>(key_count) * vector_size;
@@ -585,10 +544,12 @@ py::array_t<double> pair_vote_full_metrics_batch(
             polygon.emplace_back(x, y);
           }
         }
-        const ExactMetricValues values = exact_metric_values(
-            gt_frames[static_cast<std::size_t>(frame)], pred_polygons);
-        total_iou_loss += 1.0 - values.iou;
-        minimum_recall = std::min(minimum_recall, values.recall);
+        const ExactMetricCounts metrics = exact_metric_counts_from_reference(
+            gt_references[static_cast<std::size_t>(frame)],
+            pred_polygons,
+            &thread_scratch[static_cast<std::size_t>(thread_index)]);
+        total_iou_loss += 1.0 - metrics.iou;
+        minimum_recall = std::min(minimum_recall, metrics.recall);
       }
       output_ptr[trial_index * 2] =
           1.0 - total_iou_loss / static_cast<double>(std::max(frame_count, 1));
@@ -1874,7 +1835,9 @@ class CachedIntervalEvaluator {
       cv::Mat* external_intersection,
       const bool short_circuit_infeasible = false) {
     CachedMetricsTotals totals;
-    std::vector<cv::Point> rounded(static_cast<std::size_t>(anchors_per_contour));
+    std::vector<cv::Point> rounded(
+        static_cast<std::size_t>(contour_count) *
+        static_cast<std::size_t>(anchors_per_contour));
     const int first_index = include_start ? start_index : start_index + 1;
     for (int frame_index = first_index; frame_index <= end_index; ++frame_index) {
       CachedFrameContext& context = contexts_[static_cast<std::size_t>(frame_index)];
@@ -1882,57 +1845,119 @@ class CachedIntervalEvaluator {
       cv::Mat intersection_view;
       cv::Mat* pred_mask_ptr = &context.pred_mask;
       cv::Mat* intersection_mask_ptr = &context.intersection_mask;
-      if (external_pred != nullptr && external_intersection != nullptr) {
-        // Use the max allocation as a contiguous byte arena. An ROI header
-        // would retain max_width as its row stride and measurably slow down
-        // fill/count operations on small contexts.
-        pred_view = cv::Mat(
-            context.gt_mask.rows,
-            context.gt_mask.cols,
-            CV_8UC1,
-            external_pred->data,
-            static_cast<std::size_t>(context.gt_mask.cols));
-        intersection_view = cv::Mat(
-            context.gt_mask.rows,
-            context.gt_mask.cols,
-            CV_8UC1,
-            external_intersection->data,
-            static_cast<std::size_t>(context.gt_mask.cols));
-        pred_mask_ptr = &pred_view;
-        intersection_mask_ptr = &intersection_view;
-      }
-      cv::Mat& pred_mask = *pred_mask_ptr;
-      cv::Mat& intersection_mask = *intersection_mask_ptr;
-      pred_mask.setTo(cv::Scalar(0));
       const float alpha = static_cast<float>(
           static_cast<double>(frame_index - start_index) /
           static_cast<double>(std::max(end_index - start_index, 1)));
       const float beta = 1.0F - alpha;
+      int minimum_x = std::numeric_limits<int>::max();
+      int minimum_y = std::numeric_limits<int>::max();
+      int maximum_x = std::numeric_limits<int>::min();
+      int maximum_y = std::numeric_limits<int>::min();
       for (int contour = 0; contour < contour_count; ++contour) {
         const int base = contour * anchors_per_contour * 2;
         for (int anchor = 0; anchor < anchors_per_contour; ++anchor) {
           const int offset = base + anchor * 2;
           const float mixed_x = beta * start[offset] + alpha * end[offset];
           const float mixed_y = beta * start[offset + 1] + alpha * end[offset + 1];
-          rounded[static_cast<std::size_t>(anchor)] = cv::Point(
+          const cv::Point point(
               static_cast<int>(std::nearbyint(
                   (mixed_x - context.shift_x) * context.scale_factor)),
               static_cast<int>(std::nearbyint(
                   (mixed_y - context.shift_y) * context.scale_factor)));
+          rounded[static_cast<std::size_t>(contour * anchors_per_contour + anchor)] =
+              point;
+          minimum_x = std::min(minimum_x, point.x);
+          minimum_y = std::min(minimum_y, point.y);
+          maximum_x = std::max(maximum_x, point.x);
+          maximum_y = std::max(maximum_y, point.y);
+        }
+      }
+      cv::Rect compact_bounds;
+      if (external_pred != nullptr && external_intersection != nullptr &&
+          minimum_x <= maximum_x && minimum_y <= maximum_y) {
+        const int clipped_minimum_x = std::max(0, minimum_x);
+        const int clipped_minimum_y = std::max(0, minimum_y);
+        const int clipped_maximum_x = std::min(context.gt_mask.cols - 1, maximum_x);
+        const int clipped_maximum_y = std::min(context.gt_mask.rows - 1, maximum_y);
+        if (clipped_minimum_x <= clipped_maximum_x &&
+            clipped_minimum_y <= clipped_maximum_y) {
+          compact_bounds = cv::Rect(
+              clipped_minimum_x,
+              clipped_minimum_y,
+              clipped_maximum_x - clipped_minimum_x + 1,
+              clipped_maximum_y - clipped_minimum_y + 1);
+          // The max-sized thread buffers are byte arenas.  Giving the compact
+          // view its own row stride avoids clearing and scanning empty parts
+          // of a track-wide motion ROI while preserving integer fillPoly
+          // semantics exactly under translation.
+          pred_view = cv::Mat(
+              compact_bounds.height,
+              compact_bounds.width,
+              CV_8UC1,
+              external_pred->data,
+              static_cast<std::size_t>(compact_bounds.width));
+          intersection_view = cv::Mat(
+              compact_bounds.height,
+              compact_bounds.width,
+              CV_8UC1,
+              external_intersection->data,
+              static_cast<std::size_t>(compact_bounds.width));
+          pred_mask_ptr = &pred_view;
+          intersection_mask_ptr = &intersection_view;
+        }
+      }
+      if (external_pred != nullptr && external_intersection != nullptr &&
+          compact_bounds.empty()) {
+        // Keep batch workers on their private storage even when the predicted
+        // polygon is completely outside the cached context.  A one-pixel
+        // clipped view produces the same zero foreground/intersection as the
+        // historical full-context raster without sharing mutable context
+        // buffers across OpenMP workers.
+        compact_bounds = cv::Rect(0, 0, 1, 1);
+        pred_view = cv::Mat(
+            1,
+            1,
+            CV_8UC1,
+            external_pred->data,
+            static_cast<std::size_t>(1));
+        intersection_view = cv::Mat(
+            1,
+            1,
+            CV_8UC1,
+            external_intersection->data,
+            static_cast<std::size_t>(1));
+        pred_mask_ptr = &pred_view;
+        intersection_mask_ptr = &intersection_view;
+      }
+      cv::Mat& pred_mask = *pred_mask_ptr;
+      cv::Mat& intersection_mask = *intersection_mask_ptr;
+      pred_mask.setTo(cv::Scalar(0));
+      for (int contour = 0; contour < contour_count; ++contour) {
+        cv::Point* points = rounded.data() + contour * anchors_per_contour;
+        if (!compact_bounds.empty()) {
+          for (int anchor = 0; anchor < anchors_per_contour; ++anchor) {
+            points[anchor].x -= compact_bounds.x;
+            points[anchor].y -= compact_bounds.y;
+          }
         }
         if (anchors_per_contour >= 3) {
-          const cv::Point* points = rounded.data();
+          const cv::Point* polygon = points;
           const int point_count_local = anchors_per_contour;
           cv::fillPoly(
               pred_mask,
-              &points,
+              &polygon,
               &point_count_local,
               1,
               cv::Scalar(1));
         }
       }
       const std::int64_t pred_area = cv::countNonZero(pred_mask);
-      cv::bitwise_and(context.gt_mask, pred_mask, intersection_mask);
+      if (!compact_bounds.empty()) {
+        cv::bitwise_and(
+            context.gt_mask(compact_bounds), pred_mask, intersection_mask);
+      } else {
+        cv::bitwise_and(context.gt_mask, pred_mask, intersection_mask);
+      }
       const std::int64_t intersection = cv::countNonZero(intersection_mask);
       const std::int64_t union_area = context.gt_area + pred_area - intersection;
       const double recall = context.gt_area > 0

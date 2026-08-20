@@ -105,7 +105,11 @@ class RuntimeConfig:
     cuda_prefilter_small_deficit_budget: float = 0.10
     lazy_fallback_min_seconds: float = 0.5
     lazy_fallback_min_exact_edges: int = 1024
-    lazy_fallback_infeasible_ratio: float = 0.875
+    # Dense CPU fallback is a speed heuristic, not a quality requirement.
+    # At a ratio of 1.0 it remains available only for the degenerate case in
+    # which every exact-tested edge is infeasible; selected paths continue to
+    # receive the same exact Recall validation.
+    lazy_fallback_infeasible_ratio: float = 1.0
     gc_interval: int = 8
     gapfill_max_gap: int = 15
     keyframe_max_gap: int = 30

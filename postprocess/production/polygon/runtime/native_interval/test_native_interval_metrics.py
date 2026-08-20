@@ -584,6 +584,134 @@ def assert_random_exact_recall_batch_parity() -> tuple[int, int]:
     return checked, endpoint_checked
 
 
+def assert_pair_vote_batch_parity() -> tuple[int, int]:
+    """Keep cached-GT pair-vote metrics bit-exact to the Python oracle."""
+    rng = np.random.default_rng(2026082001)
+    frame_count = 18
+    point_count = 14
+    chosen = np.asarray([0, 4, 9, 17], dtype=np.int32)
+    angles = np.linspace(0.0, 2.0 * np.pi, 48, endpoint=False)
+    gt_frames = []
+    for frame in range(frame_count):
+        center = np.asarray(
+            [220.5 + frame * 2.3, 160.5 + np.sin(frame * 0.37) * 17.0],
+            dtype=np.float32,
+        )
+        radius = 42.0 + 8.0 * np.sin(3.0 * angles + frame * 0.21)
+        polygon = np.column_stack(
+            [np.cos(angles) * radius, np.sin(angles) * radius]
+        ).astype(np.float32)
+        polygon += center
+        if frame % 2 == 0:
+            polygon = (np.round(polygon * 2.0) / 2.0).astype(np.float32)
+        gt_frames.append([polygon])
+
+    current = np.empty((len(chosen), point_count, 2), dtype=np.float32)
+    for key_index, frame in enumerate(chosen):
+        source = gt_frames[int(frame)][0]
+        sampled = source[
+            np.linspace(0, len(source) - 1, point_count, dtype=np.int32)
+        ]
+        current[key_index] = sampled
+
+    key_pos = 1
+    trial_vectors = np.repeat(current[key_pos][None, ...], 17, axis=0)
+    trial_vectors += rng.normal(
+        0.0, 1.25, size=trial_vectors.shape
+    ).astype(np.float32)
+    local_actual = np.asarray(
+        native_interval_metrics.pair_vote_local_metrics_batch(
+            gt_frames,
+            chosen,
+            current,
+            key_pos,
+            trial_vectors,
+            1,
+            point_count,
+            8,
+        )
+    )
+    local_expected = []
+    for trial in trial_vectors:
+        iou_sum = 0.0
+        minimum_recall = 1.0
+        for frame in range(int(chosen[key_pos - 1]), int(chosen[key_pos + 1]) + 1):
+            right_pos = int(np.searchsorted(chosen, frame, side="left"))
+            exact_key = right_pos < len(chosen) and int(chosen[right_pos]) == frame
+            left_pos = max(0, right_pos - 1)
+
+            def vector_at(position):
+                return trial if position == key_pos else current[position]
+
+            if exact_key:
+                predicted = vector_at(right_pos)
+            else:
+                alpha64 = (frame - int(chosen[left_pos])) / max(
+                    int(chosen[right_pos]) - int(chosen[left_pos]), 1
+                )
+                alpha = np.float32(alpha64)
+                beta = np.float32(1.0 - alpha64)
+                predicted = beta * vector_at(left_pos) + alpha * vector_at(right_pos)
+            metrics = python_exact_metrics(gt_frames[frame], [predicted])
+            iou_sum += metrics["iou"]
+            minimum_recall = min(minimum_recall, metrics["recall"])
+        local_expected.append((iou_sum, minimum_recall))
+    local_expected = np.asarray(local_expected, dtype=np.float64)
+    if not np.array_equal(local_actual, local_expected):
+        raise AssertionError(
+            "cached-GT local pair-vote changed exact metrics: "
+            f"max_delta={np.max(np.abs(local_actual - local_expected))}"
+        )
+
+    full_trials = np.repeat(current[None, ...], 9, axis=0)
+    full_trials += rng.normal(0.0, 0.9, size=full_trials.shape).astype(np.float32)
+    full_actual = np.asarray(
+        native_interval_metrics.pair_vote_full_metrics_batch(
+            gt_frames,
+            chosen,
+            full_trials,
+            1,
+            point_count,
+            8,
+        )
+    )
+    full_expected = []
+    for keys in full_trials:
+        iou_loss = 0.0
+        minimum_recall = 1.0
+        for frame in range(frame_count):
+            if frame <= int(chosen[0]):
+                left_pos = right_pos = 0
+                exact_key = True
+            elif frame >= int(chosen[-1]):
+                left_pos = right_pos = len(chosen) - 1
+                exact_key = True
+            else:
+                right_pos = int(np.searchsorted(chosen, frame, side="left"))
+                exact_key = int(chosen[right_pos]) == frame
+                left_pos = right_pos if exact_key else max(0, right_pos - 1)
+            if exact_key:
+                predicted = keys[right_pos]
+            else:
+                alpha64 = (frame - int(chosen[left_pos])) / max(
+                    int(chosen[right_pos]) - int(chosen[left_pos]), 1
+                )
+                alpha = np.float32(alpha64)
+                beta = np.float32(1.0 - alpha64)
+                predicted = beta * keys[left_pos] + alpha * keys[right_pos]
+            metrics = python_exact_metrics(gt_frames[frame], [predicted])
+            iou_loss += 1.0 - metrics["iou"]
+            minimum_recall = min(minimum_recall, metrics["recall"])
+        full_expected.append((1.0 - iou_loss / frame_count, minimum_recall))
+    full_expected = np.asarray(full_expected, dtype=np.float64)
+    if not np.array_equal(full_actual, full_expected):
+        raise AssertionError(
+            "cached-GT full pair-vote changed exact metrics: "
+            f"max_delta={np.max(np.abs(full_actual - full_expected))}"
+        )
+    return len(trial_vectors), len(full_trials)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=10_000)
@@ -594,12 +722,15 @@ def main() -> int:
         random_exact_edges,
         cached_endpoint_cases,
     ) = assert_random_exact_recall_batch_parity()
+    pair_vote_local_cases, pair_vote_full_cases = assert_pair_vote_batch_parity()
     result = {
         "implementation": native_interval_metrics.implementation,
         "parity_cases": checked,
         "batch_parity_edges": batch_edges,
         "random_exact_recall_parity_edges": random_exact_edges,
         "cached_endpoint_parity_cases": cached_endpoint_cases,
+        "pair_vote_local_parity_cases": pair_vote_local_cases,
+        "pair_vote_full_parity_cases": pair_vote_full_cases,
         "benchmark": benchmark(args.iterations),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
