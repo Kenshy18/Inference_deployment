@@ -28,6 +28,7 @@ _WIDTH_ENV = "MASK_PIPELINE_PREVIEW_WIDTH"
 _HEIGHT_ENV = "MASK_PIPELINE_PREVIEW_HEIGHT"
 _QUALITY_ENV = "MASK_PIPELINE_PREVIEW_JPEG_QUALITY"
 _FPS_ENV = "MASK_PIPELINE_POSTPROCESS_PREVIEW_FPS"
+_CONTROL_POLL_INTERVAL_SEC = 0.25
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +241,14 @@ class PostprocessPreviewSink:
         self.quality = quality
         self.max_fps = max(0.2, max_fps)
         self.control_path = control_path.resolve() if control_path else None
+        # The GUI control file lives on /mnt/c for WSL deployments. A stat on
+        # drvfs is hundreds of microseconds on a typical deployment machine,
+        # so checking it for every detection/frame materially slows NMS,
+        # tracking, and face-mask generation. The toggle is interactive, not
+        # transactional: a quarter-second cache preserves responsive enable /
+        # disable behavior while keeping the algorithm hot path in memory.
+        self._control_enabled = self.control_path is None
+        self._control_checked_at = float("-inf")
         self._condition = threading.Condition()
         # One newest value per stage.  There is no per-frame or per-track growth.
         self._pending: OrderedDict[
@@ -276,7 +285,13 @@ class PostprocessPreviewSink:
             return None
 
     def enabled(self) -> bool:
-        return self.control_path is None or self.control_path.is_file()
+        if self.control_path is None:
+            return True
+        now = time.monotonic()
+        if now - self._control_checked_at >= _CONTROL_POLL_INTERVAL_SEC:
+            self._control_enabled = self.control_path.is_file()
+            self._control_checked_at = now
+        return self._control_enabled
 
     def should_sample(self, stage: str) -> bool:
         """Cheap gate used before callers materialize geometry."""

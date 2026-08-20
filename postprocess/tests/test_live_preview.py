@@ -89,6 +89,38 @@ def test_preview_does_not_change_process_wide_opencv_threads(tmp_path: Path) -> 
         sink.close()
 
 
+def test_preview_control_file_is_not_polled_on_every_offer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    video = tmp_path / "source.avi"
+    _video(video)
+    control = tmp_path / "enabled"
+    control.write_text("1", encoding="utf-8")
+    calls = 0
+    original_is_file = Path.is_file
+
+    def counting_is_file(path: Path) -> bool:
+        nonlocal calls
+        if path == control:
+            calls += 1
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", counting_is_file)
+    sink = PostprocessPreviewSink(
+        tmp_path / "latest.jpg",
+        video,
+        max_fps=2.0,
+        control_path=control,
+    )
+    try:
+        for _ in range(10_000):
+            sink.should_sample("nms")
+        assert calls == 1
+    finally:
+        sink.close()
+
+
 def test_preview_queue_coalesces_by_stage(tmp_path: Path) -> None:
     video = tmp_path / "source.avi"
     _video(video)
