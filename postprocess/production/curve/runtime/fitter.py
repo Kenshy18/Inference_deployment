@@ -8,6 +8,7 @@ location therefore keeps the same semantic identity throughout a track.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import os
 import time
 
 import numpy as np
@@ -534,7 +535,30 @@ def _repair_scale_path(
     state_count = len(scales)
     local = np.full((frame_count, state_count), np.inf, dtype=np.float64)
     recall_table = np.zeros_like(local)
-    if exact_raster is not None:
+    native_scale_metrics = (
+        exact_raster is not None
+        and os.environ.get("MASK_CURVE_NATIVE_CONTROL_METRICS", "1") != "0"
+        and bool(getattr(exact_raster, "supports_native_catmull", False))
+        and callable(getattr(exact_raster, "catmull_scale_metrics", None))
+    )
+    if native_scale_metrics:
+        metrics = exact_raster.catmull_scale_metrics(
+            controls,
+            scales,
+            samples_per_segment=int(config.samples_per_segment),
+            threads=int(config.native_cpu_threads),
+            check_topology=True,
+        )
+        valid = metrics[:, :, 7] > 0.5
+        counter[0] += int(np.count_nonzero(valid))
+        recall_table[valid] = metrics[:, :, 4][valid]
+        feasible = valid & (
+            metrics[:, :, 4] + 1e-12 >= float(config.recall_floor)
+        )
+        scale_penalties = float(config.scale_size_penalty) * (scales - 1.0) ** 2
+        objective = 1.0 - metrics[:, :, 6] + scale_penalties[None, :]
+        local[feasible] = objective[feasible]
+    elif exact_raster is not None:
         centers = np.mean(controls, axis=1, keepdims=True)
         candidates = centers[:, None, :, :] + scales[None, :, None, None] * (
             controls[:, None, :, :] - centers[:, None, :, :]

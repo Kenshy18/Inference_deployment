@@ -14,6 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .model import sampling_matrix
+
 
 @lru_cache(maxsize=1)
 def native_module():
@@ -161,6 +163,14 @@ class ExactDoubleRasterBatch:
             exact,
             max(0, int(maximum_cache_bytes)),
         )
+        self.supports_native_catmull = all(
+            hasattr(self._evaluator, name)
+            for name in (
+                "catmull_metrics_batch",
+                "catmull_scale_metrics_batch",
+                "catmull_topology_batch",
+            )
+        )
 
     def cache_stats(self) -> dict[str, int]:
         if not hasattr(self._evaluator, "cache_stats"):
@@ -192,6 +202,93 @@ class ExactDoubleRasterBatch:
                 max(1, int(threads)),
             ),
             dtype=np.float64,
+        )
+
+    def catmull_metrics(
+        self,
+        frame_indices: np.ndarray,
+        controls: np.ndarray,
+        *,
+        samples_per_segment: int,
+        threads: int,
+        check_topology: bool = False,
+    ) -> np.ndarray:
+        """Sample Catmull--Rom controls and rasterize wholly in native C++."""
+
+        frames = np.ascontiguousarray(frame_indices, dtype=np.int32)
+        values = np.ascontiguousarray(controls, dtype=np.float64)
+        if values.ndim != 3 or values.shape[2] != 2:
+            raise ValueError("controls must have shape (cases, points, 2)")
+        if len(frames) != len(values):
+            raise ValueError("frame indices and controls must have equal length")
+        matrix = np.ascontiguousarray(
+            sampling_matrix(values.shape[1], int(samples_per_segment)),
+            dtype=np.float64,
+        )
+        return np.asarray(
+            self._evaluator.catmull_metrics_batch(
+                frames,
+                values,
+                matrix,
+                max(1, int(threads)),
+                bool(check_topology),
+            ),
+            dtype=np.float64,
+        )
+
+    def catmull_scale_metrics(
+        self,
+        controls: np.ndarray,
+        scales: np.ndarray,
+        *,
+        samples_per_segment: int,
+        threads: int,
+        check_topology: bool = True,
+    ) -> np.ndarray:
+        """Generate every isotropic scale state and evaluate it in C++."""
+
+        values = np.ascontiguousarray(controls, dtype=np.float64)
+        factors = np.ascontiguousarray(scales, dtype=np.float64)
+        if values.ndim != 3 or values.shape[2] != 2:
+            raise ValueError("controls must have shape (frames, points, 2)")
+        matrix = np.ascontiguousarray(
+            sampling_matrix(values.shape[1], int(samples_per_segment)),
+            dtype=np.float64,
+        )
+        return np.asarray(
+            self._evaluator.catmull_scale_metrics_batch(
+                values,
+                factors,
+                matrix,
+                max(1, int(threads)),
+                bool(check_topology),
+            ),
+            dtype=np.float64,
+        )
+
+    def catmull_topology(
+        self,
+        controls: np.ndarray,
+        *,
+        samples_per_segment: int,
+        threads: int,
+    ) -> np.ndarray:
+        """Check sampled Catmull--Rom topology without materializing curves."""
+
+        values = np.ascontiguousarray(controls, dtype=np.float64)
+        if values.ndim != 3 or values.shape[2] != 2:
+            raise ValueError("controls must have shape (cases, points, 2)")
+        matrix = np.ascontiguousarray(
+            sampling_matrix(values.shape[1], int(samples_per_segment)),
+            dtype=np.float64,
+        )
+        return np.asarray(
+            self._evaluator.catmull_topology_batch(
+                values,
+                matrix,
+                max(1, int(threads)),
+            ),
+            dtype=np.uint8,
         )
 
     def edge_metrics(

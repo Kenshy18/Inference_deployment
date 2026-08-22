@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 
@@ -228,14 +229,30 @@ def _local_scores_group(
         frame_parts.append(np.arange(start, end + 1, dtype=np.int32))
         spans.append(span)
     dense = np.concatenate(dense_parts, axis=0)
-    boundaries = render_control_sequence(renderer, dense)
     frame_indices = np.concatenate(frame_parts, axis=0)
     threads = int(config.native_cpu_threads)
-    metrics = exact_raster.metrics(
-        frame_indices,
-        boundaries,
-        threads=threads,
+    catmull_samples = getattr(renderer, "_catmull_samples_per_segment", None)
+    native_controls = (
+        catmull_samples is not None
+        and os.environ.get("MASK_CURVE_NATIVE_CONTROL_METRICS", "1") != "0"
+        and bool(getattr(exact_raster, "supports_native_catmull", False))
+        and callable(getattr(exact_raster, "catmull_metrics", None))
     )
+    if native_controls:
+        metrics = exact_raster.catmull_metrics(
+            frame_indices,
+            dense,
+            samples_per_segment=int(catmull_samples),
+            threads=threads,
+            check_topology=False,
+        )
+    else:
+        boundaries = render_control_sequence(renderer, dense)
+        metrics = exact_raster.metrics(
+            frame_indices,
+            boundaries,
+            threads=threads,
+        )
     output: list[float | None] = [None] * len(trials)
     promising: list[int] = []
     offsets = np.cumsum(np.asarray((0, *spans), dtype=np.int64))
@@ -254,25 +271,56 @@ def _local_scores_group(
         if minimum is None or score > float(minimum) + _EPSILON:
             promising.append(trial_index)
     if promising:
-        selected_parts = [
-            boundaries[int(offsets[trial_index]) : int(offsets[trial_index + 1])]
-            for trial_index in promising
-        ]
-        topology = ~strict_self_intersection_batch(
-            np.concatenate(selected_parts, axis=0),
-            threads=threads,
-        )
-        topology_offsets = np.cumsum(
-            np.asarray(
-                (0, *(spans[trial_index] for trial_index in promising)),
-                dtype=np.int64,
+        if native_controls and callable(
+            getattr(exact_raster, "catmull_topology", None)
+        ):
+            selected_controls = np.concatenate(
+                [
+                    dense[
+                        int(offsets[trial_index]) : int(offsets[trial_index + 1])
+                    ]
+                    for trial_index in promising
+                ],
+                axis=0,
             )
-        )
-        for position, trial_index in enumerate(promising):
-            first = int(topology_offsets[position])
-            last = int(topology_offsets[position + 1])
-            if np.any(~topology[first:last]):
-                output[trial_index] = None
+            topology = exact_raster.catmull_topology(
+                selected_controls,
+                samples_per_segment=int(catmull_samples),
+                threads=threads,
+            ) > 0
+            topology_offsets = np.cumsum(
+                np.asarray(
+                    (0, *(spans[trial_index] for trial_index in promising)),
+                    dtype=np.int64,
+                )
+            )
+            for position, trial_index in enumerate(promising):
+                first = int(topology_offsets[position])
+                last = int(topology_offsets[position + 1])
+                if np.any(~topology[first:last]):
+                    output[trial_index] = None
+        else:
+            selected_parts = [
+                boundaries[
+                    int(offsets[trial_index]) : int(offsets[trial_index + 1])
+                ]
+                for trial_index in promising
+            ]
+            topology = ~strict_self_intersection_batch(
+                np.concatenate(selected_parts, axis=0),
+                threads=threads,
+            )
+            topology_offsets = np.cumsum(
+                np.asarray(
+                    (0, *(spans[trial_index] for trial_index in promising)),
+                    dtype=np.int64,
+                )
+            )
+            for position, trial_index in enumerate(promising):
+                first = int(topology_offsets[position])
+                last = int(topology_offsets[position + 1])
+                if np.any(~topology[first:last]):
+                    output[trial_index] = None
     return output
 
 

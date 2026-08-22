@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <numeric>
 #include <stdexcept>
 #include <tuple>
@@ -873,6 +874,10 @@ struct DoubleRasterScratch {
   cv::Mat reference;
   cv::Mat prediction;
   cv::Mat intersection;
+  std::vector<std::uint8_t> reference_storage;
+  std::vector<std::uint8_t> prediction_storage;
+  std::vector<std::uint8_t> intersection_storage;
+  RoundedPolygon rounded_storage;
 };
 
 using DoublePolygon = std::vector<cv::Point2d>;
@@ -944,6 +949,61 @@ void rasterize_double_into(
     const std::vector<RoundedPolygon> one_polygon{std::move(local)};
     cv::fillPoly(*mask, one_polygon, cv::Scalar(1));
   }
+}
+
+void rasterize_double_buffered_into(
+    const std::vector<DoublePolygon>& polygons,
+    cv::Mat* mask,
+    std::vector<std::uint8_t>* storage,
+    RoundedPolygon* rounded_storage,
+    const int height,
+    const int width,
+    const int shift_x,
+    const int shift_y) {
+  const std::size_t pixels =
+      static_cast<std::size_t>(height) * static_cast<std::size_t>(width);
+  if (storage->size() < pixels) {
+    storage->resize(pixels);
+  }
+  *mask = cv::Mat(
+      height,
+      width,
+      CV_8UC1,
+      storage->data(),
+      static_cast<std::size_t>(width));
+  mask->setTo(cv::Scalar(0));
+  for (const auto& polygon : polygons) {
+    if (polygon.size() < 3) {
+      continue;
+    }
+    rounded_storage->clear();
+    rounded_storage->reserve(polygon.size());
+    for (const auto& point : polygon) {
+      rounded_storage->emplace_back(
+          static_cast<int>(std::nearbyint(point.x - shift_x)),
+          static_cast<int>(std::nearbyint(point.y - shift_y)));
+    }
+    const cv::Point* points = rounded_storage->data();
+    const int point_count = static_cast<int>(rounded_storage->size());
+    cv::fillPoly(*mask, &points, &point_count, 1, cv::Scalar(1));
+  }
+}
+
+cv::Mat buffered_mask(
+    std::vector<std::uint8_t>* storage,
+    const int height,
+    const int width) {
+  const std::size_t pixels =
+      static_cast<std::size_t>(height) * static_cast<std::size_t>(width);
+  if (storage->size() < pixels) {
+    storage->resize(pixels);
+  }
+  return cv::Mat(
+      height,
+      width,
+      CV_8UC1,
+      storage->data(),
+      static_cast<std::size_t>(width));
 }
 
 DoubleFrameReference build_double_frame_reference(
@@ -1116,20 +1176,28 @@ ExactMetricCounts double_metric_counts(
       height64 > std::numeric_limits<int>::max()) {
     throw std::invalid_argument("double polygon bounds produce an invalid raster size");
   }
-  rasterize_double_into(
+  rasterize_double_buffered_into(
       reference,
       &scratch->reference,
+      &scratch->reference_storage,
+      &scratch->rounded_storage,
       static_cast<int>(height64),
       static_cast<int>(width64),
       shift_x,
       shift_y);
-  rasterize_double_into(
+  rasterize_double_buffered_into(
       predicted,
       &scratch->prediction,
+      &scratch->prediction_storage,
+      &scratch->rounded_storage,
       static_cast<int>(height64),
       static_cast<int>(width64),
       shift_x,
       shift_y);
+  scratch->intersection = buffered_mask(
+      &scratch->intersection_storage,
+      static_cast<int>(height64),
+      static_cast<int>(width64));
   cv::bitwise_and(
       scratch->reference,
       scratch->prediction,
@@ -1217,9 +1285,11 @@ ExactMetricCounts cached_double_metric_counts(
   }
   const int pred_width = static_cast<int>(pred_width64);
   const int pred_height = static_cast<int>(pred_height64);
-  rasterize_double_into(
+  rasterize_double_buffered_into(
       predicted,
       &scratch->prediction,
+      &scratch->prediction_storage,
+      &scratch->rounded_storage,
       pred_height,
       pred_width,
       pred_origin_x,
@@ -1251,6 +1321,10 @@ ExactMetricCounts cached_double_metric_counts(
             start_y - pred_origin_y,
             end_x - start_x,
             end_y - start_y);
+        scratch->intersection = buffered_mask(
+            &scratch->intersection_storage,
+            end_y - start_y,
+            end_x - start_x);
         cv::bitwise_and(
             variant.bitmap(reference_roi),
             scratch->prediction(prediction_roi),
@@ -1440,12 +1514,11 @@ class ExactDoubleRasterEvaluator {
     const std::size_t values_per_case =
         static_cast<std::size_t>(expected_points) * 2U;
     const int thread_count = std::max(1, requested_threads);
-    std::vector<DoubleRasterScratch> scratches(
-        static_cast<std::size_t>(thread_count));
-    std::vector<std::vector<DoublePolygon>> predictions(
-        static_cast<std::size_t>(thread_count),
-        std::vector<DoublePolygon>(static_cast<std::size_t>(contour_count)));
-    for (auto& predicted : predictions) {
+    std::lock_guard<std::mutex> cache_lock(metrics_cache_mutex_);
+    metrics_scratches_.resize(static_cast<std::size_t>(thread_count));
+    metrics_predictions_.resize(static_cast<std::size_t>(thread_count));
+    for (auto& predicted : metrics_predictions_) {
+      predicted.resize(static_cast<std::size_t>(contour_count));
       for (auto& polygon : predicted) {
         polygon.resize(static_cast<std::size_t>(anchors_per_contour));
       }
@@ -1463,7 +1536,8 @@ class ExactDoubleRasterEvaluator {
 #endif
         const double* values = input +
             static_cast<std::size_t>(case_index) * values_per_case;
-        auto& predicted = predictions[static_cast<std::size_t>(thread_index)];
+        auto& predicted =
+            metrics_predictions_[static_cast<std::size_t>(thread_index)];
         for (int contour = 0; contour < contour_count; ++contour) {
           auto& polygon = predicted[static_cast<std::size_t>(contour)];
           const int base = contour * anchors_per_contour * 2;
@@ -1477,7 +1551,7 @@ class ExactDoubleRasterEvaluator {
         const ExactMetricCounts metrics = cached_double_metric_counts(
             references_[static_cast<std::size_t>(frame_view(case_index))],
             predicted,
-            &scratches[static_cast<std::size_t>(thread_index)]);
+            &metrics_scratches_[static_cast<std::size_t>(thread_index)]);
         output_view(case_index, 0) = static_cast<double>(metrics.gt_area);
         output_view(case_index, 1) = static_cast<double>(metrics.pred_area);
         output_view(case_index, 2) = static_cast<double>(metrics.intersection);
@@ -1485,6 +1559,318 @@ class ExactDoubleRasterEvaluator {
         output_view(case_index, 4) = metrics.recall;
         output_view(case_index, 5) = metrics.precision;
         output_view(case_index, 6) = metrics.iou;
+      }
+    }
+    return output;
+  }
+
+  py::array_t<double> catmull_metrics_batch(
+      const py::array_t<
+          std::int32_t,
+          py::array::c_style | py::array::forcecast>& frame_indices,
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& controls,
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& sampling_matrix,
+      const int requested_threads,
+      const bool check_topology) const {
+    if (frame_indices.ndim() != 1) {
+      throw py::value_error("frame_indices must have shape (N,)");
+    }
+    if (controls.ndim() != 3 || controls.shape(2) != 2 ||
+        controls.shape(0) != frame_indices.shape(0)) {
+      throw py::value_error("controls must have shape (N, control_points, 2)");
+    }
+    if (sampling_matrix.ndim() != 2 ||
+        sampling_matrix.shape(1) != controls.shape(1)) {
+      throw py::value_error(
+          "sampling_matrix must have shape (boundary_points, control_points)");
+    }
+    const py::ssize_t case_count = frame_indices.shape(0);
+    const int control_count = static_cast<int>(controls.shape(1));
+    const int boundary_count = static_cast<int>(sampling_matrix.shape(0));
+    if (control_count < 3 || boundary_count < 3) {
+      throw py::value_error("Catmull-Rom batches require at least three points");
+    }
+    const auto frame_view = frame_indices.unchecked<1>();
+    for (py::ssize_t index = 0; index < case_count; ++index) {
+      if (frame_view(index) < 0 ||
+          frame_view(index) >= static_cast<int>(references_.size())) {
+        throw py::value_error("frame index is outside the evaluator sequence");
+      }
+    }
+    py::array_t<double> output({case_count, static_cast<py::ssize_t>(8)});
+    auto output_view = output.mutable_unchecked<2>();
+    const double* input = controls.data();
+    const double* weights = sampling_matrix.data();
+    const std::size_t control_values =
+        static_cast<std::size_t>(control_count) * 2U;
+    const int thread_count = std::max(1, requested_threads);
+    std::lock_guard<std::mutex> cache_lock(catmull_cache_mutex_);
+    catmull_scratches_.resize(static_cast<std::size_t>(thread_count));
+    catmull_predictions_.resize(static_cast<std::size_t>(thread_count));
+    catmull_topology_values_.resize(static_cast<std::size_t>(thread_count));
+    for (int thread = 0; thread < thread_count; ++thread) {
+      catmull_predictions_[static_cast<std::size_t>(thread)].resize(1);
+      catmull_predictions_[static_cast<std::size_t>(thread)][0].resize(
+          static_cast<std::size_t>(boundary_count));
+      catmull_topology_values_[static_cast<std::size_t>(thread)].resize(
+          static_cast<std::size_t>(boundary_count) * 2U);
+    }
+    {
+      py::gil_scoped_release release;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(thread_count)
+#endif
+      for (py::ssize_t case_index = 0; case_index < case_count; ++case_index) {
+#ifdef _OPENMP
+        const int thread_index = omp_get_thread_num();
+#else
+        const int thread_index = 0;
+#endif
+        const double* control = input +
+            static_cast<std::size_t>(case_index) * control_values;
+        auto& polygon =
+            catmull_predictions_[static_cast<std::size_t>(thread_index)][0];
+        auto& flat =
+            catmull_topology_values_[static_cast<std::size_t>(thread_index)];
+        for (int boundary = 0; boundary < boundary_count; ++boundary) {
+          const double* row = weights +
+              static_cast<std::size_t>(boundary) * control_count;
+          double x = 0.0;
+          double y = 0.0;
+          for (int point = 0; point < control_count; ++point) {
+            const double weight = row[point];
+            x += weight * control[static_cast<std::size_t>(point) * 2U];
+            y += weight * control[static_cast<std::size_t>(point) * 2U + 1U];
+          }
+          polygon[static_cast<std::size_t>(boundary)] = cv::Point2d(x, y);
+          flat[static_cast<std::size_t>(boundary) * 2U] = x;
+          flat[static_cast<std::size_t>(boundary) * 2U + 1U] = y;
+        }
+        const ExactMetricCounts metrics = cached_double_metric_counts(
+            references_[static_cast<std::size_t>(frame_view(case_index))],
+            catmull_predictions_[static_cast<std::size_t>(thread_index)],
+            &catmull_scratches_[static_cast<std::size_t>(thread_index)]);
+        output_view(case_index, 0) = static_cast<double>(metrics.gt_area);
+        output_view(case_index, 1) = static_cast<double>(metrics.pred_area);
+        output_view(case_index, 2) = static_cast<double>(metrics.intersection);
+        output_view(case_index, 3) = static_cast<double>(metrics.union_area);
+        output_view(case_index, 4) = metrics.recall;
+        output_view(case_index, 5) = metrics.precision;
+        output_view(case_index, 6) = metrics.iou;
+        output_view(case_index, 7) =
+            check_topology && has_strict_self_intersection_impl(
+                flat.data(), static_cast<std::size_t>(boundary_count))
+            ? 0.0
+            : 1.0;
+      }
+    }
+    return output;
+  }
+
+  py::array_t<std::uint8_t> catmull_topology_batch(
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& controls,
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& sampling_matrix,
+      const int requested_threads) const {
+    if (controls.ndim() != 3 || controls.shape(2) != 2) {
+      throw py::value_error("controls must have shape (N, control_points, 2)");
+    }
+    if (sampling_matrix.ndim() != 2 ||
+        sampling_matrix.shape(1) != controls.shape(1)) {
+      throw py::value_error(
+          "sampling_matrix must have shape (boundary_points, control_points)");
+    }
+    const py::ssize_t case_count = controls.shape(0);
+    const int control_count = static_cast<int>(controls.shape(1));
+    const int boundary_count = static_cast<int>(sampling_matrix.shape(0));
+    py::array_t<std::uint8_t> output(case_count);
+    std::uint8_t* output_values = output.mutable_data();
+    const double* input = controls.data();
+    const double* weights = sampling_matrix.data();
+    const std::size_t control_values =
+        static_cast<std::size_t>(control_count) * 2U;
+    const int thread_count = std::max(1, requested_threads);
+    std::lock_guard<std::mutex> cache_lock(catmull_cache_mutex_);
+    catmull_topology_values_.resize(static_cast<std::size_t>(thread_count));
+    for (int thread = 0; thread < thread_count; ++thread) {
+      catmull_topology_values_[static_cast<std::size_t>(thread)].resize(
+          static_cast<std::size_t>(boundary_count) * 2U);
+    }
+    {
+      py::gil_scoped_release release;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(thread_count)
+#endif
+      for (py::ssize_t case_index = 0; case_index < case_count; ++case_index) {
+#ifdef _OPENMP
+        const int thread_index = omp_get_thread_num();
+#else
+        const int thread_index = 0;
+#endif
+        const double* control = input +
+            static_cast<std::size_t>(case_index) * control_values;
+        auto& flat =
+            catmull_topology_values_[static_cast<std::size_t>(thread_index)];
+        for (int boundary = 0; boundary < boundary_count; ++boundary) {
+          const double* row = weights +
+              static_cast<std::size_t>(boundary) * control_count;
+          double x = 0.0;
+          double y = 0.0;
+          for (int point = 0; point < control_count; ++point) {
+            const double weight = row[point];
+            x += weight * control[static_cast<std::size_t>(point) * 2U];
+            y += weight * control[static_cast<std::size_t>(point) * 2U + 1U];
+          }
+          flat[static_cast<std::size_t>(boundary) * 2U] = x;
+          flat[static_cast<std::size_t>(boundary) * 2U + 1U] = y;
+        }
+        output_values[case_index] = has_strict_self_intersection_impl(
+            flat.data(), static_cast<std::size_t>(boundary_count))
+            ? 0U
+            : 1U;
+      }
+    }
+    return output;
+  }
+
+  py::array_t<double> catmull_scale_metrics_batch(
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& controls,
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& scales,
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& sampling_matrix,
+      const int requested_threads,
+      const bool check_topology) const {
+    if (controls.ndim() != 3 || controls.shape(2) != 2) {
+      throw py::value_error("controls must have shape (frames, control_points, 2)");
+    }
+    if (scales.ndim() != 1 || scales.shape(0) <= 0) {
+      throw py::value_error("scales must have shape (states,)");
+    }
+    if (sampling_matrix.ndim() != 2 ||
+        sampling_matrix.shape(1) != controls.shape(1)) {
+      throw py::value_error(
+          "sampling_matrix must have shape (boundary_points, control_points)");
+    }
+    const int frame_count = static_cast<int>(controls.shape(0));
+    const int control_count = static_cast<int>(controls.shape(1));
+    const int state_count = static_cast<int>(scales.shape(0));
+    const int boundary_count = static_cast<int>(sampling_matrix.shape(0));
+    if (frame_count != static_cast<int>(references_.size()) ||
+        control_count < 3 || boundary_count < 3) {
+      throw py::value_error("Catmull-Rom scale dimensions do not match references");
+    }
+    py::array_t<double> output({
+        static_cast<py::ssize_t>(frame_count),
+        static_cast<py::ssize_t>(state_count),
+        static_cast<py::ssize_t>(8)});
+    auto output_view = output.mutable_unchecked<3>();
+    const double* input = controls.data();
+    const double* scale_values = scales.data();
+    const double* weights = sampling_matrix.data();
+    const std::size_t control_values =
+        static_cast<std::size_t>(control_count) * 2U;
+    const int case_count = frame_count * state_count;
+    const int thread_count = std::max(1, requested_threads);
+    std::vector<double> centers(static_cast<std::size_t>(frame_count) * 2U, 0.0);
+    for (int frame = 0; frame < frame_count; ++frame) {
+      const double* control = input +
+          static_cast<std::size_t>(frame) * control_values;
+      for (int point = 0; point < control_count; ++point) {
+        centers[static_cast<std::size_t>(frame) * 2U] +=
+            control[static_cast<std::size_t>(point) * 2U];
+        centers[static_cast<std::size_t>(frame) * 2U + 1U] +=
+            control[static_cast<std::size_t>(point) * 2U + 1U];
+      }
+      centers[static_cast<std::size_t>(frame) * 2U] /=
+          static_cast<double>(control_count);
+      centers[static_cast<std::size_t>(frame) * 2U + 1U] /=
+          static_cast<double>(control_count);
+    }
+    std::lock_guard<std::mutex> cache_lock(catmull_cache_mutex_);
+    catmull_scratches_.resize(static_cast<std::size_t>(thread_count));
+    catmull_predictions_.resize(static_cast<std::size_t>(thread_count));
+    catmull_topology_values_.resize(static_cast<std::size_t>(thread_count));
+    catmull_scaled_controls_.resize(static_cast<std::size_t>(thread_count));
+    for (int thread = 0; thread < thread_count; ++thread) {
+      catmull_predictions_[static_cast<std::size_t>(thread)].resize(1);
+      catmull_predictions_[static_cast<std::size_t>(thread)][0].resize(
+          static_cast<std::size_t>(boundary_count));
+      catmull_topology_values_[static_cast<std::size_t>(thread)].resize(
+          static_cast<std::size_t>(boundary_count) * 2U);
+      catmull_scaled_controls_[static_cast<std::size_t>(thread)].resize(
+          control_values);
+    }
+    {
+      py::gil_scoped_release release;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(thread_count)
+#endif
+      for (int case_index = 0; case_index < case_count; ++case_index) {
+#ifdef _OPENMP
+        const int thread_index = omp_get_thread_num();
+#else
+        const int thread_index = 0;
+#endif
+        const int frame = case_index / state_count;
+        const int state = case_index % state_count;
+        const double* control = input +
+            static_cast<std::size_t>(frame) * control_values;
+        const double center_x = centers[static_cast<std::size_t>(frame) * 2U];
+        const double center_y = centers[static_cast<std::size_t>(frame) * 2U + 1U];
+        const double scale = scale_values[state];
+        auto& scaled =
+            catmull_scaled_controls_[static_cast<std::size_t>(thread_index)];
+        for (int point = 0; point < control_count; ++point) {
+          scaled[static_cast<std::size_t>(point) * 2U] = center_x + scale *
+              (control[static_cast<std::size_t>(point) * 2U] - center_x);
+          scaled[static_cast<std::size_t>(point) * 2U + 1U] = center_y + scale *
+              (control[static_cast<std::size_t>(point) * 2U + 1U] - center_y);
+        }
+        auto& polygon =
+            catmull_predictions_[static_cast<std::size_t>(thread_index)][0];
+        auto& flat =
+            catmull_topology_values_[static_cast<std::size_t>(thread_index)];
+        for (int boundary = 0; boundary < boundary_count; ++boundary) {
+          const double* row = weights +
+              static_cast<std::size_t>(boundary) * control_count;
+          double x = 0.0;
+          double y = 0.0;
+          for (int point = 0; point < control_count; ++point) {
+            x += row[point] * scaled[static_cast<std::size_t>(point) * 2U];
+            y += row[point] * scaled[static_cast<std::size_t>(point) * 2U + 1U];
+          }
+          polygon[static_cast<std::size_t>(boundary)] = cv::Point2d(x, y);
+          flat[static_cast<std::size_t>(boundary) * 2U] = x;
+          flat[static_cast<std::size_t>(boundary) * 2U + 1U] = y;
+        }
+        const ExactMetricCounts metrics = cached_double_metric_counts(
+            references_[static_cast<std::size_t>(frame)],
+            catmull_predictions_[static_cast<std::size_t>(thread_index)],
+            &catmull_scratches_[static_cast<std::size_t>(thread_index)]);
+        output_view(frame, state, 0) = static_cast<double>(metrics.gt_area);
+        output_view(frame, state, 1) = static_cast<double>(metrics.pred_area);
+        output_view(frame, state, 2) = static_cast<double>(metrics.intersection);
+        output_view(frame, state, 3) = static_cast<double>(metrics.union_area);
+        output_view(frame, state, 4) = metrics.recall;
+        output_view(frame, state, 5) = metrics.precision;
+        output_view(frame, state, 6) = metrics.iou;
+        output_view(frame, state, 7) =
+            check_topology && has_strict_self_intersection_impl(
+                flat.data(), static_cast<std::size_t>(boundary_count))
+            ? 0.0
+            : 1.0;
       }
     }
     return output;
@@ -1702,6 +2088,14 @@ class ExactDoubleRasterEvaluator {
 
  private:
   std::vector<DoubleFrameReference> references_;
+  mutable std::mutex metrics_cache_mutex_;
+  mutable std::vector<DoubleRasterScratch> metrics_scratches_;
+  mutable std::vector<std::vector<DoublePolygon>> metrics_predictions_;
+  mutable std::mutex catmull_cache_mutex_;
+  mutable std::vector<DoubleRasterScratch> catmull_scratches_;
+  mutable std::vector<std::vector<DoublePolygon>> catmull_predictions_;
+  mutable std::vector<std::vector<double>> catmull_topology_values_;
+  mutable std::vector<std::vector<double>> catmull_scaled_controls_;
   std::size_t cached_reference_frames_ = 0U;
   std::size_t run_cached_reference_frames_ = 0U;
   std::size_t bitmap_cached_reference_frames_ = 0U;
@@ -3039,6 +3433,28 @@ PYBIND11_MODULE(native_interval_metrics, module) {
           py::arg("vectors"),
           py::arg("contour_count"),
           py::arg("anchors_per_contour"),
+          py::arg("threads") = 1)
+      .def(
+          "catmull_metrics_batch",
+          &ExactDoubleRasterEvaluator::catmull_metrics_batch,
+          py::arg("frame_indices"),
+          py::arg("controls"),
+          py::arg("sampling_matrix"),
+          py::arg("threads") = 1,
+          py::arg("check_topology") = false)
+      .def(
+          "catmull_scale_metrics_batch",
+          &ExactDoubleRasterEvaluator::catmull_scale_metrics_batch,
+          py::arg("controls"),
+          py::arg("scales"),
+          py::arg("sampling_matrix"),
+          py::arg("threads") = 1,
+          py::arg("check_topology") = true)
+      .def(
+          "catmull_topology_batch",
+          &ExactDoubleRasterEvaluator::catmull_topology_batch,
+          py::arg("controls"),
+          py::arg("sampling_matrix"),
           py::arg("threads") = 1)
       .def(
           "edge_metrics_batch",

@@ -98,6 +98,34 @@ by concurrent host CPU load and is not used as a speed regression verdict.
 
 ## Regression evidence
 
+### Exact native Catmull--Rom evaluation fusion
+
+The initial-fit scale lattice and point-refinement batches now accept
+Catmull--Rom interpolation points directly.  Sampling, OpenCV-compatible
+rasterization, and metric reduction execute in the existing C++ extension;
+Python no longer materializes the much larger boundary tensor for these hot
+paths.  Candidate counts, scale states, coordinate trials, Recall gates, and
+selection order are unchanged.  Reusable native raster buffers also remove
+per-candidate image allocation.
+
+On the fixed 300-frame, 16-point track at target interval 3, three alternating
+runs produced the following medians:
+
+| Path | Engine seconds | Engine FPS | Fit seconds | Point-refine seconds | Max RSS KiB |
+|---|---:|---:|---:|---:|---:|
+| Materialized-boundary CPU | 2.6828 | 111.82 | 0.9711 | 0.7273 | 315,672 |
+| Fused-control C++ CPU | 2.4621 | 121.85 | 0.8580 | 0.6176 | 257,592 |
+
+This is about 9.0% higher end-to-end engine throughput and 18.4% lower peak
+RSS.  Both `keyframes.sqlite` and `predictions.sqlite` were byte-identical.
+All 56,492 initial-fit evaluations and 12,672 point-refinement trials were
+retained.
+
+The exact CUDA paths remained slower for this small, repeatedly launched
+workload: the hybrid path measured 95.36 FPS and the all-CUDA path 39.04 FPS.
+Both were also byte-identical, but launch/transfer overhead makes C++ CPU
+fusion the selected default.
+
 - Production curve tests: 32 passed.
 - Changed GUI selector/configuration tests: 23 passed; TypeScript typecheck
   passed.

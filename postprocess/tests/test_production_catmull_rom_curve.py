@@ -41,6 +41,7 @@ from production.curve.runtime.model import (
     evaluate_cubic,
     normalize_control_points,
     sample_closed_curve,
+    sample_curve_sequence,
 )
 from production.curve.runtime.multistate_dp import (
     CurvePointRefineConfig,
@@ -555,6 +556,64 @@ def test_sampling_has_no_duplicated_terminal_point() -> None:
     assert sampled.shape == (28, 2)
     np.testing.assert_allclose(sampled[::7], points, atol=1e-12)
     assert not np.allclose(sampled[0], sampled[-1])
+
+
+def test_native_catmull_control_batches_match_materialized_boundaries() -> None:
+    angles = np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
+    controls = np.asarray(
+        [
+            np.column_stack(
+                (
+                    90.0 + frame + (28.0 + 2.0 * np.sin(3.0 * angles)) * np.cos(angles),
+                    70.0 + (22.0 + 1.5 * np.cos(2.0 * angles)) * np.sin(angles),
+                )
+            )
+            for frame in range(6)
+        ],
+        dtype=np.float64,
+    )
+    references = list(sample_curve_sequence(controls, 16))
+    raster = ExactDoubleRasterBatch(references)
+    frames = np.arange(len(controls), dtype=np.int32)
+    materialized = raster.metrics(
+        frames,
+        sample_curve_sequence(controls, 16),
+        threads=2,
+    )
+    fused = raster.catmull_metrics(
+        frames,
+        controls,
+        samples_per_segment=16,
+        threads=2,
+        check_topology=True,
+    )
+    np.testing.assert_array_equal(materialized, fused[:, :7])
+    np.testing.assert_array_equal(fused[:, 7], np.ones(len(controls)))
+
+    scales = np.asarray((1.0, 1.012, 1.04, 1.08), dtype=np.float64)
+    centers = np.mean(controls, axis=1, keepdims=True)
+    scale_controls = (
+        centers[:, None]
+        + scales[None, :, None, None] * (controls[:, None] - centers[:, None])
+    )
+    scale_boundaries = sample_curve_sequence(
+        scale_controls.reshape(-1, controls.shape[1], 2),
+        16,
+    )
+    expected = raster.metrics(
+        np.repeat(frames, len(scales)),
+        scale_boundaries,
+        threads=2,
+    ).reshape(len(controls), len(scales), 7)
+    actual = raster.catmull_scale_metrics(
+        controls,
+        scales,
+        samples_per_segment=16,
+        threads=2,
+        check_topology=True,
+    )
+    np.testing.assert_array_equal(expected, actual[:, :, :7])
+    np.testing.assert_array_equal(actual[:, :, 7], np.ones(actual.shape[:2]))
 
 
 def test_linear_basis_exactly_matches_fixed_handle_curve() -> None:
