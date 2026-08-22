@@ -11,9 +11,11 @@ schema:
 - `catmull_rom` uses a closed uniform Catmull--Rom spline with tension 1.0.
   The editable points are interpolation points `P`; cubic Bezier handles are
   always derived from adjacent points with the fixed `1/6` conversion factor.
-  Fitting, DP, pair-vote and final validation are CPU-only, so curve
-  post-processing does not compete with GPU inference. Its import/runtime
-  path also avoids loading Torch, CuPy, and ONNX Runtime.
+  The deployed default remains the exact CPU evaluator, so curve
+  post-processing does not compete with GPU inference. A separately gated
+  OpenCV-compatible CUDA evaluator is available for polygon, ellipse, and
+  Catmull--Rom Recall/IoU validation; it is loaded only when explicitly
+  selected and does not change raster semantics.
 
 Select the mode with `--mask-geometry polygon|catmull_rom`, or with the GUI
 mask-shape selector.  The default remains `polygon` for compatibility.
@@ -38,8 +40,9 @@ The shared promoted input contract is:
 - Polygon interval screening uses CUDA by default. Every selected polygon
   edge and every final polygon mask is then audited with the native exact
   evaluator, so the Recall floor and topology gates remain exact. The curve
-  engine evaluates the complete graph with the exact CPU evaluator and never
-  initializes CUDA.
+  engine uses exact CPU evaluation by default. Validation runs may select the
+  pixel-identical CUDA or exact hybrid backend with
+  `MASK_CURVE_EXACT_RASTER_BACKEND`; the backend is recorded in the manifest.
 - Polygon routes run as three concurrent class threads.  Catmull--Rom routes
   use deterministic, cost-balanced process shards (two shards per class and
   at most six workers by default), because the exact CPU path also contains

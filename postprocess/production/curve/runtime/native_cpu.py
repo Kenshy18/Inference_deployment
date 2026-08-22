@@ -7,6 +7,7 @@ polygon path.  This module never imports or initializes CUDA.
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -224,8 +225,48 @@ class ExactDoubleRasterBatch:
         )
 
 
+def create_exact_raster_batch(
+    references: list[np.ndarray],
+    *,
+    maximum_cache_bytes: int = 256 * 1024 * 1024,
+    maximum_batch_cases: int = 4096,
+):
+    """Create the selected exact backend without changing metric semantics.
+
+    ``MASK_CURVE_EXACT_RASTER_BACKEND=cuda`` enables all pixel-identical CUDA
+    evaluators. ``cuda_hybrid`` uses CUDA for the large interval graph and the
+    exact CPU implementation for small refinement batches, where launch and
+    transfer overhead dominate. CPU remains the default until full-corpus and
+    deployment-contention gates have passed.
+    """
+
+    backend = os.environ.get("MASK_CURVE_EXACT_RASTER_BACKEND", "cpu").strip().lower()
+    if backend in {"cuda", "cuda_hybrid"}:
+        from production.raster.cuda_exact import CudaProductionRasterBatch
+
+        fallback = ExactDoubleRasterBatch(
+            references,
+            maximum_cache_bytes=max(0, int(maximum_cache_bytes)),
+        )
+        return CudaProductionRasterBatch(
+            references,
+            maximum_batch_cases=max(1, int(maximum_batch_cases)),
+            frame_evaluator=fallback if backend == "cuda_hybrid" else None,
+            edge_fallback=fallback,
+        )
+    if backend != "cpu":
+        raise ValueError(
+            "MASK_CURVE_EXACT_RASTER_BACKEND must be " "'cpu', 'cuda', or 'cuda_hybrid'"
+        )
+    return ExactDoubleRasterBatch(
+        references,
+        maximum_cache_bytes=max(0, int(maximum_cache_bytes)),
+    )
+
+
 __all__ = (
     "ExactDoubleRasterBatch",
     "ExactRasterBatch",
+    "create_exact_raster_batch",
     "native_module",
 )

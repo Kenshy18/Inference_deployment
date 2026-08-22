@@ -131,6 +131,7 @@ def _fit_config(
         scale_maximum=float(config.spatial_scale_maximum),
         scale_step=float(config.spatial_scale_step),
         native_cpu_threads=int(config.native_cpu_threads),
+        native_batch_cases=int(config.native_batch_cases),
         native_reference_cache_bytes=int(config.native_reference_cache_bytes),
     )
 
@@ -188,10 +189,9 @@ def _independent_local_refits(
         best_controls: np.ndarray | None = None
         best_score: tuple[float, float, float] | None = None
         best_alpha = 0.0
-        if (
-            baseline_recall + 1e-12 >= float(config.recall_floor)
-            and not has_strict_self_intersection(baseline_boundary)
-        ):
+        if baseline_recall + 1e-12 >= float(
+            config.recall_floor
+        ) and not has_strict_self_intersection(baseline_boundary):
             best_controls = baseline.copy()
             best_score = (
                 float(baseline_iou),
@@ -290,8 +290,7 @@ def _repair_if_needed(
             np.logical_or.reduce(
                 (
                     repaired_audit.recall + 1e-12 < float(config.recall_floor),
-                    repaired_audit.iou + 1e-12
-                    < float(config.quality_rescue_iou_floor),
+                    repaired_audit.iou + 1e-12 < float(config.quality_rescue_iou_floor),
                     repaired_audit.area_ratio
                     > float(config.quality_rescue_area_ratio_cap) + 1e-12,
                 )
@@ -437,9 +436,7 @@ class _Audit:
         iou = np.asarray(component_audit.iou[selection], dtype=np.float64)
         recall = np.asarray(component_audit.recall[selection], dtype=np.float64)
         area = np.asarray(component_audit.area_ratio[selection], dtype=np.float64)
-        topology = np.asarray(
-            component_audit.topology_valid[selection], dtype=bool
-        )
+        topology = np.asarray(component_audit.topology_valid[selection], dtype=bool)
         self.component_observations += len(iou)
         self.iou.append(iou)
         self.recall_min = min(self.recall_min, float(np.min(recall)))
@@ -800,9 +797,7 @@ def run_curve_optimizer(
                     else:
                         dense_controls = controls
                         selected = set(range(emit_start, emit_end))
-                        renderer = catmull_rom_renderer(
-                            int(config.samples_per_segment)
-                        )
+                        renderer = catmull_rom_renderer(int(config.samples_per_segment))
                         _boundaries, component_audit = audit_dense_path(
                             references,
                             dense_controls,
@@ -1006,11 +1001,16 @@ def run_curve_optimizer(
         key_writer.abort()
         raise
     elapsed = time.perf_counter() - started
+    raster_backend = (
+        os.environ.get("MASK_CURVE_EXACT_RASTER_BACKEND", "cpu").strip().lower()
+    )
+    cuda_used = raster_backend in {"cuda", "cuda_hybrid"}
     summary = {
         "schema_version": 1,
         "algorithm": "closed_uniform_catmull_rom_tension_1_factor_1_over_6",
-        "cpu_only": True,
-        "cuda_initialized": False,
+        "raster_backend": raster_backend,
+        "cpu_only": not cuda_used,
+        "cuda_initialized": cuda_used,
         "target_interval": int(config.target_interval),
         "runtime_config": asdict(config),
         "predictions_sqlite": str(dense_path),
@@ -1023,12 +1023,8 @@ def run_curve_optimizer(
             fallback_multi_component_streams
         ),
         "emergency_spatial_repairs": int(emergency_repairs),
-        "independent_local_refit_attempts": int(
-            independent_local_refit_attempts
-        ),
-        "independent_local_refit_accepted": int(
-            independent_local_refit_accepted
-        ),
+        "independent_local_refit_attempts": int(independent_local_refit_attempts),
+        "independent_local_refit_accepted": int(independent_local_refit_accepted),
         "maximum_independent_local_refit_shift_px": float(
             maximum_independent_local_refit_shift
         ),

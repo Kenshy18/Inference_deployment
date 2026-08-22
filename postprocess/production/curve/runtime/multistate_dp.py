@@ -24,7 +24,11 @@ from .keyframe_dp import (
     materialize_controls,
     render_control_sequence,
 )
-from .native_cpu import ExactDoubleRasterBatch, native_module
+from .native_cpu import (
+    ExactDoubleRasterBatch,
+    create_exact_raster_batch,
+    native_module,
+)
 from .topology import has_strict_self_intersection, strict_self_intersection_batch
 
 
@@ -670,8 +674,7 @@ def _guard_refined_controls(
         audit.area_ratio > per_frame_area_cap + _EPSILON
     )
     global_minimum_bad = bool(
-        float(np.min(audit.iou)) + allowed_iou_drop + _EPSILON
-        < baseline_minimum_iou
+        float(np.min(audit.iou)) + allowed_iou_drop + _EPSILON < baseline_minimum_iou
     )
     global_q01_bad = bool(
         float(np.quantile(audit.iou, 0.01)) + allowed_iou_drop + _EPSILON
@@ -694,8 +697,7 @@ def _guard_refined_controls(
         global_bad |= audit.iou <= float(np.quantile(audit.iou, 0.05)) + _EPSILON
     if global_area_bad:
         global_bad |= (
-            audit.area_ratio
-            >= baseline_maximum_area + allowed_area_growth - _EPSILON
+            audit.area_ratio >= baseline_maximum_area + allowed_area_growth - _EPSILON
         )
     bad_frames = np.flatnonzero(hard_bad | local_quality_bad | global_bad)
     affected: set[int] = set()
@@ -900,9 +902,10 @@ class _MultistateIntervalEvaluator:
         raster = self.exact_raster
         if raster is None:
             try:
-                raster = ExactDoubleRasterBatch(
+                raster = create_exact_raster_batch(
                     self.references,
                     maximum_cache_bytes=int(self.config.native_reference_cache_bytes),
+                    maximum_batch_cases=int(self.config.native_batch_cases),
                 )
             except RuntimeError:
                 return False
@@ -1429,9 +1432,10 @@ def optimize_multistate_keyframes(
     exact_raster = None
     if bool(config.native_cpu_batches):
         try:
-            exact_raster = ExactDoubleRasterBatch(
+            exact_raster = create_exact_raster_batch(
                 references,
                 maximum_cache_bytes=int(config.native_reference_cache_bytes),
+                maximum_batch_cases=int(config.native_batch_cases),
             )
         except RuntimeError:
             exact_raster = None

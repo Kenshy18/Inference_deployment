@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -181,7 +182,10 @@ class ProductionCurveStage:
             "geometry_mode": "catmull_rom",
             "curve_contract": ("closed_uniform_catmull_rom_tension_1_factor_1_over_6"),
             "editable_variables": "interpolation_points_P_only",
-            "cuda_used": False,
+            "cuda_used": os.environ.get("MASK_CURVE_EXACT_RASTER_BACKEND", "cpu")
+            .strip()
+            .lower()
+            in {"cuda", "cuda_hybrid"},
             "target_interval": int(config.target_interval),
             "preparation": preparation,
             "engine": engine,

@@ -21,7 +21,7 @@ from production.polygon.runtime.spatial_support.optimizer import (
 from .curve_fit import WholeCurveFitStats, fit_whole_curve_controls
 from .metrics import CurveMetrics, frame_raster_metrics, sequence_raster_metrics
 from .model import bezier_segments, sample_closed_curve, sample_curve_sequence
-from .native_cpu import ExactDoubleRasterBatch
+from .native_cpu import ExactDoubleRasterBatch, create_exact_raster_batch
 from .topology import has_strict_self_intersection, strict_self_intersection_batch
 
 
@@ -51,6 +51,7 @@ class FitConfig:
     temporal_phase_jump_error: float = 0.50
     native_cpu_batches: bool = True
     native_cpu_threads: int = 8
+    native_batch_cases: int = 4096
     native_reference_cache_bytes: int = 256 * 1024 * 1024
 
     def validate(self) -> None:
@@ -82,6 +83,8 @@ class FitConfig:
             raise ValueError("native_cpu_threads must be positive")
         if int(self.native_reference_cache_bytes) < 0:
             raise ValueError("native_reference_cache_bytes must be non-negative")
+        if int(self.native_batch_cases) < 1:
+            raise ValueError("native_batch_cases must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -710,9 +713,10 @@ def fit_sequence(
     exact_raster = None
     if bool(config.native_cpu_batches):
         try:
-            exact_raster = ExactDoubleRasterBatch(
+            exact_raster = create_exact_raster_batch(
                 source,
                 maximum_cache_bytes=int(config.native_reference_cache_bytes),
+                maximum_batch_cases=int(config.native_batch_cases),
             )
         except RuntimeError:
             exact_raster = None
