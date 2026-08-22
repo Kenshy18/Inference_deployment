@@ -11,6 +11,7 @@ import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -290,6 +291,110 @@ def _numpy_align(reference: np.ndarray, candidate: np.ndarray) -> np.ndarray:
     return best
 
 
+@lru_cache(maxsize=32)
+def _catmull_rom_sampling_matrix(
+    control_point_count: int,
+    samples_per_segment: int,
+) -> np.ndarray:
+    """Mirror Production's arithmetic so half-pixel raster ties stay exact."""
+
+    count = int(control_point_count)
+    samples = int(samples_per_segment)
+    if count < 3 or samples < 1:
+        raise ValueError("invalid closed Catmull--Rom sampling dimensions")
+    factor = 1.0 / 6.0
+    output = np.zeros((count * samples, count), dtype=np.float64)
+    for segment in range(count):
+        for sample in range(samples):
+            parameter = float(sample) / float(samples)
+            inverse = 1.0 - parameter
+            w0 = inverse**3
+            w1 = 3.0 * inverse**2 * parameter
+            w2 = 3.0 * inverse * parameter**2
+            w3 = parameter**3
+            row = segment * samples + sample
+            output[row, (segment - 1) % count] -= w1 * factor
+            output[row, segment] += w0 + w1 + w2 * factor
+            output[row, (segment + 1) % count] += w1 * factor + w2 + w3
+            output[row, (segment + 2) % count] -= w2 * factor
+    output.setflags(write=False)
+    return output
+
+
+def _catmull_rom_polygon(points: Polygon, samples_per_segment: int = 16) -> Polygon:
+    """Sample the editor's closed uniform Catmull--Rom contract exactly.
+
+    Only P is stored or interpolated. Bezier handles are derived implicitly by
+    the equivalent 1/6 Catmull--Rom basis; no free handle state exists.
+    """
+    controls = np.asarray(points, dtype=np.float64)
+    if controls.ndim != 2 or controls.shape[1] != 2 or len(controls) < 3:
+        return list(points)
+    samples = max(2, int(samples_per_segment))
+    # This is the same matrix construction and multiplication order used by
+    # ``production.curve.runtime.model``. Algebraically equivalent einsum
+    # formulas can differ by an ulp at x.5 and change OpenCV rasterization.
+    sampled = _catmull_rom_sampling_matrix(len(controls), samples) @ controls
+    return sampled.tolist()
+
+
+def _catmull_rom_components_at(
+    keyframes: list[Keyframe],
+    frame: int,
+) -> tuple[Component, ...]:
+    frames = [keyframe.frame for keyframe in keyframes]
+    position = bisect.bisect_left(frames, frame)
+    if position == 0:
+        left = right = keyframes[0]
+        alpha = 0.0
+    elif position == len(keyframes):
+        left = right = keyframes[-1]
+        alpha = 0.0
+    elif frames[position] == frame:
+        left = right = keyframes[position]
+        alpha = 0.0
+    else:
+        left = keyframes[position - 1]
+        right = keyframes[position]
+        alpha = float((frame - left.frame) / (right.frame - left.frame))
+    left_by_slot = dict(left.components)
+    right_by_slot = dict(right.components)
+    if left_by_slot.keys() != right_by_slot.keys():
+        selected = left_by_slot if alpha < 0.5 else right_by_slot
+        return tuple(
+            Component(
+                "polygon",
+                _catmull_rom_polygon(list(selected[slot].values)),  # type: ignore[arg-type]
+            )
+            for slot in sorted(selected)
+        )
+    output: list[Component] = []
+    for slot in sorted(left_by_slot):
+        left_component = left_by_slot[slot]
+        right_component = right_by_slot[slot]
+        if left_component.kind != "polygon" or right_component.kind != "polygon":
+            return tuple(component for _slot, component in left.components)
+        left_points = np.asarray(left_component.values, dtype=np.float64)
+        right_points = np.asarray(right_component.values, dtype=np.float64)
+        if left_points.shape != right_points.shape:
+            selected = left_component if alpha < 0.5 else right_component
+            output.append(
+                Component(
+                    "polygon",
+                    _catmull_rom_polygon(list(selected.values)),  # type: ignore[arg-type]
+                )
+            )
+            continue
+        controls = (1.0 - alpha) * left_points + alpha * right_points
+        output.append(
+            Component(
+                "polygon",
+                _catmull_rom_polygon(controls.tolist()),
+            )
+        )
+    return tuple(output)
+
+
 def _components_at(
     keyframes: list[Keyframe],
     frame: int,
@@ -297,6 +402,8 @@ def _components_at(
 ) -> tuple[Component, ...]:
     frames = [keyframe.frame for keyframe in keyframes]
     position = bisect.bisect_left(frames, frame)
+    if interpolation_method == "catmull_rom_uniform_tension_1_v1":
+        return _catmull_rom_components_at(keyframes, frame)
     if position < len(keyframes) and frames[position] == frame:
         return tuple(component for _slot, component in keyframes[position].components)
     polygon_segment = all(
@@ -458,6 +565,11 @@ def _polygon_components_for_final_frame(
     interpolation_method: str,
 ) -> tuple[Component, ...]:
     """Materialize final polygons using the method declared by the producer."""
+
+    if interpolation_method == "catmull_rom_uniform_tension_1_v1":
+        # P keyframes are authoritative. Tracking observations are only the
+        # Recall reference and must not replace the optimized curve state.
+        return _catmull_rom_components_at(keyframes, frame)
 
     if interpolation_method == "linear_polygon_index_v1":
         # Production polygon keyframes already have a fixed vertex count,

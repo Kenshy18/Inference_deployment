@@ -116,6 +116,27 @@ export function PostprocessSection({
               label={faceOnly ? "顔のみでは不要" : "追跡・整形を実行"}
             />
           </Row>
+          {!faceOnly && postprocess.enabled && (
+            <Row
+              label="マスク形状"
+              title="ポリゴンは直線補間、ベジェ曲線は閉じたCatmull–Rom点から1/6係数の3次ベジェ区間を導出し、CPUだけで最適化します。"
+            >
+              <Segment
+                value={postprocess.maskGeometry}
+                disabled={busy || Boolean(postprocess.pipelineConfig)}
+                onChange={(maskGeometry) =>
+                  actions.postprocess({ maskGeometry })
+                }
+                options={[
+                  { value: "polygon", label: "ポリゴン" },
+                  {
+                    value: "catmull_rom",
+                    label: "ベジェ曲線（Catmull–Rom）",
+                  },
+                ]}
+              />
+            </Row>
+          )}
           {!faceOnly && !postprocess.enabled && (
             <>
               <Row label="追跡後SQLite" stack>
@@ -359,7 +380,7 @@ export function PostprocessSection({
                   </Row>
                   <Row
                     label="キーフレーム間隔"
-                    title="Productionポリゴンの目標キーフレーム間隔の指定方法です。"
+                    title="選択したProductionマスク形状の目標キーフレーム間隔の指定方法です。"
                   >
                     <Select
                       value={postprocess.classPostprocessPolicySource}
@@ -388,7 +409,7 @@ export function PostprocessSection({
                     <Row
                       label="KF設定JSON"
                       stack
-                      title="クラス別のProductionポリゴン目標間隔を持つJSONです。"
+                      title="クラス別のProductionマスク目標間隔を持つJSONです。"
                     >
                       <TextInput
                         value={postprocess.classPostprocessPolicyJson}

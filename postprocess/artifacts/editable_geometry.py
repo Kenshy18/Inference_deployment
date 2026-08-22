@@ -359,7 +359,11 @@ def _polygon_interpolation_method(path: Path) -> str:
             "WHERE key='interpolation_method'"
         ).fetchone()
     method = "linear_polygon_aligned_v1" if row is None else str(row[0])
-    if method not in {"linear_polygon_aligned_v1", "linear_polygon_index_v1"}:
+    if method not in {
+        "linear_polygon_aligned_v1",
+        "linear_polygon_index_v1",
+        "catmull_rom_uniform_tension_1_v1",
+    }:
         raise ValueError(f"unsupported polygon interpolation method: {method}")
     return method
 
@@ -374,6 +378,15 @@ def import_polygon_keyframes(
     cuts = _cuts(connection)
     keys_by_track = _polygon_key_rows(path)
     interpolation_method = _polygon_interpolation_method(path)
+    is_catmull_rom = interpolation_method == "catmull_rom_uniform_tension_1_v1"
+    geometry_source_kind = (
+        "postprocess_catmull_rom" if is_catmull_rom else "postprocess_polygon"
+    )
+    geometry_algorithm = (
+        "production.catmull_rom_cpu_exact_v1"
+        if is_catmull_rom
+        else "artifacts.fixed_interval_import_v1"
+    )
     represented_tracks = (
         {
             str(row[0])
@@ -465,13 +478,29 @@ def import_polygon_keyframes(
                     """
                     INSERT OR REPLACE INTO mask_geometry_provenance(
                         keyframe_id, source_kind, algorithm, parameters_json
-                    ) VALUES (?, 'postprocess_polygon', ?, ?)
+                    ) VALUES (?, ?, ?, ?)
                     """,
                     (
                         keyframe_id,
-                        "artifacts.fixed_interval_import_v1",
+                        geometry_source_kind,
+                        geometry_algorithm,
                         json.dumps(
-                            {"source_artifact": str(Path(path).resolve())},
+                            {
+                                "source_artifact": str(Path(path).resolve()),
+                                "interpolation_method": interpolation_method,
+                                **(
+                                    {
+                                        "curve_model": "closed_uniform_catmull_rom",
+                                        "tension": 1.0,
+                                        "bezier_factor": 1.0 / 6.0,
+                                        "editable_variables": (
+                                            "interpolation_points_P_only"
+                                        ),
+                                    }
+                                    if is_catmull_rom
+                                    else {}
+                                ),
+                            },
                             ensure_ascii=False,
                             sort_keys=True,
                         ),

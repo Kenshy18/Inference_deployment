@@ -147,6 +147,11 @@ export function buildOrchestrationConfig(
     remove_short_tracks_max_frames:
       draft.postprocess.removeShortTracksMaxFrames,
     keyframe_interval: draft.postprocess.keyframeInterval,
+    // A custom pipeline owns its own geometry stage. Do not leak a previously
+    // saved global selector into the backend's mutually exclusive contract.
+    mask_geometry: draft.postprocess.pipelineConfig.trim()
+      ? "polygon"
+      : draft.postprocess.maskGeometry,
     export_legacy_sqlite: draft.postprocess.exportLegacySqlite,
     face_mask_target: draft.postprocess.faceMaskTarget,
     eye_mask_shape: draft.postprocess.eyeMaskShape,

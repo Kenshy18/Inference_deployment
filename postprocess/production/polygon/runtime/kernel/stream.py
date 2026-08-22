@@ -9,6 +9,7 @@ import math
 import sqlite3
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -37,8 +38,10 @@ from .defaults import (
     DEFAULT_PREDICTOR_BATCH_SIZE,
     DEFAULT_RUN_OVERLAP_FRAMES,
 )
-from .model import LearnedPointPredictor, compute_mask_descriptors
 from .types import InstanceRun, TrackRow
+
+if TYPE_CHECKING:
+    from .model import LearnedPointPredictor
 
 
 def parse_float_list(text: str, default: list[float]) -> list[float]:
@@ -198,6 +201,8 @@ def build_track_streams(
     max_tracks: int = -1,
     max_run_frames: int = DEFAULT_MAX_RUN_FRAMES,
     run_overlap_frames: int = DEFAULT_RUN_OVERLAP_FRAMES,
+    prepare_anchors: bool = True,
+    slots_already_aligned: bool = False,
 ) -> tuple[list[InstanceRun], dict[str, int]]:
     if max_tracks > 0:
         counts: dict[str, int] = {}
@@ -292,7 +297,11 @@ def build_track_streams(
         gapfilled_flags: list[bool] = []
         prev_slots: list[np.ndarray] | None = None
         for row in run_rows:
-            slots = align_contour_slots(prev_slots, row.polygons)
+            slots = (
+                [np.asarray(value, dtype=np.float32) for value in row.polygons]
+                if bool(slots_already_aligned)
+                else align_contour_slots(prev_slots, row.polygons)
+            )
             aligned_rows.append(slots)
             gapfilled_flags.append(bool(row.is_gapfill))
             prev_slots = slots
@@ -304,6 +313,12 @@ def build_track_streams(
         run_anchor_count = int(anchors_per_contour)
         run_target_total_points = int(contour_count * run_anchor_count)
         if bool(adaptive_anchor_counts) and predictor is not None:
+            # Keep the learned predictor (and therefore Torch/CUDA-facing
+            # modules) out of the import path used by the CPU-only curve
+            # reader. Polygon inference reaches this branch and imports it on
+            # demand with unchanged numerical behaviour.
+            from .model import compute_mask_descriptors
+
             masks = [build_local_mask_from_polygons(slots) for slots in aligned_rows]
             descriptors_list = [compute_mask_descriptors(mask) for mask in masks]
             predicted_totals = predictor.predict_total_points_batch(
@@ -350,13 +365,21 @@ def build_track_streams(
             area_sum = 0.0
             for slot_id in range(contour_count):
                 poly = np.asarray(orient_ccw(slots[slot_id]), dtype=np.float32)
-                anchor = resample_closed_contour(poly, int(run_anchor_count))
-                anchor = align_polygon_phase(prev_anchors_by_slot[slot_id], anchor)
-                contour_anchors.append(np.asarray(anchor, dtype=np.float32))
+                if bool(prepare_anchors):
+                    anchor = resample_closed_contour(poly, int(run_anchor_count))
+                    anchor = align_polygon_phase(
+                        prev_anchors_by_slot[slot_id], anchor
+                    )
+                    contour_anchors.append(np.asarray(anchor, dtype=np.float32))
+                    prev_anchors_by_slot[slot_id] = np.asarray(
+                        anchor, dtype=np.float32
+                    )
                 contour_polygons.append(np.asarray(poly, dtype=np.float32))
                 area_sum += float(polygon_area(poly))
-                prev_anchors_by_slot[slot_id] = np.asarray(anchor, dtype=np.float32)
-            frame_anchor_stack.append(np.asarray(contour_anchors, dtype=np.float32))
+            if bool(prepare_anchors):
+                frame_anchor_stack.append(
+                    np.asarray(contour_anchors, dtype=np.float32)
+                )
             frame_polygons.append(contour_polygons)
             frame_areas.append(area_sum)
         scale = float(
@@ -378,7 +401,14 @@ def build_track_streams(
                     [row.frame for row in run_rows], dtype=np.int32
                 ),
                 gt_polygons=frame_polygons,
-                anchors=np.asarray(frame_anchor_stack, dtype=np.float32),
+                anchors=(
+                    np.asarray(frame_anchor_stack, dtype=np.float32)
+                    if bool(prepare_anchors)
+                    else np.empty(
+                        (len(frame_polygons), contour_count, 0, 2),
+                        dtype=np.float32,
+                    )
+                ),
                 contour_count=contour_count,
                 anchors_per_contour=int(run_anchor_count),
                 scale=scale,
@@ -482,6 +512,7 @@ def iter_track_streams_from_sqlite(
     max_run_frames: int,
     run_overlap_frames: int,
     segmentation_stats: dict[str, int],
+    prepare_anchors: bool = True,
 ):
     allowed_track_ids = sqlite_allowed_track_ids(sqlite_path, int(max_tracks))
     source_stats = sqlite_mask_stats_for_tracks(sqlite_path, allowed_track_ids)
@@ -553,7 +584,11 @@ def iter_track_streams_from_sqlite(
             max_tracks=-1,
             max_run_frames=0,
             run_overlap_frames=0,
-            _release_predictor_after_build=False,
+            prepare_anchors=bool(prepare_anchors),
+            # Polygon Production retains its historical chunk-local slot
+            # alignment exactly.  The curve path consumes the already aligned
+            # source contours directly and does not need that duplicate pass.
+            slots_already_aligned=not bool(prepare_anchors),
         )
         out: list[InstanceRun] = []
         for sub_idx, run in enumerate(runs):

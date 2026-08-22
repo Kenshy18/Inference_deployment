@@ -10,7 +10,7 @@ from typing import Sequence
 from common.config import (
     PipelineConfig,
     StageSpec,
-    default_polygon_pipeline,
+    default_mask_pipeline,
     load_pipeline_config,
 )
 from common.runner import PipelineRunner
@@ -49,6 +49,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--keyframe-interval",
         type=int,
         help="explicitly override the selected pipeline stage",
+    )
+    parser.add_argument(
+        "--mask-geometry",
+        choices=("polygon", "catmull_rom"),
+        default="polygon",
+        help=(
+            "editable genital-mask geometry: line-segment polygon or closed "
+            "uniform Catmull-Rom curve (CPU-only)"
+        ),
     )
     parser.add_argument(
         "--score-min",
@@ -132,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _polygon_stage_options(
+def _geometry_stage_options(
     args: argparse.Namespace,
     initial: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -151,6 +160,11 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             "--pipeline-config and --class-postprocess-policy-json "
             "cannot be combined"
         )
+    if args.pipeline_config is not None and args.mask_geometry != "polygon":
+        raise ValueError(
+            "--mask-geometry is only applied to the built-in Production graph; "
+            "a custom --pipeline-config must select its geometry stage explicitly"
+        )
     input_sqlite_kind = (
         detect_mask_sqlite_kind(args.input_sqlite)
         if args.input_sqlite is not None
@@ -163,7 +177,10 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
     if args.pipeline_config is not None:
         source = load_pipeline_config(args.pipeline_config)
     else:
-        source = default_polygon_pipeline(include_preprocess=include_raw_stages)
+        source = default_mask_pipeline(
+            include_preprocess=include_raw_stages,
+            geometry_mode=str(args.mask_geometry),
+        )
 
     if args.pipeline_config is None and input_sqlite_kind in {
         "raw_detection",
@@ -213,14 +230,18 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             options["remove_short_tracks_max_frames"] = int(
                 args.remove_short_tracks_max_frames
             )
-        elif stage.implementation == "production.polygon_v3_cpu":
+        elif stage.implementation in {
+            "production.polygon_v3_cpu",
+            "production.curve_v1_cpu",
+        }:
             if args.keyframe_interval is not None:
                 options["target_interval"] = int(args.keyframe_interval)
-            options = _polygon_stage_options(args, options)
-            options.setdefault(
-                "interval_evaluation",
-                "cuda_lazy_exact",
-            )
+            options = _geometry_stage_options(args, options)
+            if stage.implementation == "production.polygon_v3_cpu":
+                options.setdefault(
+                    "interval_evaluation",
+                    "cuda_lazy_exact",
+                )
         stages.append(
             StageSpec(
                 stage.id,
@@ -253,8 +274,9 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                         if args.keyframe_interval is None
                         else int(args.keyframe_interval)
                     ),
-                    "polygon_options": _polygon_stage_options(args),
+                    "geometry_options": _geometry_stage_options(args),
                     "classwise_workers": 3,
+                    "geometry_mode": str(args.mask_geometry),
                 },
             )
         )

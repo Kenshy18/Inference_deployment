@@ -146,10 +146,12 @@ class PromotedProductionProfileTests(unittest.TestCase):
     def test_registered_stages_use_stable_names(self) -> None:
         nms = create_stage("nms.production_v3", {})
         polygon = create_stage("production.polygon_v3_cpu", {})
+        curve = create_stage("production.curve_v1_cpu", {})
         self.assertEqual("production_virtual_component_mask_nms_v1", nms.name)
         self.assertEqual(
             "production_polygon_adaptive_recall_cuda_lazy_exact_v4", polygon.name
         )
+        self.assertEqual("production_catmull_rom_cpu_exact_v1", curve.name)
 
     def test_nms_thresholds_cannot_be_changed_from_pipeline_json(self) -> None:
         stage = create_stage("nms.production_v3", {"mask_iou_threshold": 0.99})
@@ -177,9 +179,9 @@ class PromotedProductionProfileTests(unittest.TestCase):
         )
         self.assertEqual(
             "native_exact",
-            ProductionPolygonStage(
-                {"interval_evaluation": "native_exact"}
-            )._config().interval_evaluation,
+            ProductionPolygonStage({"interval_evaluation": "native_exact"})
+            ._config()
+            .interval_evaluation,
         )
         with self.assertRaisesRegex(ValueError, "must be cuda_lazy_exact"):
             ProductionPolygonStage(
@@ -280,6 +282,60 @@ class PromotedProductionProfileTests(unittest.TestCase):
             self.assertEqual(["target"], summary["passthrough_labels"])
             self.assertEqual([unknown], read_mask_rows(root / "predictions.sqlite"))
             self.assertEqual([unknown], read_mask_rows(root / "keyframes.sqlite"))
+
+    def test_streamed_materializer_preserves_variable_label_gap_fallback(self) -> None:
+        """A generated gap row keeps the track's first non-empty source label."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            square = "[[[0,0],[10,0],[10,10],[0,10]]]"
+            tracked = write_mask_sqlite(
+                root / "tracked.sqlite",
+                [
+                    MaskRow(0, "7", square, ""),
+                    MaskRow(2, "7", square, "女性器"),
+                    MaskRow(3, "7", square, "結合部分"),
+                ],
+            )
+            phase2 = root / "phase2"
+            runtime_profile = build_runtime_config(PRODUCTION).polygon_profile_id
+            runtime = phase2 / runtime_profile / "女性器" / "runtime"
+            prediction = runtime / "pred/predictions.sqlite"
+            prediction.parent.mkdir(parents=True)
+            with sqlite3.connect(prediction) as connection:
+                connection.execute(
+                    "CREATE TABLE masks(frame INTEGER,track_id TEXT,polygons TEXT)"
+                )
+                connection.execute("INSERT INTO masks VALUES(1,'7',?)", (square,))
+            keyframes = runtime / "opt/final_keyframes.json"
+            keyframes.parent.mkdir(parents=True)
+            keyframes.write_text(
+                json.dumps(
+                    [
+                        {
+                            "frame": 1,
+                            "track_id": "7",
+                            "polygons": [[[0, 0], [10, 0], [10, 10], [0, 10]]],
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            materialize_outputs(
+                phase2,
+                tracked,
+                root / "predictions.sqlite",
+                root / "keyframes.sqlite",
+                config=PRODUCTION,
+                runtime_profile=runtime_profile,
+            )
+            predictions = read_mask_rows(root / "predictions.sqlite")
+            keys = read_mask_rows(root / "keyframes.sqlite")
+            prediction = next(row for row in predictions if row.frame == 1)
+            key = next(row for row in keys if row.frame == 1)
+            self.assertEqual("女性器", prediction.label)
+            self.assertEqual("女性器", key.label)
 
 
 if __name__ == "__main__":

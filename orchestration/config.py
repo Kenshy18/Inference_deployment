@@ -191,6 +191,7 @@ class PostprocessConfig:
     precompute_cuts_during_inference: bool = False
     remove_short_tracks_max_frames: int | None = None
     keyframe_interval: int | None = None
+    mask_geometry: str = "polygon"
     extra_args: tuple[str, ...] = ()
     export_legacy_sqlite: bool = False
     face_mask_target: str = "none"
@@ -207,8 +208,8 @@ class PostprocessConfig:
 
     @property
     def uses_gpu(self) -> bool:
-        """Production postprocessing uses CUDA screening with exact audits."""
-        return self.enabled
+        """Catmull--Rom is deliberately CPU-only so inference keeps the GPU."""
+        return self.enabled and self.mask_geometry == "polygon"
 
 
 @dataclass(frozen=True)
@@ -408,6 +409,7 @@ class OrchestrationConfig:
             "precompute_cuts_during_inference",
             "remove_short_tracks_max_frames",
             "keyframe_interval",
+            "mask_geometry",
             "extra_args",
             "face_mask_target",
             "eye_mask_shape",
@@ -479,6 +481,7 @@ class OrchestrationConfig:
                 postprocess_raw.get("keyframe_interval"),
                 "postprocess.keyframe_interval",
             ),
+            mask_geometry=str(postprocess_raw.get("mask_geometry", "polygon")),
             extra_args=_string_tuple(
                 postprocess_raw.get("extra_args"),
                 "postprocess.extra_args",
@@ -883,6 +886,18 @@ class OrchestrationConfig:
             raise OrchestrationConfigError(
                 "postprocess.keyframe_interval must be at least 1"
             )
+        if self.postprocess.mask_geometry not in {"polygon", "catmull_rom"}:
+            raise OrchestrationConfigError(
+                "postprocess.mask_geometry must be polygon or catmull_rom"
+            )
+        if (
+            self.postprocess.pipeline_config is not None
+            and self.postprocess.mask_geometry != "polygon"
+        ):
+            raise OrchestrationConfigError(
+                "postprocess.mask_geometry is selected by a custom pipeline_config; "
+                "the global option must remain polygon"
+            )
         if self.postprocess.face_mask_target not in {"none", "face", "eyes"}:
             raise OrchestrationConfigError(
                 "postprocess.face_mask_target must be none, face, or eyes"
@@ -956,6 +971,7 @@ class OrchestrationConfig:
                 "--precomputed-cuts-json",
                 "--remove-short-tracks-max-frames",
                 "--keyframe-interval",
+                "--mask-geometry",
                 "--max-gap",
                 "--model-root",
                 "--k2-run-dir",

@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -73,6 +74,126 @@ struct ExactMetricCounts {
   double precision = 1.0;
   double iou = 1.0;
 };
+
+bool has_strict_self_intersection_impl(
+    const double* points,
+    const std::size_t point_count) {
+  if (point_count < 4U) {
+    return false;
+  }
+  struct EdgeBounds {
+    std::size_t index = 0U;
+    double minimum_x = 0.0;
+    double minimum_y = 0.0;
+    double maximum_x = 0.0;
+    double maximum_y = 0.0;
+  };
+  std::vector<EdgeBounds> edges(point_count);
+  for (std::size_t index = 0; index < point_count; ++index) {
+    const std::size_t following = (index + 1U) % point_count;
+    const double a_x = points[index * 2U];
+    const double a_y = points[index * 2U + 1U];
+    const double b_x = points[following * 2U];
+    const double b_y = points[following * 2U + 1U];
+    if (!std::isfinite(a_x) || !std::isfinite(a_y) ||
+        !std::isfinite(b_x) || !std::isfinite(b_y)) {
+      throw std::invalid_argument("polygon coordinates must be finite");
+    }
+    edges[index] = {
+        index,
+        std::min(a_x, b_x),
+        std::min(a_y, b_y),
+        std::max(a_x, b_x),
+        std::max(a_y, b_y)};
+  }
+  std::stable_sort(
+      edges.begin(),
+      edges.end(),
+      [](const EdgeBounds& left, const EdgeBounds& right) {
+        return left.minimum_x < right.minimum_x;
+      });
+  std::vector<std::size_t> active;
+  active.reserve(point_count);
+  for (const auto& first_bounds : edges) {
+    active.erase(
+        std::remove_if(
+            active.begin(),
+            active.end(),
+            [&](const std::size_t second) {
+              return edges[second].maximum_x < first_bounds.minimum_x;
+            }),
+        active.end());
+    const std::size_t first = first_bounds.index;
+    const std::size_t first_following = (first + 1U) % point_count;
+    const double a_x = points[first * 2U];
+    const double a_y = points[first * 2U + 1U];
+    const double b_x = points[first_following * 2U];
+    const double b_y = points[first_following * 2U + 1U];
+    for (const std::size_t active_position : active) {
+      const EdgeBounds& second_bounds = edges[active_position];
+      const std::size_t second = second_bounds.index;
+      if ((second + 1U) % point_count == first || first_following == second) {
+        continue;
+      }
+      if (std::max(first_bounds.minimum_y, second_bounds.minimum_y) >
+          std::min(first_bounds.maximum_y, second_bounds.maximum_y)) {
+        continue;
+      }
+      const std::size_t second_following = (second + 1U) % point_count;
+      const double c_x = points[second * 2U];
+      const double c_y = points[second * 2U + 1U];
+      const double d_x = points[second_following * 2U];
+      const double d_y = points[second_following * 2U + 1U];
+      const double ab_x = b_x - a_x;
+      const double ab_y = b_y - a_y;
+      const double cd_x = d_x - c_x;
+      const double cd_y = d_y - c_y;
+      const double ab_c = ab_x * (c_y - a_y) - ab_y * (c_x - a_x);
+      const double ab_d = ab_x * (d_y - a_y) - ab_y * (d_x - a_x);
+      const double cd_a = cd_x * (a_y - c_y) - cd_y * (a_x - c_x);
+      const double cd_b = cd_x * (b_y - c_y) - cd_y * (b_x - c_x);
+      if (ab_c * ab_d < -1e-8 && cd_a * cd_b < -1e-8) {
+        return true;
+      }
+    }
+    // Store the position in the x-sorted edge vector.  This lets expiration
+    // reuse the already-computed bounds without changing the stable sweep
+    // order used by the Python reference implementation.
+    active.push_back(
+        static_cast<std::size_t>(&first_bounds - edges.data()));
+  }
+  return false;
+}
+
+py::array_t<std::uint8_t> strict_self_intersection_batch(
+    const py::array_t<double, py::array::c_style | py::array::forcecast>& values,
+    const int requested_threads) {
+  if (values.ndim() != 3 || values.shape(2) != 2) {
+    throw py::value_error("values must have shape (N, points, 2)");
+  }
+  const py::ssize_t case_count = values.shape(0);
+  const py::ssize_t point_count = values.shape(1);
+  py::array_t<std::uint8_t> output(case_count);
+  const double* input = values.data();
+  std::uint8_t* result = output.mutable_data();
+  const std::size_t values_per_case =
+      static_cast<std::size_t>(point_count) * 2U;
+  const int thread_count = std::max(1, requested_threads);
+  {
+    py::gil_scoped_release release;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(thread_count)
+#endif
+    for (py::ssize_t index = 0; index < case_count; ++index) {
+      result[index] = has_strict_self_intersection_impl(
+          input + static_cast<std::size_t>(index) * values_per_case,
+          static_cast<std::size_t>(point_count))
+          ? 1U
+          : 0U;
+    }
+  }
+  return output;
+}
 
 std::vector<Polygon> parse_polygons(const py::iterable& values) {
   std::vector<Polygon> polygons;
@@ -747,6 +868,848 @@ py::dict canonical_metrics(
   result["iou"] = union_area > 0 ? static_cast<double>(intersection) / union_area : 1.0;
   return result;
 }
+
+struct DoubleRasterScratch {
+  cv::Mat reference;
+  cv::Mat prediction;
+  cv::Mat intersection;
+};
+
+using DoublePolygon = std::vector<cv::Point2d>;
+
+struct DoubleReferenceMaskVariant {
+  cv::Mat bitmap;
+  int origin_x = 0;
+  int origin_y = 0;
+  std::vector<RasterRun> runs;
+  std::int64_t area = 0;
+};
+
+struct DoubleFrameReference {
+  std::vector<DoublePolygon> polygons;
+  bool has_polygon = false;
+  bool masks_cached = false;
+  bool bitmaps_cached = false;
+  double min_x = std::numeric_limits<double>::infinity();
+  double min_y = std::numeric_limits<double>::infinity();
+  double max_x = -std::numeric_limits<double>::infinity();
+  double max_y = -std::numeric_limits<double>::infinity();
+  std::array<DoubleReferenceMaskVariant, 4> variants;
+};
+
+std::vector<DoublePolygon> parse_polygons64(const py::iterable& values) {
+  std::vector<DoublePolygon> output;
+  for (const py::handle value : values) {
+    const auto array =
+        py::array_t<double, py::array::c_style | py::array::forcecast>::ensure(value);
+    if (!array || array.ndim() != 2 || array.shape(1) != 2) {
+      throw py::value_error("each polygon must have shape (N, 2)");
+    }
+    const auto view = array.unchecked<2>();
+    DoublePolygon polygon;
+    polygon.reserve(static_cast<std::size_t>(array.shape(0)));
+    for (py::ssize_t index = 0; index < array.shape(0); ++index) {
+      const double x = view(index, 0);
+      const double y = view(index, 1);
+      if (!std::isfinite(x) || !std::isfinite(y)) {
+        throw py::value_error("polygon coordinates must be finite");
+      }
+      polygon.emplace_back(x, y);
+    }
+    output.push_back(std::move(polygon));
+  }
+  return output;
+}
+
+void rasterize_double_into(
+    const std::vector<DoublePolygon>& polygons,
+    cv::Mat* mask,
+    const int height,
+    const int width,
+    const int shift_x,
+    const int shift_y) {
+  mask->create(height, width, CV_8UC1);
+  mask->setTo(cv::Scalar(0));
+  for (const auto& polygon : polygons) {
+    if (polygon.size() < 3) {
+      continue;
+    }
+    RoundedPolygon local;
+    local.reserve(polygon.size());
+    for (const auto& point : polygon) {
+      local.emplace_back(
+          static_cast<int>(std::nearbyint(point.x - shift_x)),
+          static_cast<int>(std::nearbyint(point.y - shift_y)));
+    }
+    const std::vector<RoundedPolygon> one_polygon{std::move(local)};
+    cv::fillPoly(*mask, one_polygon, cv::Scalar(1));
+  }
+}
+
+DoubleFrameReference build_double_frame_reference(
+    std::vector<DoublePolygon> polygons,
+    const bool cache_masks) {
+  DoubleFrameReference output;
+  output.polygons = std::move(polygons);
+  for (const auto& polygon : output.polygons) {
+    if (polygon.size() < 3) {
+      continue;
+    }
+    output.has_polygon = true;
+    for (const auto& point : polygon) {
+      output.min_x = std::min(output.min_x, point.x);
+      output.min_y = std::min(output.min_y, point.y);
+      output.max_x = std::max(output.max_x, point.x);
+      output.max_y = std::max(output.max_y, point.y);
+    }
+  }
+  if (!output.has_polygon || !cache_masks) {
+    return output;
+  }
+  const int floor_x = static_cast<int>(std::floor(output.min_x));
+  const int floor_y = static_cast<int>(std::floor(output.min_y));
+  const int maximum_x = static_cast<int>(std::ceil(output.max_x));
+  const int maximum_y = static_cast<int>(std::ceil(output.max_y));
+  for (int parity_y = 0; parity_y < 2; ++parity_y) {
+    for (int parity_x = 0; parity_x < 2; ++parity_x) {
+      const int index = parity_x + 2 * parity_y;
+      auto& variant = output.variants[static_cast<std::size_t>(index)];
+      const int origin_x = origin_with_parity(floor_x, parity_x);
+      const int origin_y = origin_with_parity(floor_y, parity_y);
+      const int width = maximum_x - origin_x + 1;
+      const int height = maximum_y - origin_y + 1;
+      cv::Mat mask;
+      rasterize_double_into(
+          output.polygons,
+          &mask,
+          height,
+          width,
+          origin_x,
+          origin_y);
+      variant.origin_x = origin_x;
+      variant.origin_y = origin_y;
+      for (int y = 0; y < height; ++y) {
+        const std::uint8_t* row = mask.ptr<std::uint8_t>(y);
+        int x = 0;
+        while (x < width) {
+          while (x < width && row[x] == 0) {
+            ++x;
+          }
+          if (x >= width) {
+            break;
+          }
+          const int start = x;
+          while (x < width && row[x] != 0) {
+            ++x;
+          }
+          variant.runs.push_back(
+              {y + origin_y, start + origin_x, x + origin_x});
+          variant.area += static_cast<std::int64_t>(x - start);
+        }
+      }
+    }
+  }
+  output.masks_cached = true;
+  return output;
+}
+
+std::uint64_t double_reference_run_bytes(
+    const DoubleFrameReference& reference) {
+  std::uint64_t total = 0U;
+  for (const auto& variant : reference.variants) {
+    total += static_cast<std::uint64_t>(variant.runs.size()) *
+        static_cast<std::uint64_t>(sizeof(RasterRun));
+  }
+  return total;
+}
+
+std::uint64_t double_reference_bitmap_bytes(
+    const DoubleFrameReference& reference) {
+  if (!reference.has_polygon) {
+    return 0U;
+  }
+  const int floor_x = static_cast<int>(std::floor(reference.min_x));
+  const int floor_y = static_cast<int>(std::floor(reference.min_y));
+  const int maximum_x = static_cast<int>(std::ceil(reference.max_x));
+  const int maximum_y = static_cast<int>(std::ceil(reference.max_y));
+  std::uint64_t total = 0U;
+  for (int parity_y = 0; parity_y < 2; ++parity_y) {
+    for (int parity_x = 0; parity_x < 2; ++parity_x) {
+      const int origin_x = origin_with_parity(floor_x, parity_x);
+      const int origin_y = origin_with_parity(floor_y, parity_y);
+      total += static_cast<std::uint64_t>(maximum_x - origin_x + 1) *
+          static_cast<std::uint64_t>(maximum_y - origin_y + 1);
+    }
+  }
+  return total;
+}
+
+void cache_double_reference_bitmaps(DoubleFrameReference* reference) {
+  if (!reference->has_polygon) {
+    reference->bitmaps_cached = true;
+    return;
+  }
+  const int floor_x = static_cast<int>(std::floor(reference->min_x));
+  const int floor_y = static_cast<int>(std::floor(reference->min_y));
+  const int maximum_x = static_cast<int>(std::ceil(reference->max_x));
+  const int maximum_y = static_cast<int>(std::ceil(reference->max_y));
+  for (int parity_y = 0; parity_y < 2; ++parity_y) {
+    for (int parity_x = 0; parity_x < 2; ++parity_x) {
+      const int index = parity_x + 2 * parity_y;
+      auto& variant = reference->variants[static_cast<std::size_t>(index)];
+      variant.origin_x = origin_with_parity(floor_x, parity_x);
+      variant.origin_y = origin_with_parity(floor_y, parity_y);
+      rasterize_double_into(
+          reference->polygons,
+          &variant.bitmap,
+          maximum_y - variant.origin_y + 1,
+          maximum_x - variant.origin_x + 1,
+          variant.origin_x,
+          variant.origin_y);
+      variant.area = cv::countNonZero(variant.bitmap);
+      variant.runs.clear();
+      variant.runs.shrink_to_fit();
+    }
+  }
+  reference->masks_cached = true;
+  reference->bitmaps_cached = true;
+}
+
+ExactMetricCounts double_metric_counts(
+    const std::vector<DoublePolygon>& reference,
+    const std::vector<DoublePolygon>& predicted,
+    DoubleRasterScratch* scratch) {
+  bool has_polygon = false;
+  double minimum_x = std::numeric_limits<double>::infinity();
+  double minimum_y = std::numeric_limits<double>::infinity();
+  double maximum_x = -std::numeric_limits<double>::infinity();
+  double maximum_y = -std::numeric_limits<double>::infinity();
+  const auto include = [&](const std::vector<DoublePolygon>& polygons) {
+    for (const auto& polygon : polygons) {
+      if (polygon.size() < 3) {
+        continue;
+      }
+      has_polygon = true;
+      for (const auto& point : polygon) {
+        minimum_x = std::min(minimum_x, point.x);
+        minimum_y = std::min(minimum_y, point.y);
+        maximum_x = std::max(maximum_x, point.x);
+        maximum_y = std::max(maximum_y, point.y);
+      }
+    }
+  };
+  include(reference);
+  include(predicted);
+  if (!has_polygon) {
+    return {};
+  }
+  const int shift_x = static_cast<int>(std::floor(minimum_x)) - 2;
+  const int shift_y = static_cast<int>(std::floor(minimum_y)) - 2;
+  const int maximum_x_i = static_cast<int>(std::ceil(maximum_x)) + 2;
+  const int maximum_y_i = static_cast<int>(std::ceil(maximum_y)) + 2;
+  const std::int64_t width64 =
+      static_cast<std::int64_t>(maximum_x_i) - shift_x + 1;
+  const std::int64_t height64 =
+      static_cast<std::int64_t>(maximum_y_i) - shift_y + 1;
+  if (width64 <= 0 || height64 <= 0 ||
+      width64 > std::numeric_limits<int>::max() ||
+      height64 > std::numeric_limits<int>::max()) {
+    throw std::invalid_argument("double polygon bounds produce an invalid raster size");
+  }
+  rasterize_double_into(
+      reference,
+      &scratch->reference,
+      static_cast<int>(height64),
+      static_cast<int>(width64),
+      shift_x,
+      shift_y);
+  rasterize_double_into(
+      predicted,
+      &scratch->prediction,
+      static_cast<int>(height64),
+      static_cast<int>(width64),
+      shift_x,
+      shift_y);
+  cv::bitwise_and(
+      scratch->reference,
+      scratch->prediction,
+      scratch->intersection);
+  ExactMetricCounts output;
+  output.gt_area = cv::countNonZero(scratch->reference);
+  output.pred_area = cv::countNonZero(scratch->prediction);
+  output.intersection = cv::countNonZero(scratch->intersection);
+  output.union_area = output.gt_area + output.pred_area - output.intersection;
+  output.recall = output.gt_area > 0
+      ? static_cast<double>(output.intersection) / output.gt_area
+      : 1.0;
+  output.precision = output.pred_area > 0
+      ? static_cast<double>(output.intersection) / output.pred_area
+      : 1.0;
+  output.iou = output.union_area > 0
+      ? static_cast<double>(output.intersection) / output.union_area
+      : 1.0;
+  return output;
+}
+
+ExactMetricCounts cached_double_metric_counts(
+    const DoubleFrameReference& reference,
+    const std::vector<DoublePolygon>& predicted,
+    DoubleRasterScratch* scratch) {
+  if (!reference.masks_cached) {
+    return double_metric_counts(reference.polygons, predicted, scratch);
+  }
+  bool predicted_has_polygon = false;
+  double predicted_min_x = std::numeric_limits<double>::infinity();
+  double predicted_min_y = std::numeric_limits<double>::infinity();
+  double predicted_max_x = -std::numeric_limits<double>::infinity();
+  double predicted_max_y = -std::numeric_limits<double>::infinity();
+  for (const auto& polygon : predicted) {
+    if (polygon.size() < 3) {
+      continue;
+    }
+    predicted_has_polygon = true;
+    for (const auto& point : polygon) {
+      if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
+        throw std::invalid_argument("polygon coordinates must be finite");
+      }
+      predicted_min_x = std::min(predicted_min_x, point.x);
+      predicted_min_y = std::min(predicted_min_y, point.y);
+      predicted_max_x = std::max(predicted_max_x, point.x);
+      predicted_max_y = std::max(predicted_max_y, point.y);
+    }
+  }
+  if (!reference.has_polygon && !predicted_has_polygon) {
+    return {};
+  }
+  if (!predicted_has_polygon) {
+    const auto& variant = reference.variants[0];
+    ExactMetricCounts output;
+    output.gt_area = variant.area;
+    output.union_area = variant.area;
+    output.recall = output.gt_area > 0 ? 0.0 : 1.0;
+    output.precision = 1.0;
+    output.iou = output.union_area > 0 ? 0.0 : 1.0;
+    return output;
+  }
+
+  const int joint_shift_x = reference.has_polygon
+      ? static_cast<int>(std::floor(std::min(reference.min_x, predicted_min_x)))
+      : static_cast<int>(std::floor(predicted_min_x));
+  const int joint_shift_y = reference.has_polygon
+      ? static_cast<int>(std::floor(std::min(reference.min_y, predicted_min_y)))
+      : static_cast<int>(std::floor(predicted_min_y));
+  const int parity_x = positive_modulo_two(joint_shift_x);
+  const int parity_y = positive_modulo_two(joint_shift_y);
+  const int pred_origin_x = origin_with_parity(
+      static_cast<int>(std::floor(predicted_min_x)), parity_x);
+  const int pred_origin_y = origin_with_parity(
+      static_cast<int>(std::floor(predicted_min_y)), parity_y);
+  const int pred_maximum_x = static_cast<int>(std::ceil(predicted_max_x));
+  const int pred_maximum_y = static_cast<int>(std::ceil(predicted_max_y));
+  const std::int64_t pred_width64 =
+      static_cast<std::int64_t>(pred_maximum_x) - pred_origin_x + 1;
+  const std::int64_t pred_height64 =
+      static_cast<std::int64_t>(pred_maximum_y) - pred_origin_y + 1;
+  if (pred_width64 <= 0 || pred_height64 <= 0 ||
+      pred_width64 > std::numeric_limits<int>::max() ||
+      pred_height64 > std::numeric_limits<int>::max()) {
+    throw std::invalid_argument("double polygon bounds produce an invalid raster size");
+  }
+  const int pred_width = static_cast<int>(pred_width64);
+  const int pred_height = static_cast<int>(pred_height64);
+  rasterize_double_into(
+      predicted,
+      &scratch->prediction,
+      pred_height,
+      pred_width,
+      pred_origin_x,
+      pred_origin_y);
+
+  ExactMetricCounts output;
+  output.pred_area = cv::countNonZero(scratch->prediction);
+  if (reference.has_polygon) {
+    const auto& variant = reference.variants[static_cast<std::size_t>(
+        parity_x + 2 * parity_y)];
+    output.gt_area = variant.area;
+    if (reference.bitmaps_cached) {
+      const int start_x = std::max(variant.origin_x, pred_origin_x);
+      const int start_y = std::max(variant.origin_y, pred_origin_y);
+      const int end_x = std::min(
+          variant.origin_x + variant.bitmap.cols,
+          pred_origin_x + pred_width);
+      const int end_y = std::min(
+          variant.origin_y + variant.bitmap.rows,
+          pred_origin_y + pred_height);
+      if (start_x < end_x && start_y < end_y) {
+        const cv::Rect reference_roi(
+            start_x - variant.origin_x,
+            start_y - variant.origin_y,
+            end_x - start_x,
+            end_y - start_y);
+        const cv::Rect prediction_roi(
+            start_x - pred_origin_x,
+            start_y - pred_origin_y,
+            end_x - start_x,
+            end_y - start_y);
+        cv::bitwise_and(
+            variant.bitmap(reference_roi),
+            scratch->prediction(prediction_roi),
+            scratch->intersection);
+        output.intersection = cv::countNonZero(scratch->intersection);
+      }
+    } else {
+      for (const RasterRun& run : variant.runs) {
+        const int local_y = run.y - pred_origin_y;
+        if (local_y < 0 || local_y >= pred_height) {
+          continue;
+        }
+        const int start_x = std::max(run.start_x, pred_origin_x);
+        const int end_x = std::min(run.end_x, pred_origin_x + pred_width);
+        if (start_x >= end_x) {
+          continue;
+        }
+        output.intersection += static_cast<std::int64_t>(cv::countNonZero(
+            scratch->prediction.row(local_y).colRange(
+                start_x - pred_origin_x,
+                end_x - pred_origin_x)));
+      }
+    }
+  }
+  output.union_area = output.gt_area + output.pred_area - output.intersection;
+  output.recall = output.gt_area > 0
+      ? static_cast<double>(output.intersection) / output.gt_area
+      : 1.0;
+  output.precision = output.pred_area > 0
+      ? static_cast<double>(output.intersection) / output.pred_area
+      : 1.0;
+  output.iou = output.union_area > 0
+      ? static_cast<double>(output.intersection) / output.union_area
+      : 1.0;
+  return output;
+}
+
+class ExactDoubleRasterEvaluator {
+ public:
+  explicit ExactDoubleRasterEvaluator(
+      const py::iterable& frame_values,
+      const std::uint64_t maximum_cache_bytes) {
+    const py::list frames(frame_values);
+    std::vector<std::uint64_t> run_costs;
+    std::vector<std::uint64_t> bitmap_costs;
+    references_.reserve(frames.size());
+    run_costs.reserve(frames.size());
+    bitmap_costs.reserve(frames.size());
+    std::uint64_t total_run_bytes = 0U;
+    std::uint64_t total_bitmap_bytes = 0U;
+    for (const py::handle frame : frames) {
+      references_.push_back(build_double_frame_reference(
+          parse_polygons64(py::reinterpret_borrow<py::iterable>(frame)),
+          true));
+      const std::uint64_t run_bytes =
+          double_reference_run_bytes(references_.back());
+      const std::uint64_t bitmap_bytes =
+          double_reference_bitmap_bytes(references_.back());
+      run_costs.push_back(run_bytes);
+      bitmap_costs.push_back(bitmap_bytes);
+      total_run_bytes += run_bytes;
+      total_bitmap_bytes += bitmap_bytes;
+    }
+    // Four parity variants preserve NumPy ties-to-even exactly.  Every frame
+    // first gets a compact row-run representation; within the same hard byte
+    // budget, expensive frames are promoted to OpenCV bitmaps.  Bitmap
+    // bitwise intersections are materially faster on large/noisy masks while
+    // row runs avoid an all-or-nothing cache cliff.  Both encode exactly the
+    // same rasterized pixels.
+    const std::uint64_t cache_budget_bytes = maximum_cache_bytes;
+    std::vector<bool> run_frame(references_.size(), false);
+    std::uint64_t used = 0U;
+    if (total_run_bytes <= cache_budget_bytes) {
+      std::fill(run_frame.begin(), run_frame.end(), true);
+      used = total_run_bytes;
+    } else {
+      std::vector<std::size_t> by_cost(references_.size());
+      std::iota(by_cost.begin(), by_cost.end(), 0U);
+      std::stable_sort(
+          by_cost.begin(), by_cost.end(),
+          [&run_costs](const std::size_t left, const std::size_t right) {
+            return run_costs[left] < run_costs[right];
+          });
+      for (const std::size_t index : by_cost) {
+        const std::uint64_t cost = run_costs[index];
+        if (cost > cache_budget_bytes - used) {
+          continue;
+        }
+        run_frame[index] = true;
+        used += cost;
+      }
+    }
+    for (std::size_t index = 0; index < references_.size(); ++index) {
+      references_[index].masks_cached = run_frame[index];
+      if (run_frame[index]) {
+        ++cached_reference_frames_;
+        ++run_cached_reference_frames_;
+      } else {
+        for (auto& variant : references_[index].variants) {
+          variant.runs.clear();
+          variant.runs.shrink_to_fit();
+          variant.area = 0;
+        }
+      }
+    }
+    // Promote the largest expensive masks first.  Small masks remain fast in
+    // row-run form, while this ordering prevents a few full-screen frames from
+    // dominating exact graph evaluation merely because they were too large to
+    // win a cheapest-frame cache policy.
+    std::vector<std::size_t> bitmap_order(references_.size());
+    std::iota(bitmap_order.begin(), bitmap_order.end(), 0U);
+    std::stable_sort(
+        bitmap_order.begin(), bitmap_order.end(),
+        [&bitmap_costs](const std::size_t left, const std::size_t right) {
+          return bitmap_costs[left] > bitmap_costs[right];
+        });
+    for (const std::size_t index : bitmap_order) {
+      if (!run_frame[index] || bitmap_costs[index] == 0U) {
+        continue;
+      }
+      const std::uint64_t run_cost = run_costs[index];
+      const std::uint64_t available = cache_budget_bytes - used + run_cost;
+      if (bitmap_costs[index] > available) {
+        continue;
+      }
+      used = used - run_cost + bitmap_costs[index];
+      cache_double_reference_bitmaps(&references_[index]);
+      ++bitmap_cached_reference_frames_;
+      --run_cached_reference_frames_;
+    }
+    cached_reference_bytes_ = used;
+    total_reference_cache_bytes_ = total_run_bytes;
+    total_bitmap_reference_bytes_ = total_bitmap_bytes;
+    cache_budget_bytes_ = cache_budget_bytes;
+  }
+
+  py::dict cache_stats() const {
+    py::dict output;
+    output["reference_frames"] = references_.size();
+    output["cached_reference_frames"] = cached_reference_frames_;
+    output["uncached_reference_frames"] =
+        references_.size() - cached_reference_frames_;
+    output["cached_reference_bytes"] = cached_reference_bytes_;
+    output["total_reference_cache_bytes"] = total_reference_cache_bytes_;
+    output["run_cached_reference_frames"] = run_cached_reference_frames_;
+    output["bitmap_cached_reference_frames"] =
+        bitmap_cached_reference_frames_;
+    output["total_bitmap_reference_bytes"] = total_bitmap_reference_bytes_;
+    output["cache_budget_bytes"] = cache_budget_bytes_;
+    return output;
+  }
+
+  py::array_t<double> metrics_batch(
+      const py::array_t<
+          std::int32_t,
+          py::array::c_style | py::array::forcecast>& frame_indices,
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& vectors,
+      const int contour_count,
+      const int anchors_per_contour,
+      const int requested_threads) const {
+    if (frame_indices.ndim() != 1) {
+      throw py::value_error("frame_indices must have shape (N,)");
+    }
+    if (vectors.ndim() != 3 || vectors.shape(2) != 2 ||
+        vectors.shape(0) != frame_indices.shape(0)) {
+      throw py::value_error("vectors must have shape (N, points, 2)");
+    }
+    const py::ssize_t expected_points =
+        static_cast<py::ssize_t>(contour_count) * anchors_per_contour;
+    if (contour_count < 0 || anchors_per_contour < 0 ||
+        vectors.shape(1) != expected_points) {
+      throw py::value_error("vector point count does not match contour topology");
+    }
+    const auto frame_view = frame_indices.unchecked<1>();
+    const py::ssize_t case_count = frame_indices.shape(0);
+    for (py::ssize_t index = 0; index < case_count; ++index) {
+      if (frame_view(index) < 0 ||
+          frame_view(index) >= static_cast<int>(references_.size())) {
+        throw py::value_error("frame index is outside the evaluator sequence");
+      }
+    }
+    py::array_t<double> output({case_count, static_cast<py::ssize_t>(7)});
+    auto output_view = output.mutable_unchecked<2>();
+    const double* input = vectors.data();
+    const std::size_t values_per_case =
+        static_cast<std::size_t>(expected_points) * 2U;
+    const int thread_count = std::max(1, requested_threads);
+    std::vector<DoubleRasterScratch> scratches(
+        static_cast<std::size_t>(thread_count));
+    std::vector<std::vector<DoublePolygon>> predictions(
+        static_cast<std::size_t>(thread_count),
+        std::vector<DoublePolygon>(static_cast<std::size_t>(contour_count)));
+    for (auto& predicted : predictions) {
+      for (auto& polygon : predicted) {
+        polygon.resize(static_cast<std::size_t>(anchors_per_contour));
+      }
+    }
+    {
+      py::gil_scoped_release release;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(thread_count)
+#endif
+      for (py::ssize_t case_index = 0; case_index < case_count; ++case_index) {
+#ifdef _OPENMP
+        const int thread_index = omp_get_thread_num();
+#else
+        const int thread_index = 0;
+#endif
+        const double* values = input +
+            static_cast<std::size_t>(case_index) * values_per_case;
+        auto& predicted = predictions[static_cast<std::size_t>(thread_index)];
+        for (int contour = 0; contour < contour_count; ++contour) {
+          auto& polygon = predicted[static_cast<std::size_t>(contour)];
+          const int base = contour * anchors_per_contour * 2;
+          for (int anchor = 0; anchor < anchors_per_contour; ++anchor) {
+            const int offset = base + anchor * 2;
+            polygon[static_cast<std::size_t>(anchor)] = cv::Point2d(
+                values[offset],
+                values[offset + 1]);
+          }
+        }
+        const ExactMetricCounts metrics = cached_double_metric_counts(
+            references_[static_cast<std::size_t>(frame_view(case_index))],
+            predicted,
+            &scratches[static_cast<std::size_t>(thread_index)]);
+        output_view(case_index, 0) = static_cast<double>(metrics.gt_area);
+        output_view(case_index, 1) = static_cast<double>(metrics.pred_area);
+        output_view(case_index, 2) = static_cast<double>(metrics.intersection);
+        output_view(case_index, 3) = static_cast<double>(metrics.union_area);
+        output_view(case_index, 4) = metrics.recall;
+        output_view(case_index, 5) = metrics.precision;
+        output_view(case_index, 6) = metrics.iou;
+      }
+    }
+    return output;
+  }
+
+  py::array_t<double> edge_metrics_batch(
+      const py::array_t<
+          double,
+          py::array::c_style | py::array::forcecast>& candidate_boundaries,
+      const py::array_t<
+          std::int32_t,
+          py::array::c_style | py::array::forcecast>& edges,
+      const double recall_floor,
+      const double low_iou_quadratic_weight,
+      const int requested_threads,
+      const bool check_topology) const {
+    if (candidate_boundaries.ndim() != 4 ||
+        candidate_boundaries.shape(3) != 2) {
+      throw py::value_error(
+          "candidate_boundaries must have shape (frames, states, points, 2)");
+    }
+    if (edges.ndim() != 2 || edges.shape(1) != 4) {
+      throw py::value_error("edges must have shape (E, 4)");
+    }
+    const int frame_count = static_cast<int>(candidate_boundaries.shape(0));
+    const int state_count = static_cast<int>(candidate_boundaries.shape(1));
+    const int point_count = static_cast<int>(candidate_boundaries.shape(2));
+    if (frame_count != static_cast<int>(references_.size()) || point_count < 3) {
+      throw py::value_error("candidate boundary dimensions do not match references");
+    }
+    const auto edge_view = edges.unchecked<2>();
+    const py::ssize_t edge_count = edges.shape(0);
+    for (py::ssize_t index = 0; index < edge_count; ++index) {
+      const int start_frame = edge_view(index, 0);
+      const int start_state = edge_view(index, 1);
+      const int end_frame = edge_view(index, 2);
+      const int end_state = edge_view(index, 3);
+      if (start_frame < 0 || start_frame >= end_frame || end_frame >= frame_count ||
+          start_state < 0 || start_state >= state_count ||
+          end_state < 0 || end_state >= state_count) {
+        throw py::value_error("edge index is outside candidate boundary dimensions");
+      }
+    }
+    py::array_t<double> output({edge_count, static_cast<py::ssize_t>(5)});
+    auto output_view = output.mutable_unchecked<2>();
+    const double* values = candidate_boundaries.data();
+    const std::size_t values_per_state =
+        static_cast<std::size_t>(point_count) * 2U;
+    const std::size_t values_per_frame =
+        static_cast<std::size_t>(state_count) * values_per_state;
+    const int thread_count = std::max(1, requested_threads);
+    std::vector<DoubleRasterScratch> scratches(
+        static_cast<std::size_t>(thread_count));
+    // Every graph edge ending at the same (frame, state) has the exact same
+    // final-frame raster.  The former loop rasterized that endpoint once per
+    // possible predecessor, which dominates wide DP graphs.  Precompute each
+    // endpoint exactly once.  Loss accumulation still appends this value in
+    // the same final position, preserving floating-point addition order.
+    std::vector<ExactMetricCounts> endpoint_metrics(
+        static_cast<std::size_t>(frame_count) * state_count);
+    std::vector<std::uint8_t> endpoint_topology(
+        static_cast<std::size_t>(frame_count) * state_count,
+        static_cast<std::uint8_t>(1));
+    std::vector<std::vector<DoublePolygon>> endpoint_predictions(
+        static_cast<std::size_t>(thread_count),
+        std::vector<DoublePolygon>(1));
+    for (auto& prediction : endpoint_predictions) {
+      prediction[0].resize(static_cast<std::size_t>(point_count));
+    }
+    const int endpoint_count = std::max(0, frame_count - 1) * state_count;
+    {
+      py::gil_scoped_release release;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(thread_count)
+#endif
+      for (int endpoint_index = 0; endpoint_index < endpoint_count;
+           ++endpoint_index) {
+#ifdef _OPENMP
+        const int thread_index = omp_get_thread_num();
+#else
+        const int thread_index = 0;
+#endif
+        const int frame = 1 + endpoint_index / state_count;
+        const int state = endpoint_index % state_count;
+        const double* endpoint = values +
+            static_cast<std::size_t>(frame) * values_per_frame +
+            static_cast<std::size_t>(state) * values_per_state;
+        auto& predicted =
+            endpoint_predictions[static_cast<std::size_t>(thread_index)];
+        for (int point = 0; point < point_count; ++point) {
+          const std::size_t offset = static_cast<std::size_t>(point) * 2U;
+          predicted[0][static_cast<std::size_t>(point)] = cv::Point2d(
+              endpoint[offset], endpoint[offset + 1U]);
+        }
+        const std::size_t output_index =
+            static_cast<std::size_t>(frame) * state_count + state;
+        endpoint_metrics[output_index] = cached_double_metric_counts(
+            references_[static_cast<std::size_t>(frame)],
+            predicted,
+            &scratches[static_cast<std::size_t>(thread_index)]);
+        if (check_topology) {
+          endpoint_topology[output_index] =
+              has_strict_self_intersection_impl(
+                  endpoint, static_cast<std::size_t>(point_count))
+              ? static_cast<std::uint8_t>(0)
+              : static_cast<std::uint8_t>(1);
+        }
+      }
+    }
+    // Reuse endpoint interpolation storage per worker instead of allocating a
+    // 288-point vector for every edge.  Each OpenMP worker exclusively owns
+    // its slot.
+    std::vector<std::vector<DoublePolygon>> predictions(
+        static_cast<std::size_t>(thread_count),
+        std::vector<DoublePolygon>(1));
+    for (auto& prediction : predictions) {
+      prediction[0].resize(static_cast<std::size_t>(point_count));
+    }
+    std::vector<std::vector<double>> topology_values(
+        static_cast<std::size_t>(thread_count));
+    if (check_topology) {
+      for (auto& flat : topology_values) {
+        flat.resize(values_per_state);
+      }
+    }
+    {
+      py::gil_scoped_release release;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 32) num_threads(thread_count)
+#endif
+      for (py::ssize_t edge_index = 0; edge_index < edge_count; ++edge_index) {
+#ifdef _OPENMP
+        const int thread_index = omp_get_thread_num();
+#else
+        const int thread_index = 0;
+#endif
+        const int start_frame = edge_view(edge_index, 0);
+        const int start_state = edge_view(edge_index, 1);
+        const int end_frame = edge_view(edge_index, 2);
+        const int end_state = edge_view(edge_index, 3);
+        const double* start = values +
+            static_cast<std::size_t>(start_frame) * values_per_frame +
+            static_cast<std::size_t>(start_state) * values_per_state;
+        const double* end = values +
+            static_cast<std::size_t>(end_frame) * values_per_frame +
+            static_cast<std::size_t>(end_state) * values_per_state;
+        double loss_total = 0.0;
+        double iou_total = 0.0;
+        double minimum_recall = 1.0;
+        int frames_covered = 0;
+        bool topology_valid = true;
+        bool continue_to_endpoint = true;
+        auto& predicted = predictions[static_cast<std::size_t>(thread_index)];
+        auto& flat = topology_values[static_cast<std::size_t>(thread_index)];
+        for (int frame = start_frame + 1; frame < end_frame; ++frame) {
+          const double alpha =
+              static_cast<double>(frame - start_frame) /
+              static_cast<double>(end_frame - start_frame);
+          const double beta = 1.0 - alpha;
+          for (int point = 0; point < point_count; ++point) {
+            const std::size_t offset = static_cast<std::size_t>(point) * 2U;
+            const double x = beta * start[offset] + alpha * end[offset];
+            const double y = beta * start[offset + 1U] + alpha * end[offset + 1U];
+            predicted[0][static_cast<std::size_t>(point)] = cv::Point2d(x, y);
+            if (check_topology) {
+              flat[offset] = x;
+              flat[offset + 1U] = y;
+            }
+          }
+          if (check_topology && has_strict_self_intersection_impl(
+                  flat.data(), static_cast<std::size_t>(point_count))) {
+            topology_valid = false;
+            continue_to_endpoint = false;
+            break;
+          }
+          const ExactMetricCounts metrics = cached_double_metric_counts(
+              references_[static_cast<std::size_t>(frame)],
+              predicted,
+              &scratches[static_cast<std::size_t>(thread_index)]);
+          ++frames_covered;
+          minimum_recall = std::min(minimum_recall, metrics.recall);
+          if (metrics.recall + 1e-12 < recall_floor) {
+            continue_to_endpoint = false;
+            break;
+          }
+          const double loss = 1.0 - metrics.iou;
+          loss_total += loss + low_iou_quadratic_weight * loss * loss;
+          iou_total += metrics.iou;
+        }
+        if (continue_to_endpoint) {
+          const std::size_t endpoint_index =
+              static_cast<std::size_t>(end_frame) * state_count + end_state;
+          if (check_topology && !endpoint_topology[endpoint_index]) {
+            topology_valid = false;
+          } else {
+            const ExactMetricCounts& metrics = endpoint_metrics[endpoint_index];
+            ++frames_covered;
+            minimum_recall = std::min(minimum_recall, metrics.recall);
+            if (metrics.recall + 1e-12 >= recall_floor) {
+              const double loss = 1.0 - metrics.iou;
+              loss_total += loss + low_iou_quadratic_weight * loss * loss;
+              iou_total += metrics.iou;
+            }
+          }
+        }
+        output_view(edge_index, 0) = loss_total;
+        output_view(edge_index, 1) = iou_total;
+        output_view(edge_index, 2) = minimum_recall;
+        output_view(edge_index, 3) = static_cast<double>(frames_covered);
+        output_view(edge_index, 4) = topology_valid ? 1.0 : 0.0;
+      }
+    }
+    return output;
+  }
+
+ private:
+  std::vector<DoubleFrameReference> references_;
+  std::size_t cached_reference_frames_ = 0U;
+  std::size_t run_cached_reference_frames_ = 0U;
+  std::size_t bitmap_cached_reference_frames_ = 0U;
+  std::uint64_t cached_reference_bytes_ = 0U;
+  std::uint64_t total_reference_cache_bytes_ = 0U;
+  std::uint64_t total_bitmap_reference_bytes_ = 0U;
+  std::uint64_t cache_budget_bytes_ = 0U;
+};
 
 double shape_distance_impl(
     const float* src,
@@ -2028,6 +2991,11 @@ PYBIND11_MODULE(native_interval_metrics, module) {
       py::arg("destination"),
       py::arg("normalization_scale"));
   module.def(
+      "strict_self_intersection_batch",
+      &strict_self_intersection_batch,
+      py::arg("values"),
+      py::arg("threads") = 1);
+  module.def(
       "decode_penalty_path",
       &decode_penalty_path,
       py::arg("edges"),
@@ -2058,6 +3026,29 @@ PYBIND11_MODULE(native_interval_metrics, module) {
           py::arg("edge_costs"),
           py::arg("penalty"),
           py::arg("recompute_from") = 0);
+  py::class_<ExactDoubleRasterEvaluator>(module, "ExactDoubleRasterEvaluator")
+      .def(
+          py::init<const py::iterable&, std::uint64_t>(),
+          py::arg("reference_frames"),
+          py::arg("maximum_cache_bytes") = 256U * 1024U * 1024U)
+      .def("cache_stats", &ExactDoubleRasterEvaluator::cache_stats)
+      .def(
+          "metrics_batch",
+          &ExactDoubleRasterEvaluator::metrics_batch,
+          py::arg("frame_indices"),
+          py::arg("vectors"),
+          py::arg("contour_count"),
+          py::arg("anchors_per_contour"),
+          py::arg("threads") = 1)
+      .def(
+          "edge_metrics_batch",
+          &ExactDoubleRasterEvaluator::edge_metrics_batch,
+          py::arg("candidate_boundaries"),
+          py::arg("edges"),
+          py::arg("recall_floor"),
+          py::arg("low_iou_quadratic_weight"),
+          py::arg("threads") = 1,
+          py::arg("check_topology") = true);
   py::class_<CachedIntervalEvaluator>(module, "CachedIntervalEvaluator")
       .def(
           py::init<

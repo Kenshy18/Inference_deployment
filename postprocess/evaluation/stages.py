@@ -23,5 +23,6 @@ class MaskIouEvaluationStage:
             context.artifacts["tracked_sqlite"],
             context.artifacts["predictions_sqlite"],
             output,
+            selected_track_ids=self.options.get("selected_track_ids"),
         )
         return StageResult({"evaluation_summary": output}, summary)

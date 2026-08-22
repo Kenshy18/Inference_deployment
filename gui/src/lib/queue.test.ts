@@ -78,6 +78,18 @@ describe("settingsSummary", () => {
     expect(summary).toContain("overlay fast");
   });
 
+  it("identifies the Catmull–Rom mask geometry", () => {
+    const summary = settingsSummary({
+      ...defaultDraft,
+      postprocess: {
+        ...defaultDraft.postprocess,
+        maskGeometry: "catmull_rom",
+      },
+    });
+    expect(summary).toContain("Catmull–Rom曲線");
+    expect(summary).not.toContain("ポリゴン");
+  });
+
   it("reflects reuse and disabled overlay", () => {
     const summary = settingsSummary({
       ...defaultDraft,

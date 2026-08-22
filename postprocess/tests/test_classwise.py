@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -12,6 +13,13 @@ from classwise.policy import (
     ClassPostprocessSettings,
     load_class_postprocess_policy,
 )
+from classwise.curve_parallel import (
+    available_cpu_count,
+    curve_track_costs,
+    partition_curve_tracks,
+)
+from common.config import PipelineConfig, StageSpec
+from common.runner import PipelineRunner
 from run_pipeline import build_parser, run_pipeline
 from tracking.schema import create_schema
 
@@ -64,6 +72,37 @@ def _tracked_sqlite(path: Path) -> Path:
 
 
 class ClassPostprocessTests(unittest.TestCase):
+    def test_curve_track_partition_is_stable_and_balanced(self) -> None:
+        tracks = ("1", "2", "3", "4", "5")
+        counts = {"1": 100, "2": 80, "3": 40, "4": 30, "5": 20}
+        first = partition_curve_tracks(tracks, counts, 2)
+        second = partition_curve_tracks(tuple(reversed(tracks)), counts, 2)
+        self.assertEqual(first, second)
+        self.assertEqual(set(tracks), {value for shard in first for value in shard})
+        self.assertEqual(len(tracks), sum(len(shard) for shard in first))
+        loads = [sum(counts[value] for value in shard) for shard in first]
+        self.assertLessEqual(max(loads) - min(loads), max(counts.values()))
+
+    def test_curve_work_cost_falls_back_for_empty_tracking_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = _tracked_sqlite(Path(temporary) / "tracked.sqlite")
+            with sqlite3.connect(source) as connection:
+                costs, metric = curve_track_costs(
+                    connection,
+                    {"1": 2, "2": 2},
+                )
+            self.assertEqual("source_bbox_area_sum", metric)
+            # The canonical schema has the lineage table, but this minimal
+            # fixture has no lineage rows.  Both tracks receive the same safe
+            # non-zero fallback cost and remain deterministically balanced.
+            self.assertEqual({"1": 2, "2": 2}, costs)
+
+    def test_curve_cpu_budget_respects_process_affinity(self) -> None:
+        self.assertGreaterEqual(available_cpu_count(), 1)
+        affinity = getattr(os, "sched_getaffinity", None)
+        if affinity is not None:
+            self.assertEqual(len(affinity(0)), available_cpu_count())
+
     def test_old_polygon_max_gap_is_migrated_to_production_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "old-policy.json"
@@ -254,6 +293,142 @@ class ClassPostprocessTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "cannot be combined"):
             run_pipeline(args)
+
+    def test_curve_classes_share_source_but_emit_disjoint_routes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = _tracked_sqlite(root / "tracked.sqlite")
+            policy = root / "policy.json"
+            policy.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default": {
+                            "shape_mode": "polygon",
+                            "keyframe_interval": 2,
+                            "max_gap": 15,
+                        },
+                        "classes": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "--input-sqlite",
+                    str(source),
+                    "--output-dir",
+                    str(root / "output"),
+                    "--class-postprocess-policy-json",
+                    str(policy),
+                    "--mask-geometry",
+                    "catmull_rom",
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                manifest = run_pipeline(args)
+            classwise = json.loads(
+                Path(manifest["artifacts"]["classwise_manifest"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("catmull_rom", classwise["execution"]["geometry_mode"])
+            self.assertEqual("process_spawn", classwise["execution"]["worker_mode"])
+            self.assertTrue(
+                all(group["shared_read_only_source"] for group in classwise["groups"])
+            )
+            self.assertEqual(
+                {str(source.resolve())},
+                {group["tracked_input"] for group in classwise["groups"]},
+            )
+            self.assertFalse(
+                any(
+                    (
+                        Path(manifest["artifacts"]["classwise_manifest"]).parent
+                        / "groups"
+                        / group["id"]
+                        / "tracked.sqlite"
+                    ).exists()
+                    for group in classwise["groups"]
+                )
+            )
+            with sqlite3.connect(manifest["artifacts"]["predictions_sqlite"]) as db:
+                self.assertEqual(
+                    [("1",), ("2",)],
+                    db.execute(
+                        "SELECT DISTINCT track_id FROM masks ORDER BY track_id"
+                    ).fetchall(),
+                )
+            for group in classwise["groups"]:
+                worker_progress = json.loads(
+                    Path(group["worker_progress_json"]).read_text(encoding="utf-8")
+                )
+                self.assertEqual("complete", worker_progress["detail"])
+                self.assertEqual(1.0, worker_progress["fraction"])
+                self.assertNotEqual(os.getpid(), group["worker_pid"])
+                nested = json.loads(
+                    Path(group["pipeline_manifest"]).read_text(encoding="utf-8")
+                )
+                evaluation = next(
+                    stage
+                    for stage in nested["stages"]
+                    if stage["id"] == "exact_evaluation"
+                )["metadata"]
+                self.assertEqual(
+                    group["input_masks"], evaluation["row_count_reference"]
+                )
+                self.assertEqual(
+                    group["output_masks"], evaluation["row_count_prediction"]
+                )
+
+            serial_manifest = PipelineRunner(
+                PipelineConfig(
+                    "curve_serial_parity",
+                    (
+                        StageSpec(
+                            "classwise_postprocess",
+                            "classwise.production",
+                            {
+                                "geometry_mode": "catmull_rom",
+                                "geometry_options": {
+                                    "parallel_workers": 1,
+                                    "parallel_shards_per_class": 1,
+                                    "native_cpu_threads": 1,
+                                },
+                            },
+                        ),
+                        StageSpec("output_validation", "artifacts.validate"),
+                    ),
+                ),
+                root / "serial-output",
+            ).run(
+                {
+                    "tracked_sqlite": source,
+                    "class_postprocess_policy_json": policy,
+                }
+            )
+            with sqlite3.connect(manifest["artifacts"]["predictions_sqlite"]) as left:
+                process_rows = left.execute(
+                    "SELECT frame,track_id,polygons,shape_type,label "
+                    "FROM masks ORDER BY frame,track_id"
+                ).fetchall()
+                process_provenance = left.execute(
+                    "SELECT * FROM mask_postprocess_provenance "
+                    "ORDER BY frame,track_id"
+                ).fetchall()
+            with sqlite3.connect(
+                serial_manifest["artifacts"]["predictions_sqlite"]
+            ) as right:
+                serial_rows = right.execute(
+                    "SELECT frame,track_id,polygons,shape_type,label "
+                    "FROM masks ORDER BY frame,track_id"
+                ).fetchall()
+                serial_provenance = right.execute(
+                    "SELECT * FROM mask_postprocess_provenance "
+                    "ORDER BY frame,track_id"
+                ).fetchall()
+            self.assertEqual(process_rows, serial_rows)
+            self.assertEqual(process_provenance, serial_provenance)
 
 
 if __name__ == "__main__":

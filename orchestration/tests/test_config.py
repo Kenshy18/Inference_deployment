@@ -503,6 +503,42 @@ class ConfigTests(unittest.TestCase):
                 command[command.index("--minimum-eye-confidence") + 1],
             )
 
+    def test_catmull_rom_postprocess_is_cpu_only_and_forwarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video = create_video(root / "input.avi")
+            sqlite = root / "input.sqlite"
+            sqlite.touch()
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": False,
+                            "input_sqlite": str(sqlite),
+                            "mode": "segmentation",
+                        },
+                        "postprocess": {
+                            "enabled": True,
+                            "mask_geometry": "catmull_rom",
+                        },
+                        "overlay": {"enabled": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = OrchestrationConfig.load(config_path)
+            command = OrchestrationRunner(config).postprocess_command(sqlite)
+            self.assertEqual("catmull_rom", config.postprocess.mask_geometry)
+            self.assertFalse(config.postprocess.uses_gpu)
+            self.assertEqual(
+                "catmull_rom",
+                command[command.index("--mask-geometry") + 1],
+            )
+
     def test_face_privacy_requires_face_dino_v2_inference(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

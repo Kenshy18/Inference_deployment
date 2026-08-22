@@ -52,6 +52,12 @@ def polygon_production_v3_cpu(options: dict[str, Any]) -> PostprocessStage:
     return ProductionPolygonStage(options)
 
 
+def curve_production_v1_cpu(options: dict[str, Any]) -> PostprocessStage:
+    from production.curve import ProductionCurveStage
+
+    return ProductionCurveStage(options)
+
+
 def mask_evaluation(options: dict[str, Any]) -> PostprocessStage:
     from evaluation.stages import MaskIouEvaluationStage
 
@@ -107,6 +113,7 @@ register_stage("nms.production_v3", production_mask_nms)
 register_stage("cut_detection.video", cut_detection)
 register_stage("tracking.greedy", tracking)
 register_stage("production.polygon_v3_cpu", polygon_production_v3_cpu)
+register_stage("production.curve_v1_cpu", curve_production_v1_cpu)
 register_stage("evaluation.mask_iou", mask_evaluation)
 register_stage("artifacts.union_sqlite", union_sqlite)
 register_stage("artifacts.validate", validate_output)

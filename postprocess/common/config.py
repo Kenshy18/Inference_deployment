@@ -58,7 +58,11 @@ def load_pipeline_config(path: Path) -> PipelineConfig:
     return PipelineConfig.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
-def default_polygon_pipeline(*, include_preprocess: bool) -> PipelineConfig:
+def default_mask_pipeline(
+    *, include_preprocess: bool, geometry_mode: str = "polygon"
+) -> PipelineConfig:
+    if geometry_mode not in {"polygon", "catmull_rom"}:
+        raise ValueError(f"unsupported mask geometry: {geometry_mode}")
     stages: list[StageSpec] = []
     if include_preprocess:
         stages.extend(
@@ -85,15 +89,38 @@ def default_polygon_pipeline(*, include_preprocess: bool) -> PipelineConfig:
     stages.extend(
         [
             StageSpec(
-                "polygon_optimization",
-                "production.polygon_v3_cpu",
+                (
+                    "polygon_optimization"
+                    if geometry_mode == "polygon"
+                    else "curve_optimization"
+                ),
+                (
+                    "production.polygon_v3_cpu"
+                    if geometry_mode == "polygon"
+                    else "production.curve_v1_cpu"
+                ),
                 {
                     "target_interval": 6,
-                    "interval_evaluation": "cuda_lazy_exact",
+                    **(
+                        {"interval_evaluation": "cuda_lazy_exact"}
+                        if geometry_mode == "polygon"
+                        else {}
+                    ),
                 },
             ),
             StageSpec("exact_evaluation", "evaluation.mask_iou"),
             StageSpec("output_validation", "artifacts.validate"),
         ]
     )
-    return PipelineConfig("polygon_modular", tuple(stages))
+    return PipelineConfig(f"{geometry_mode}_modular", tuple(stages))
+
+
+def default_polygon_pipeline(
+    *, include_preprocess: bool, geometry_mode: str = "polygon"
+) -> PipelineConfig:
+    """Compatibility alias for callers predating the curve Production mode."""
+
+    return default_mask_pipeline(
+        include_preprocess=include_preprocess,
+        geometry_mode=geometry_mode,
+    )

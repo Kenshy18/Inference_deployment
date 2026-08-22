@@ -32,6 +32,7 @@ describe("orchestration bridge", () => {
     expect(config.inference.face_backend).toBe("tensorrt-fast");
     expect(config.postprocess.k2_batch_size).toBeUndefined();
     expect(config.postprocess.shape_mode).toBeUndefined();
+    expect(config.postprocess.mask_geometry).toBe("polygon");
     expect(config.postprocess.face_tracking_max_gap_frames).toBe(5);
     expect(config.postprocess.face_detection_score_threshold).toBe(0.55);
     expect(config.postprocess.head_detection_score_threshold).toBe(0.55);
@@ -42,6 +43,38 @@ describe("orchestration bridge", () => {
     ]);
     expect(config.overlay.workers).toBe(6);
     expect(config.overlay.face_mask_target).toBe("eyes");
+  });
+
+  it("forwards the CPU-only Catmull–Rom Production choice", () => {
+    const config = buildOrchestrationConfig(
+      {
+        ...draft,
+        postprocess: {
+          ...draft.postprocess,
+          maskGeometry: "catmull_rom",
+        },
+      },
+      settings,
+    );
+    expect(config.postprocess.mask_geometry).toBe("catmull_rom");
+  });
+
+  it("lets a custom pipeline own geometry regardless of a saved selector", () => {
+    const config = buildOrchestrationConfig(
+      {
+        ...draft,
+        postprocess: {
+          ...draft.postprocess,
+          pipelineConfig: "/jobs/custom-pipeline.json",
+          maskGeometry: "catmull_rom",
+        },
+      },
+      settings,
+    );
+    expect(config.postprocess.pipeline_config).toBe(
+      "/jobs/custom-pipeline.json",
+    );
+    expect(config.postprocess.mask_geometry).toBe("polygon");
   });
 
   it("omits segmentation fields for a face-only workflow", () => {

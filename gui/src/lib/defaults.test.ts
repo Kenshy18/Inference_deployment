@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DRAFT_STORAGE_VERSION,
   defaultDraft,
   migrateProductionPostprocessDefaults,
 } from "./defaults";
@@ -22,6 +23,7 @@ describe("default processing profile", () => {
       classPostprocessPolicySource: "editor",
       scoreMin: 0.6,
       keyframeInterval: 6,
+      maskGeometry: "polygon",
       faceMaskTarget: "eyes",
       eyeMaskShape: "rectangle",
       faceDetectionScoreThreshold: 0.55,
@@ -73,5 +75,17 @@ describe("Production postprocess draft migration", () => {
       defaultDraft.postprocess.classPostprocessRules,
     );
     expect(migrated.classPostprocessRules[3]).toEqual(old.classPostprocessRules[3]);
+  });
+
+  it("does not replay the legacy interval migration for a current draft", () => {
+    const current = structuredClone(defaultDraft.postprocess);
+    current.keyframeInterval = 2;
+    current.classPostprocessRules[0].keyframeInterval = 2;
+    const migrated = migrateProductionPostprocessDefaults(
+      DRAFT_STORAGE_VERSION,
+      current,
+    );
+    expect(migrated.keyframeInterval).toBe(2);
+    expect(migrated.classPostprocessRules[0].keyframeInterval).toBe(2);
   });
 });

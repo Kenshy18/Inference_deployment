@@ -712,6 +712,106 @@ def assert_pair_vote_batch_parity() -> tuple[int, int]:
     return len(trial_vectors), len(full_trials)
 
 
+def assert_partial_reference_cache_parity() -> dict[str, int]:
+    """A bounded partial cache must remain exact on cached and uncached frames."""
+
+    frames = []
+    for size in (18.0, 32.0, 48.0):
+        polygon = np.asarray(
+            [[0.5, 0.5], [size + 0.5, 0.5], [size + 0.5, size + 0.5], [0.5, size + 0.5]],
+            dtype=np.float64,
+        )
+        frames.append([polygon])
+    # The production cache stores foreground row runs, so a rectangle costs
+    # roughly its height rather than its full ROI area.  Keep this budget low
+    # enough to exercise both cached and uncached paths.
+    budget = 1_000
+    evaluator = native_interval_metrics.ExactDoubleRasterEvaluator(frames, budget)
+    stats = {str(key): int(value) for key, value in dict(evaluator.cache_stats()).items()}
+    if not 0 < stats["cached_reference_frames"] < len(frames):
+        raise AssertionError(f"partial cache did not split frames: {stats}")
+    if stats["cached_reference_bytes"] > budget:
+        raise AssertionError(f"partial cache exceeded its budget: {stats}")
+    indices = np.arange(len(frames), dtype=np.int32)
+    predictions = np.asarray([frame[0] for frame in frames], dtype=object)
+    # Batch vectors require one common point count, which these rectangles use.
+    predictions = np.stack(predictions).astype(np.float64)
+    actual = np.asarray(evaluator.metrics_batch(indices, predictions, 1, 4, 2))
+    expected = np.asarray(
+        [
+            [
+                value["gt_area"],
+                value["pred_area"],
+                value["intersection"],
+                value["union"],
+                value["recall"],
+                value["precision"],
+                value["iou"],
+            ]
+            for value in (
+                native_interval_metrics.exact_metrics(frame, frame)
+                for frame in frames
+            )
+        ],
+        dtype=np.float64,
+    )
+    if not np.array_equal(actual, expected):
+        raise AssertionError(
+            "partial cache changed exact metrics: "
+            f"max_delta={np.max(np.abs(actual - expected))}"
+        )
+    return stats
+
+
+def assert_exact_double_lazy_topology_contract() -> int:
+    """Exercise both eager and exact-lazy edge API modes.
+
+    The endpoint contours are simple while their index-wise midpoint crosses.
+    Eager mode must reject the edge; lazy mode deliberately leaves topology
+    to the selected-path validator while preserving exact raster metrics.
+    """
+
+    first = np.asarray(
+        [
+            [-20.8385357387, -16.2386381486],
+            [-12.5779779505, -15.5953404636],
+            [8.4606834576, -25.4762975843],
+            [9.0906962551, -13.7263525915],
+            [16.5469038174, -0.6842814052],
+        ],
+        dtype=np.float64,
+    ) + 50.0
+    last = np.asarray(
+        [
+            [9.1349539604, -16.5021598958],
+            [16.8335671676, -0.1111056913],
+            [-23.9676621854, -15.4265268191],
+            [-12.2998133384, -17.1655435926],
+            [6.8539476708, -30.5448832298],
+        ],
+        dtype=np.float64,
+    ) + 50.0
+    candidates = np.asarray((first, first, last), dtype=np.float64)[:, None]
+    references = [[first], [first], [last]]
+    evaluator = native_interval_metrics.ExactDoubleRasterEvaluator(references)
+    edges = np.asarray(((0, 0, 2, 0),), dtype=np.int32)
+    eager = np.asarray(
+        evaluator.edge_metrics_batch(candidates, edges, 0.0, 0.0, 2, True),
+        dtype=np.float64,
+    )
+    lazy = np.asarray(
+        evaluator.edge_metrics_batch(candidates, edges, 0.0, 0.0, 2, False),
+        dtype=np.float64,
+    )
+    if eager.shape != (1, 5) or lazy.shape != (1, 5):
+        raise AssertionError(f"unexpected exact-double edge shape: {eager}, {lazy}")
+    if eager[0, 4] != 0.0 or eager[0, 3] != 0.0:
+        raise AssertionError(f"eager topology did not reject crossing edge: {eager}")
+    if lazy[0, 4] != 1.0 or lazy[0, 3] != 2.0:
+        raise AssertionError(f"lazy topology mode did not rasterize full edge: {lazy}")
+    return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=10_000)
@@ -723,6 +823,8 @@ def main() -> int:
         cached_endpoint_cases,
     ) = assert_random_exact_recall_batch_parity()
     pair_vote_local_cases, pair_vote_full_cases = assert_pair_vote_batch_parity()
+    partial_cache = assert_partial_reference_cache_parity()
+    lazy_topology_cases = assert_exact_double_lazy_topology_contract()
     result = {
         "implementation": native_interval_metrics.implementation,
         "parity_cases": checked,
@@ -731,6 +833,8 @@ def main() -> int:
         "cached_endpoint_parity_cases": cached_endpoint_cases,
         "pair_vote_local_parity_cases": pair_vote_local_cases,
         "pair_vote_full_parity_cases": pair_vote_full_cases,
+        "partial_reference_cache": partial_cache,
+        "lazy_topology_contract_cases": lazy_topology_cases,
         "benchmark": benchmark(args.iterations),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))

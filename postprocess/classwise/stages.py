@@ -4,16 +4,25 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import multiprocessing
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from common.config import PipelineConfig, StageSpec
 from common.runner import PipelineRunner
 from contracts.stages import StageContext, StageResult
 
+from .curve_parallel import (
+    CurveGroupJob,
+    available_cpu_count,
+    curve_track_costs,
+    partition_curve_tracks,
+    run_curve_group_process,
+)
+from .pipeline_factory import build_nested_pipeline
 from .policy import (
     ClassPostprocessSettings,
     PRODUCTION_POLYGON_MAX_GAP,
@@ -26,32 +35,6 @@ from .sqlite import (
     merge_routed_outputs,
     read_track_labels,
 )
-
-
-def _nested_pipeline(
-    settings: ClassPostprocessSettings,
-    *,
-    polygon_options: dict[str, object],
-) -> PipelineConfig:
-    stages = (
-        StageSpec(
-            "polygon_optimization",
-            "production.polygon_v3_cpu",
-            {
-                **polygon_options,
-                "target_interval": settings.keyframe_interval,
-                "interval_evaluation": str(
-                    polygon_options.get("interval_evaluation", "cuda_lazy_exact")
-                ),
-            },
-        ),
-        StageSpec("exact_evaluation", "evaluation.mask_iou"),
-        StageSpec("output_validation", "artifacts.validate"),
-    )
-    return PipelineConfig(
-        name=f"classwise_polygon_k{settings.keyframe_interval}",
-        stages=stages,
-    )
 
 
 @dataclass(frozen=True)
@@ -89,21 +72,92 @@ class ClasswisePostprocessStage:
             settings = policy.resolve(label)
             tracks_by_group.setdefault((label, settings), []).append(track_id)
 
-        polygon_options = dict(self.options.get("polygon_options", {}))
-        ordered_groups = sorted(
+        geometry_options = dict(
+            self.options.get(
+                "geometry_options",
+                self.options.get("polygon_options", {}),
+            )
+        )
+        geometry_mode = str(self.options.get("geometry_mode", "polygon"))
+        if geometry_mode not in {"polygon", "catmull_rom"}:
+            raise ValueError(f"unsupported Production geometry: {geometry_mode}")
+        semantic_groups = sorted(
             tracks_by_group,
             key=lambda value: (
                 value[1].keyframe_interval,
                 value[0],
             ),
         )
-        group_count = max(1, len(ordered_groups))
-        workers = min(
-            max(1, int(self.options.get("classwise_workers", 3))),
-            group_count,
+        mask_counts_by_track: dict[str, int] = {}
+        curve_costs_by_track: dict[str, int] = {}
+        curve_cost_metric: str | None = None
+        if geometry_mode == "catmull_rom":
+            # Every route reads the same immutable tracked SQLite. Scan its
+            # compact index once rather than making concurrent class workers
+            # perform identical full-table GROUP BY queries.
+            with sqlite3.connect(
+                f"file:{Path(tracked).resolve()}?mode=ro", uri=True
+            ) as connection:
+                mask_counts_by_track = {
+                    str(track_id): int(count)
+                    for track_id, count in connection.execute(
+                        "SELECT track_id,COUNT(*) FROM masks GROUP BY track_id"
+                    )
+                }
+                curve_costs_by_track, curve_cost_metric = curve_track_costs(
+                    connection,
+                    mask_counts_by_track,
+                )
+        curve_shards_per_class = max(
+            1,
+            min(
+                8,
+                int(geometry_options.get("parallel_shards_per_class", 2)),
+            ),
         )
+        work_groups: list[
+            tuple[str, ClassPostprocessSettings, int, tuple[str, ...]]
+        ] = []
+        for label, settings in semantic_groups:
+            track_ids = tuple(tracks_by_group[(label, settings)])
+            partitions = (
+                partition_curve_tracks(
+                    track_ids,
+                    curve_costs_by_track,
+                    curve_shards_per_class,
+                )
+                if geometry_mode == "catmull_rom"
+                else (track_ids,)
+            )
+            work_groups.extend(
+                (label, settings, shard_index, partition)
+                for shard_index, partition in enumerate(partitions)
+            )
+        group_count = max(1, len(work_groups))
+        available_cpus = available_cpu_count()
+        if geometry_mode == "catmull_rom":
+            requested_workers = int(
+                geometry_options.get(
+                    "parallel_workers",
+                    min(6, available_cpus),
+                )
+            )
+        else:
+            requested_workers = int(self.options.get("classwise_workers", 3))
+        workers = min(max(1, requested_workers), group_count, available_cpus)
+        requested_curve_threads = int(geometry_options.get("native_cpu_threads", 0))
+        if requested_curve_threads > 0:
+            curve_cpu_threads = requested_curve_threads
+        else:
+            # Native exact batches are deterministic across thread counts.
+            # Share the affinity-visible CPU budget between balanced track
+            # shards so no semantic class can strand the remaining cores.
+            curve_cpu_threads = max(
+                1,
+                min(12, available_cpus // max(workers, 1)),
+            )
         progress_lock = threading.Lock()
-        progress_by_index = {index: 0.0 for index in range(len(ordered_groups))}
+        progress_by_index = {index: 0.0 for index in range(len(work_groups))}
 
         def report_group_progress(
             index: int,
@@ -126,15 +180,25 @@ class ClasswisePostprocessStage:
                 )
 
         def run_group(
-            item: tuple[int, tuple[str, ClassPostprocessSettings]],
+            item: tuple[
+                int,
+                tuple[str, ClassPostprocessSettings, int, tuple[str, ...]],
+            ],
         ) -> tuple[RoutedGroup, dict[str, object]]:
-            index, (label, settings) = item
+            index, (label, settings, shard_index, track_ids) = item
             group_started = time.perf_counter()
-            group_id = f"{index:02d}_polygon_k{settings.keyframe_interval}"
+            group_id = f"{index:02d}_{geometry_mode}_k{settings.keyframe_interval}"
             group_root = context.stage_dir / "groups" / group_id
             projected = group_root / "tracked.sqlite"
-            track_ids = tuple(tracks_by_group[(label, settings)])
-            if set(track_ids) == set(track_labels):
+            if geometry_mode == "catmull_rom":
+                # The curve stage streams this route directly from the shared
+                # read-only source into its lean preparation DB. Avoid a full
+                # tracked-database backup for every semantic class.
+                projected = Path(tracked)
+                input_masks = sum(
+                    int(mask_counts_by_track.get(track_id, 0)) for track_id in track_ids
+                )
+            elif set(track_ids) == set(track_labels):
                 projected = Path(tracked)
                 input_masks = count_masks(projected)
             else:
@@ -148,9 +212,12 @@ class ClasswisePostprocessStage:
             if context.artifacts.get("input_video") is not None:
                 nested_inputs["input_video"] = context.artifacts["input_video"]
             manifest = PipelineRunner(
-                _nested_pipeline(
+                build_nested_pipeline(
                     settings,
-                    polygon_options=polygon_options,
+                    geometry_options=geometry_options,
+                    geometry_mode=geometry_mode,
+                    curve_cpu_threads=curve_cpu_threads,
+                    selected_track_ids=track_ids,
                 ),
                 nested_root,
                 progress_callback=(
@@ -183,9 +250,13 @@ class ClasswisePostprocessStage:
             group_manifest = {
                 "id": group_id,
                 "labels": [label],
+                "geometry_mode": geometry_mode,
+                "semantic_shard_index": int(shard_index),
                 "track_ids": list(track_ids),
                 "settings": settings.as_dict(),
                 "input_masks": input_masks,
+                "tracked_input": str(Path(projected).resolve()),
+                "shared_read_only_source": bool(geometry_mode == "catmull_rom"),
                 "output_masks": output_masks,
                 "pipeline_manifest": str(nested_root / "pipeline_manifest.json"),
                 "predictions_sqlite": str(predictions),
@@ -194,10 +265,121 @@ class ClasswisePostprocessStage:
             report_group_progress(index, label, "complete", 1.0, None)
             return routed_group, group_manifest
 
-        indexed_groups = list(enumerate(ordered_groups))
+        indexed_groups = list(enumerate(work_groups))
+        execution_worker_mode = "serial"
         if workers == 1:
             results = [run_group(item) for item in indexed_groups]
+        elif geometry_mode == "catmull_rom":
+            # Most exact raster work releases the GIL, but candidate setup,
+            # DP, rescue, SQLite and audit orchestration do not. Independent
+            # processes let those Python sections execute concurrently.
+            # ``spawn`` avoids inheriting OpenCV/OpenMP worker state.
+            execution_worker_mode = "process_spawn"
+            jobs: list[CurveGroupJob] = []
+            for index, (label, settings, shard_index, track_ids) in indexed_groups:
+                group_id = (
+                    f"{index:02d}_{geometry_mode}_k{settings.keyframe_interval}"
+                )
+                group_root = context.stage_dir / "groups" / group_id
+                jobs.append(
+                    CurveGroupJob(
+                        index=index,
+                        group_id=group_id,
+                        label=label,
+                        shard_index=shard_index,
+                        settings=settings,
+                        geometry_options=dict(geometry_options),
+                        curve_cpu_threads=curve_cpu_threads,
+                        track_ids=track_ids,
+                        tracked=Path(tracked).resolve(),
+                        input_video=(
+                            Path(context.artifacts["input_video"]).resolve()
+                            if context.artifacts.get("input_video") is not None
+                            else None
+                        ),
+                        group_root=group_root,
+                        input_masks=sum(
+                            int(mask_counts_by_track.get(track_id, 0))
+                            for track_id in track_ids
+                        ),
+                    )
+                )
+            completed: dict[int, tuple[RoutedGroup, dict[str, object]]] = {}
+
+            def refresh_worker_progress() -> None:
+                latest: tuple[float, str, str, float | None] | None = None
+                with progress_lock:
+                    for job in jobs:
+                        progress_path = job.group_root / "worker_progress.json"
+                        try:
+                            payload = json.loads(
+                                progress_path.read_text(encoding="utf-8")
+                            )
+                        except (OSError, json.JSONDecodeError):
+                            continue
+                        raw_fraction = payload.get("fraction")
+                        if raw_fraction is not None:
+                            progress_by_index[job.index] = max(
+                                progress_by_index[job.index],
+                                min(1.0, max(0.0, float(raw_fraction))),
+                            )
+                        updated = float(payload.get("updated_monotonic", 0.0))
+                        candidate = (
+                            updated,
+                            job.label,
+                            str(payload.get("detail", "running")),
+                            (
+                                None
+                                if payload.get("fps") is None
+                                else float(payload["fps"])
+                            ),
+                        )
+                        if latest is None or candidate[0] > latest[0]:
+                            latest = candidate
+                    aggregate = sum(progress_by_index.values()) / group_count
+                detail = "classwise:curve-workers:running"
+                fps = None
+                if latest is not None:
+                    _updated, label, worker_detail, fps = latest
+                    detail = f"classwise:{label}:{worker_detail}"
+                context.report_progress(
+                    detail,
+                    0.02 + 0.94 * aggregate,
+                    fps,
+                )
+
+            spawn_context = multiprocessing.get_context("spawn")
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=spawn_context,
+            ) as executor:
+                pending = {
+                    executor.submit(run_curve_group_process, job): job
+                    for job in jobs
+                }
+                while pending:
+                    done, _not_done = concurrent.futures.wait(
+                        pending,
+                        timeout=1.0,
+                        return_when=concurrent.futures.FIRST_COMPLETED,
+                    )
+                    if not done:
+                        refresh_worker_progress()
+                        continue
+                    for future in done:
+                        job = pending.pop(future)
+                        result_index, routed_group, group_manifest = future.result()
+                        completed[result_index] = (routed_group, group_manifest)
+                        report_group_progress(
+                            result_index,
+                            job.label,
+                            "complete",
+                            1.0,
+                            None,
+                        )
+            results = [completed[index] for index in range(len(indexed_groups))]
         else:
+            execution_worker_mode = "thread"
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=workers,
                 thread_name_prefix="classwise-postprocess",
@@ -227,6 +409,20 @@ class ClasswisePostprocessStage:
             "execution": {
                 "classwise_workers": workers,
                 "parallel": workers > 1,
+                "worker_mode": execution_worker_mode,
+                "geometry_mode": geometry_mode,
+                "curve_cpu_threads_per_group": (
+                    curve_cpu_threads if geometry_mode == "catmull_rom" else None
+                ),
+                "curve_parallel_workers": (
+                    workers if geometry_mode == "catmull_rom" else None
+                ),
+                "curve_shards_per_class": (
+                    curve_shards_per_class
+                    if geometry_mode == "catmull_rom"
+                    else None
+                ),
+                "curve_work_cost_metric": curve_cost_metric,
             },
             "merge": merge_summary,
             "elapsed_seconds": elapsed,

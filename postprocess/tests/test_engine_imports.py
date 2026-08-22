@@ -64,6 +64,23 @@ RUNTIME_MODULES = (
     "production.polygon.runtime.run_phase2",
     "production.polygon.stage",
     "production.polygon.vertex_policy",
+    "production.curve.config",
+    "production.curve.engine",
+    "production.curve.preparation",
+    "production.curve.stage",
+    "production.curve.storage",
+    "production.curve.runtime.curve_fit",
+    "production.curve.runtime.fitter",
+    "production.curve.runtime.keyframe_dp",
+    "production.curve.runtime.metrics",
+    "production.curve.runtime.model",
+    "production.curve.runtime.multistate_dp",
+    "production.curve.runtime.native_cpu",
+    "production.curve.runtime.spatial",
+    "production.curve.runtime.topology",
+    "classwise.curve_parallel",
+    "classwise.pipeline_factory",
+    "classwise.stages",
     "run_pipeline",
 )
 
@@ -119,6 +136,15 @@ class EngineImportTests(unittest.TestCase):
             "evaluation.ellipse.exact",
         }
         self.assertTrue(retired.isdisjoint(stage_implementations()))
+
+    def test_curve_runtime_import_does_not_initialize_cuda(self) -> None:
+        script = (
+            "import sys; import production.curve.stage; "
+            "forbidden=('cupy','torch','onnxruntime'); "
+            "loaded=[name for name in forbidden if name in sys.modules]; "
+            "assert not loaded,loaded"
+        )
+        subprocess.run([sys.executable, "-c", script], check=True)
 
 
 if __name__ == "__main__":

@@ -165,19 +165,36 @@ def _best_phase(
                 best_cost = cost
                 best = rolled[shift]
         return np.asarray(best, dtype=np.float64).copy()
+    # In 2-D the optimal proper rotation has a closed form.  Translation and
+    # scale normalization are invariant under a cyclic roll, so all phases
+    # can be scored in one NumPy kernel instead of running one SVD per phase.
+    # The score below is algebraically identical to the SVD+determinant gate
+    # in _procrustes_error: maximize hypot(trace(C), skew(C)).
+    reference_normalized = _normalized_shape(reference)
+    phase_indices = (
+        np.arange(count, dtype=np.intp)[:, None]
+        + np.arange(count, dtype=np.intp)[None, :]
+    ) % count
     best = variants[0]
     best_cost = float("inf")
     for variant in variants:
-        for shift in range(count):
-            rolled = np.roll(variant, -shift, axis=0)
-            if procrustes:
-                cost = _procrustes_error(reference, rolled)
-            else:
-                delta = rolled - reference
-                cost = float(np.mean(np.sum(delta * delta, axis=1)))
-            if cost < best_cost:
-                best_cost = cost
-                best = rolled
+        normalized = _normalized_shape(variant)
+        rolled = normalized[phase_indices]
+        covariance = np.einsum(
+            "sni,nj->sij",
+            rolled,
+            reference_normalized,
+        )
+        proper = np.hypot(
+            covariance[:, 0, 0] + covariance[:, 1, 1],
+            covariance[:, 1, 0] - covariance[:, 0, 1],
+        )
+        costs = 2.0 - 2.0 * proper / float(count)
+        shift = int(np.argmin(costs))
+        cost = float(costs[shift])
+        if cost < best_cost:
+            best_cost = cost
+            best = variant[phase_indices[shift]]
     return np.asarray(best, dtype=np.float64).copy()
 
 

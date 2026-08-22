@@ -25,9 +25,10 @@ postprocess/
 ```
 
 各機能ディレクトリがアルゴリズムと、その機能をパイプラインへ接続するstageを
-所有します。後処理の正本は`production/polygon/`に集約され、NMS、入力幾何、
-頂点方針、DP、pair-vote、topology検証、成果物materializeを別モジュールに分離
-しています。データは`contracts`で定義された名前付き成果物だけで受け渡されます。
+所有します。後処理の正本は`production/polygon/`と`production/curve/`に集約され、
+NMS、入力幾何、点数方針、DP、pair-vote、topology検証、成果物materializeを
+別モジュールに分離しています。データは`contracts`で定義された名前付き成果物
+だけで受け渡されます。
 
 GUI用Liveプレビューは`common/live_preview.py`の単一非同期workerへ、各stageが
 フレーム番号と軽量な図形だけを通知します。元動画のデコード・960×540描画・JPEG
@@ -52,6 +53,17 @@ python run_pipeline.py \
   --input-jsonl input/detections.jsonl \
   --input-video input/video.mp4 \
   --output-dir output/polygon
+```
+
+同じ入力を閉じたuniform Catmull–Rom曲線で処理するには、形状だけを切り替えます。
+この経路はDPと厳密監査を含めてCPU-onlyです。
+
+```bash
+python run_pipeline.py \
+  --input-jsonl input/detections.jsonl \
+  --input-video input/video.mp4 \
+  --output-dir output/catmull-rom \
+  --mask-geometry catmull_rom
 ```
 
 動画がなく、カットを検出しない場合:
@@ -92,7 +104,7 @@ python run_pipeline.py \
 未追跡SQLiteの場合だけ、動画をカット検出に使用した後、スコア方針、NMS、
 トラッキングから実行します。
 
-ポリゴン構成の既定Productionは2026-08-15から次の構成です。
+既定Productionは共通NMSの後に、`--mask-geometry`で2つの編集形状を選べます。
 
 - `nms.production_v3`: 全穴埋め、所有本体比1%以下の島削除、仮想連結成分、
   Mask版Adaptive NMS、島対本体80%/50%判定
@@ -100,12 +112,16 @@ python run_pipeline.py \
   14/16/18/20頂点ポリゴン、最小Recall制約付き多状態DP、2 sweep pair-vote、
   全補間フレームtopology検査、CUDA lazy screeningと採用辺・最終出力の
   厳密監査
+- `production.curve_v1_cpu`: 同じ14/16/18/20点を曲線が通過する`P`として使う、
+  tension 1.0の閉じたuniform Catmull–Rom。3次Bezier handleは固定1/6式で導出し、
+  `P`だけを最適化します。DP、pair-vote、全補間フレーム監査はCPU-onlyです
 - 既定の努力目標キーフレーム間隔は6。`--keyframe-interval`で変更可能
+- 形状の既定値は互換性のため`polygon`。GUIでも2形状を選択可能
 
 旧NMS・旧ポリゴン実装と候補比較はGit履歴と保存済み監査成果物だけに残し、
-開発ソースツリーからも撤去しました。本番経路は`nms.production_v3`と
-`production.polygon_v3_cpu`だけです。未対応ラベルや凍結契約と異なる設定で旧実装へ
-暗黙に戻ることはありません。昇格版の責務と凍結条件は
+開発ソースツリーからも撤去しました。本番経路は`nms.production_v3`と、選択された
+`production.polygon_v3_cpu`または`production.curve_v1_cpu`だけです。未対応ラベルや
+凍結契約と異なる設定で旧実装へ暗黙に戻ることはありません。昇格版の責務と凍結条件は
 `production/README.md`を参照してください。
 
 高精度カット検出は、連続したゼロ始まりのフレームではFFmpegで96×54へ直接
@@ -130,7 +146,8 @@ python run_pipeline.py \
 ### クラス別にキーフレーム間隔を設定する
 
 tracking後の確定クラスごとに、努力目標の`keyframe_interval`を独立して設定
-できます。形状はProduction polygon、内部gap補完上限は15に固定されています。
+できます。形状はCLI/GUIで選んだProduction polygonまたはCatmull–Romを全クラスへ
+一貫して適用し、内部gap補完上限は15に固定されています。
 
 ```bash
 python run_pipeline.py \

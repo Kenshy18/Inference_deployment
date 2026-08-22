@@ -10,7 +10,11 @@ from pathlib import Path
 
 from contracts.detections import CutList, write_cut_list
 from contracts.stages import StageContext, StageResult
-from common.config import default_polygon_pipeline, load_pipeline_config
+from common.config import (
+    default_mask_pipeline,
+    default_polygon_pipeline,
+    load_pipeline_config,
+)
 from common.registry import create_stage
 from run_pipeline import build_parser, run_pipeline
 
@@ -60,7 +64,9 @@ class ArchitectureTests(unittest.TestCase):
                 elif isinstance(node, ast.ImportFrom):
                     modules = [node.module or ""]
                 for module in modules:
-                    if module == "experimental" or module.startswith("experimental."):
+                    if module in {"experimental", "experiments"} or module.startswith(
+                        ("experimental.", "experiments.")
+                    ):
                         violations.append(f"{path.relative_to(root)} -> {module}")
         self.assertEqual([], violations)
 
@@ -70,6 +76,8 @@ class ArchitectureTests(unittest.TestCase):
             "postprocess/production/polygon/runtime/optimizer_factory.py": 150,
             "postprocess/production/polygon/runtime/optimizer_kernel.py": 1200,
             "postprocess/production/polygon/runtime/phase2_runtime.py": 1100,
+            "postprocess/classwise/stages.py": 500,
+            "postprocess/classwise/curve_parallel.py": 260,
             "orchestration/runner.py": 1100,
             "gui/src/components/InspectorPanel.tsx": 100,
         }
@@ -88,6 +96,14 @@ class ArchitectureTests(unittest.TestCase):
             "postprocess/production/polygon/runtime/kernel/solver.py",
             "postprocess/production/polygon/runtime/phase2_candidates.py",
             "postprocess/production/polygon/runtime/phase2_hard_dp.py",
+            "postprocess/production/curve/config.py",
+            "postprocess/production/curve/engine.py",
+            "postprocess/production/curve/stage.py",
+            "postprocess/production/curve/runtime/model.py",
+            "postprocess/production/curve/runtime/multistate_dp.py",
+            "postprocess/production/curve/runtime/native_cpu.py",
+            "postprocess/classwise/curve_parallel.py",
+            "postprocess/classwise/pipeline_factory.py",
             "orchestration/runner_media.py",
             "orchestration/runner_commands.py",
             "gui/src/components/inspector/InferenceSection.tsx",
@@ -151,6 +167,28 @@ class ArchitectureTests(unittest.TestCase):
             ],
             implementations,
         )
+
+    def test_default_curve_pipeline_replaces_only_geometry_stage(self) -> None:
+        polygon = default_mask_pipeline(
+            include_preprocess=True,
+            geometry_mode="polygon",
+        )
+        curve = default_mask_pipeline(
+            include_preprocess=True,
+            geometry_mode="catmull_rom",
+        )
+        polygon_implementations = [stage.implementation for stage in polygon.stages]
+        curve_implementations = [stage.implementation for stage in curve.stages]
+        self.assertEqual(
+            polygon_implementations[:5],
+            curve_implementations[:5],
+        )
+        self.assertEqual(
+            polygon_implementations[6:],
+            curve_implementations[6:],
+        )
+        self.assertEqual("production.polygon_v3_cpu", polygon_implementations[5])
+        self.assertEqual("production.curve_v1_cpu", curve_implementations[5])
 
     def test_shipped_pipeline_configs_have_valid_artifact_chains(self) -> None:
         root = Path(__file__).resolve().parents[1]

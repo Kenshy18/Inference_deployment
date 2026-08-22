@@ -6,12 +6,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 from contracts.detector_sqlite import (
     detect_mask_sqlite_kind,
     validate_raw_detection_sqlite,
     validate_unified_inference_sqlite,
 )
 from preprocessing.raw_sqlite import normalize_raw_detection_sqlite
+from production.curve.runtime.model import sample_closed_curve
 from run_pipeline import build_parser, run_pipeline
 from tests.helpers import (
     write_raw_detector_sqlite,
@@ -295,6 +298,151 @@ class RawSqliteInputTests(unittest.TestCase):
                         """
                     ).fetchone()[0],
                 )
+
+    def test_classwise_curve_keyframes_are_promoted_to_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = write_unified_inference_sqlite(
+                root / "unified.sqlite", frames=8, label="男性器"
+            )
+            policy = root / "classwise.json"
+            policy.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default": {
+                            "shape_mode": "polygon",
+                            "keyframe_interval": 3,
+                            "max_gap": 15,
+                        },
+                        "classes": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "--input-sqlite",
+                    str(source),
+                    "--output-dir",
+                    str(root / "output"),
+                    "--class-postprocess-policy-json",
+                    str(policy),
+                    "--mask-geometry",
+                    "catmull_rom",
+                    "--no-cut-detect",
+                    "--remove-short-tracks-max-frames",
+                    "0",
+                ]
+            )
+
+            manifest = run_pipeline(args)
+            key_controls: dict[int, np.ndarray] = {}
+            with sqlite3.connect(manifest["artifacts"]["result_sqlite"]) as connection:
+                self.assertGreater(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM mask_keyframes"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    [("polygon", "catmull_rom_uniform_tension_1_v1")],
+                    connection.execute(
+                        """
+                        SELECT DISTINCT shape_type, interpolation_method
+                        FROM mask_track_segments
+                        """
+                    ).fetchall(),
+                )
+                self.assertGreater(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM editable_polygon_vertices"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    1,
+                    connection.execute(
+                        """
+                        SELECT available FROM result_capabilities
+                        WHERE name='classwise_postprocess'
+                        """
+                    ).fetchone()[0],
+                )
+                provenance = connection.execute(
+                    """
+                    SELECT DISTINCT source_kind, algorithm, parameters_json
+                    FROM mask_geometry_provenance
+                    ORDER BY source_kind, algorithm, parameters_json
+                    """
+                ).fetchall()
+                self.assertGreater(len(provenance), 0)
+                self.assertEqual(
+                    {"postprocess_catmull_rom"},
+                    {str(row[0]) for row in provenance},
+                )
+                self.assertEqual(
+                    {"production.catmull_rom_cpu_exact_v1"},
+                    {str(row[1]) for row in provenance},
+                )
+                for _source_kind, _algorithm, parameters_json in provenance:
+                    parameters = json.loads(parameters_json)
+                    self.assertEqual(
+                        "closed_uniform_catmull_rom",
+                        parameters["curve_model"],
+                    )
+                    self.assertEqual(1.0, parameters["tension"])
+                    self.assertEqual(1.0 / 6.0, parameters["bezier_factor"])
+                    self.assertEqual(
+                        "interpolation_points_P_only",
+                        parameters["editable_variables"],
+                    )
+                rows = connection.execute(
+                    """
+                    SELECT k.frame, p.point_index, p.x, p.y
+                    FROM mask_track_segments AS s
+                    JOIN mask_keyframes AS k ON k.segment_id=s.id
+                    JOIN keyframe_components AS c ON c.keyframe_id=k.id
+                    JOIN keyframe_polygon_rings AS r ON r.component_id=c.id
+                    JOIN keyframe_polygon_points AS p ON p.ring_id=r.id
+                    WHERE s.interpolation_method=?
+                      AND c.slot_index=0 AND r.ring_index=0
+                    ORDER BY k.frame, p.point_index
+                    """,
+                    ("catmull_rom_uniform_tension_1_v1",),
+                ).fetchall()
+                for frame in sorted({int(row[0]) for row in rows}):
+                    key_controls[frame] = np.asarray(
+                        [
+                            [float(x), float(y)]
+                            for row_frame, _index, x, y in rows
+                            if int(row_frame) == frame
+                        ],
+                        dtype=np.float64,
+                    )
+
+            # The software-facing sparse SQLite must materialize the exact
+            # same geometry as the optimizer's dense artifact.  This catches
+            # metadata loss and accidental polygon resampling at intermediate
+            # frames, not just at keyframes.
+            key_frames = sorted(key_controls)
+            self.assertGreaterEqual(len(key_frames), 2)
+            with sqlite3.connect(manifest["artifacts"]["predictions_sqlite"]) as dense:
+                dense_rows = dense.execute(
+                    "SELECT frame,polygons FROM masks ORDER BY frame"
+                ).fetchall()
+            self.assertGreater(len(dense_rows), 0)
+            for frame, polygons_json in dense_rows:
+                frame = int(frame)
+                left = max(value for value in key_frames if value <= frame)
+                right = min(value for value in key_frames if value >= frame)
+                alpha = 0.0 if left == right else (frame - left) / (right - left)
+                controls = (1.0 - alpha) * key_controls[left] + alpha * key_controls[
+                    right
+                ]
+                expected = sample_closed_curve(controls, 16)
+                actual = np.asarray(json.loads(polygons_json)[0], dtype=np.float64)
+                np.testing.assert_array_equal(actual, expected)
 
 
 if __name__ == "__main__":

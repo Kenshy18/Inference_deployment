@@ -24,6 +24,7 @@ export type OverlayPreset =
   | "combined-detailed"
   | "combined-simple";
 export type ClassPostprocessPolicySource = "global" | "editor" | "file";
+export type MaskGeometry = "polygon" | "catmull_rom";
 
 export interface ClassPostprocessRule {
   className: string;
@@ -81,6 +82,7 @@ export interface PostprocessDraft {
   precomputeCutsDuringInference: boolean;
   removeShortTracksMaxFrames: number | null;
   keyframeInterval: number | null;
+  maskGeometry: MaskGeometry;
   exportLegacySqlite: boolean;
   faceMaskTarget: FaceMaskTarget;
   eyeMaskShape: EyeMaskShape;

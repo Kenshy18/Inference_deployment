@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections import defaultdict
+from collections import deque
+from itertools import chain, groupby
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from contracts.mask_sqlite import MaskRow, read_mask_rows, write_mask_sqlite
+from contracts.mask_sqlite import (
+    MaskRow,
+    iter_mask_rows,
+    write_mask_sqlite,
+)
 
 
 def _parse(value: str) -> list[np.ndarray]:
@@ -211,7 +216,7 @@ def apply_border_expansion(
     influence_px: float = 24.0,
     corner_support: bool = False,
 ) -> tuple[Path, dict[str, object]]:
-    rows: list[MaskRow] = []
+    total_rows = 0
     changed_rows = 0
     side_counts = {"left": 0, "right": 0, "top": 0, "bottom": 0}
     corner_counts = {
@@ -220,62 +225,65 @@ def apply_border_expansion(
         "bottom_left": 0,
         "bottom_right": 0,
     }
-    for row in read_mask_rows(source):
-        polygons = _parse(row.polygons)
-        before = _bbox(polygons)
-        supported_corners: set[str] = set()
-        if corner_support:
-            for polygon in polygons:
-                supported_corners.update(
-                    _supported_screen_corners(
-                        polygon,
-                        width=width,
-                        height=height,
-                        trigger_px=trigger_px,
-                        influence_px=influence_px,
+
+    def transformed_rows():
+        nonlocal total_rows, changed_rows
+        for row in iter_mask_rows(source):
+            total_rows += 1
+            polygons = _parse(row.polygons)
+            before = _bbox(polygons)
+            supported_corners: set[str] = set()
+            if corner_support:
+                for polygon in polygons:
+                    supported_corners.update(
+                        _supported_screen_corners(
+                            polygon,
+                            width=width,
+                            height=height,
+                            trigger_px=trigger_px,
+                            influence_px=influence_px,
+                        )
                     )
+            changed = False
+            expanded: list[np.ndarray] = []
+            for polygon in polygons:
+                value, item_changed = _expand_polygon(
+                    polygon,
+                    width=width,
+                    height=height,
+                    trigger_px=trigger_px,
+                    expand_ratio=expand_ratio,
+                    min_expand_px=min_expand_px,
+                    max_expand_px=max_expand_px,
+                    influence_px=influence_px,
+                    corner_support=corner_support,
                 )
-        changed = False
-        expanded: list[np.ndarray] = []
-        for polygon in polygons:
-            value, item_changed = _expand_polygon(
-                polygon,
-                width=width,
-                height=height,
-                trigger_px=trigger_px,
-                expand_ratio=expand_ratio,
-                min_expand_px=min_expand_px,
-                max_expand_px=max_expand_px,
-                influence_px=influence_px,
-                corner_support=corner_support,
-            )
-            expanded.append(value)
-            changed = changed or item_changed
-        if changed:
-            changed_rows += 1
-            if before is not None:
-                x0, y0, x1, y1 = before
-                side_counts["left"] += int(x0 <= trigger_px)
-                side_counts["right"] += int(x1 >= width - 1 - trigger_px)
-                side_counts["top"] += int(y0 <= trigger_px)
-                side_counts["bottom"] += int(y1 >= height - 1 - trigger_px)
-                for corner in supported_corners:
-                    corner_counts[corner] += 1
-        rows.append(
-            MaskRow(
+                expanded.append(value)
+                changed = changed or item_changed
+            if changed:
+                changed_rows += 1
+                if before is not None:
+                    x0, y0, x1, y1 = before
+                    side_counts["left"] += int(x0 <= trigger_px)
+                    side_counts["right"] += int(x1 >= width - 1 - trigger_px)
+                    side_counts["top"] += int(y0 <= trigger_px)
+                    side_counts["bottom"] += int(y1 >= height - 1 - trigger_px)
+                    for corner in supported_corners:
+                        corner_counts[corner] += 1
+            yield MaskRow(
                 row.frame,
                 row.track_id,
                 _dump(expanded) if changed else row.polygons,
                 row.label,
                 row.shape_type,
             )
-        )
-    write_mask_sqlite(output, rows, reference_sqlite=source)
+
+    write_mask_sqlite(output, transformed_rows(), reference_sqlite=source)
     return output, {
         "enabled": True,
-        "total_rows": len(rows),
+        "total_rows": total_rows,
         "changed_rows": changed_rows,
-        "changed_ratio": changed_rows / max(len(rows), 1),
+        "changed_ratio": changed_rows / max(total_rows, 1),
         "side_counts": side_counts,
         "corner_counts": corner_counts,
         "corner_support": bool(corner_support),
@@ -375,33 +383,41 @@ def apply_endpoint_extension(
             frame_count = value if value > 0 else None
         finally:
             capture.release()
-    source_rows = read_mask_rows(source)
-    rows_by_track: dict[str, list[MaskRow]] = defaultdict(list)
-    for row in source_rows:
-        rows_by_track[row.track_id].append(row)
     cuts = _cuts(source)
-    existing = {(row.frame, row.track_id) for row in source_rows}
     inserted: list[MaskRow] = []
     events: list[dict[str, object]] = []
-    for track_id, values in rows_by_track.items():
-        ordered = sorted(values, key=lambda row: row.frame)
-        if len(ordered) < 2 or extend_frames <= 0:
+    source_row_count = 0
+    motion_limit = max(0, int(motion_frames))
+    grouped = groupby(iter_mask_rows(source), key=lambda row: row.track_id)
+    for track_id, values in grouped:
+        first: list[MaskRow] = []
+        # A zero/one-frame motion window was intentionally a no-op before the
+        # streaming implementation: fitting velocity requires two samples.
+        # Preserve that contract instead of silently widening the requested
+        # window to two frames.
+        last: deque[MaskRow] = deque(maxlen=max(1, motion_limit))
+        track_row_count = 0
+        for row in values:
+            source_row_count += 1
+            track_row_count += 1
+            if len(first) < motion_limit:
+                first.append(row)
+            last.append(row)
+        ordered_edges = (first, list(last))
+        if track_row_count < 2 or extend_frames <= 0:
             continue
-        for before in (True, False):
-            motion = ordered[:motion_frames] if before else ordered[-motion_frames:]
+        for before, motion in zip((True, False), ordered_edges, strict=True):
             sequence = [_parse(row.polygons) for row in motion]
             if len(sequence) < 2 or not _compatible(sequence):
                 continue
             speed = _speed([row.frame for row in motion], sequence)
             if speed > max_speed_px:
                 continue
-            endpoint = ordered[0] if before else ordered[-1]
+            endpoint = motion[0] if before else motion[-1]
             count = 0
             for step in range(1, extend_frames + 1):
                 target = endpoint.frame - step if before else endpoint.frame + step
                 if target < 0 or (frame_count is not None and target >= frame_count):
-                    continue
-                if (target, track_id) in existing:
                     continue
                 if _crosses_cut(target, endpoint.frame, cuts):
                     continue
@@ -411,7 +427,6 @@ def apply_endpoint_extension(
                         target, track_id, _dump(polygons), endpoint.label, "polygon"
                     )
                 )
-                existing.add((target, track_id))
                 count += 1
             if count:
                 events.append(
@@ -422,13 +437,14 @@ def apply_endpoint_extension(
                         "max_vertex_speed": speed,
                     }
                 )
-    output_rows = sorted(
-        [*source_rows, *inserted], key=lambda row: (row.frame, row.track_id)
+    write_mask_sqlite(
+        output,
+        chain(iter_mask_rows(source), inserted),
+        reference_sqlite=source,
     )
-    write_mask_sqlite(output, output_rows, reference_sqlite=source)
     return output, {
         "enabled": True,
-        "source_rows": len(source_rows),
+        "source_rows": source_row_count,
         "inserted_rows": len(inserted),
         "extend_frames": extend_frames,
         "motion_frames": motion_frames,

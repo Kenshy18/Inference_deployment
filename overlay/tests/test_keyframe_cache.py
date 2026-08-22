@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from overlay_renderer.keyframe_cache import (
+    _catmull_rom_polygon,
     is_keyframe_primary,
     materialize_overlay_cache,
     materialize_overlay_cache_shards,
@@ -14,6 +15,18 @@ from overlay_renderer.keyframe_cache import (
 
 
 class KeyframeCacheTests(unittest.TestCase):
+    def test_catmull_rom_uses_production_matrix_arithmetic(self) -> None:
+        controls = [
+            [476.49061871685956, 278.0525079020758],
+            [225.2439698221508, 370.3797034121594],
+            [734.1677258607497, 659.3975496098356],
+        ]
+        sampled = _catmull_rom_polygon(controls)
+        # This exact value differs by one ulp from an algebraically equivalent
+        # einsum formulation.  Keeping it equal to Production avoids a rare
+        # half-pixel raster mismatch in editable SQLite overlays.
+        self.assertEqual(395.4103210319124, sampled[4][0])
+
     def _write_source(self, path: Path) -> None:
         with sqlite3.connect(path) as connection:
             connection.executescript(
@@ -324,6 +337,45 @@ class KeyframeCacheTests(unittest.TestCase):
                 [[100.0, 0.0], [102.0, 0.0], [102.0, 2.0], [100.0, 2.0]],
                 middle[0],
             )
+
+    def test_catmull_rom_interpolates_p_then_derives_closed_curve(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "result.sqlite"
+            self._write_source(source)
+            with sqlite3.connect(source) as connection:
+                connection.executescript(
+                    """
+                    UPDATE mask_track_segments
+                    SET interpolation_method='catmull_rom_uniform_tension_1_v1'
+                    WHERE id=1;
+                    UPDATE segmentation_points SET x=x+100 WHERE polygon_id=3;
+                    """
+                )
+            cache = root / "curve-cache.sqlite"
+            materialize_overlay_cache(
+                source,
+                cache,
+                mode="final",
+                mask_domain="genital",
+            )
+            with sqlite3.connect(cache) as connection:
+                rows = {
+                    int(frame): json.loads(polygons)[0]
+                    for frame, polygons in connection.execute(
+                        "SELECT frame,polygons FROM masks "
+                        "WHERE track_id='1' ORDER BY frame"
+                    )
+                }
+            self.assertEqual({0, 1, 2}, set(rows))
+            self.assertTrue(all(len(points) == 64 for points in rows.values()))
+            # Every segment starts at its editable interpolation point P[i].
+            self.assertEqual([0.0, 0.0], rows[0][0])
+            self.assertEqual([1.0, 0.0], rows[1][0])
+            self.assertEqual([2.0, 0.0], rows[2][0])
+            # The deliberately corrupted tracked observation at frame 1 is
+            # not allowed to replace the optimized P-keyframe interpolation.
+            self.assertLess(max(point[0] for point in rows[1]), 4.0)
 
 
 if __name__ == "__main__":

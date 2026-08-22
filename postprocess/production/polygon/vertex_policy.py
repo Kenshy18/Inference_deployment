@@ -15,7 +15,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from contracts.mask_sqlite import read_mask_rows
+from contracts.mask_sqlite import iter_mask_rows
 
 from .runtime.candidate_config import CANDIDATE, CandidateConfig
 
@@ -74,7 +74,10 @@ def build_vertex_policy(
         raise ValueError("vertex policy requires positive video dimensions")
     frame_area = float(int(width) * int(height))
     areas: dict[str, list[float]] = defaultdict(list)
-    for row in read_mask_rows(Path(tracked_sqlite)):
+    # Stream polygon JSON instead of retaining every long-video mask row.
+    # Exact q99.9 selection still keeps one float area per target observation,
+    # which is orders of magnitude smaller and preserves the approved policy.
+    for row in iter_mask_rows(Path(tracked_sqlite)):
         track_id = str(row.track_id)
         if track_labels.get(track_id) not in config.labels:
             continue

@@ -98,6 +98,8 @@ class RunnerCommandMixin:
             "--orchestration-config-json",
             str(self.resolved_config_path),
             "--cut-detect" if settings.cut_detect else "--no-cut-detect",
+            "--mask-geometry",
+            settings.mask_geometry,
         ]
         optional = (
             ("--pipeline-config", settings.pipeline_config),

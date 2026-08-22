@@ -291,6 +291,27 @@ class PipelineTests(unittest.TestCase):
             )
             self.assertIn("keyframes_sqlite", manifest["artifacts"])
 
+    def test_curve_run_uses_distinct_cpu_geometry_stage(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--input-jsonl",
+                "source.jsonl",
+                "--output-dir",
+                "output",
+                "--mask-geometry",
+                "catmull_rom",
+            ]
+        )
+        pipeline = _configured_pipeline(args)
+        self.assertEqual("catmull_rom_modular", pipeline.name)
+        stage = next(
+            value
+            for value in pipeline.stages
+            if value.implementation == "production.curve_v1_cpu"
+        )
+        self.assertEqual("curve_optimization", stage.id)
+        self.assertNotIn("interval_evaluation", stage.options)
+
     def test_polygon_pipeline_accepts_relative_output_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

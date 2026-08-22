@@ -32,7 +32,8 @@ validatorは`contracts.artifacts`へ集約されています。新しい成果�
 
 ## 2. 一気通貫の成果物接続
 
-ポリゴン構成の標準接続は次のとおりです。
+性器マスク構成の標準接続は次のとおりです。形状段はCLI/GUIの
+`mask_geometry`で2実装のどちらか一方を選びます。
 
 | 機能 | 組み込み実装 | requires | provides |
 | --- | --- | --- | --- |
@@ -42,6 +43,7 @@ validatorは`contracts.artifacts`へ集約されています。新しい成果�
 | カット検出 | `cut_detection.video` | `nms_jsonl` | `cuts_json` |
 | tracking | `tracking.greedy` | `nms_jsonl`, `cuts_json` | `tracked_sqlite` |
 | polygon近似・keyframe・補完 | `production.polygon_v3_cpu` | `tracked_sqlite` | `predictions_sqlite`, `keyframes_sqlite`, `production_polygon_manifest` |
+| Catmull–Rom近似・keyframe・補完 | `production.curve_v1_cpu` | `tracked_sqlite` | `predictions_sqlite`, `keyframes_sqlite`, `production_curve_manifest` |
 | 評価 | `evaluation.mask_iou` | `tracked_sqlite`, `predictions_sqlite` | `evaluation_summary` |
 | 出力検証 | `artifacts.validate` | `predictions_sqlite` | `validation_report` |
 
@@ -67,8 +69,9 @@ composite stageへ交換します。
 | クラス別後処理 | `classwise.production` | `tracked_sqlite`, `class_postprocess_policy_json` | `predictions_sqlite`, `classwise_manifest` |
 
 `classwise.production`はtrackの確定labelで互いに素なグループを作り、同一設定の
-trackを既存のpolygonまたはellipse標準グラフへまとめて渡します。最終統合時に
-track衝突を拒否し、元の監査テーブルを保持します。
+trackを選択されたpolygonまたはCatmull–Rom標準グラフへまとめて渡します。
+Catmull–Romでは互いに素なtrack shardを別CPU processへ分配しますが、出力順と
+mergeは決定論的です。最終統合時にtrack衝突を拒否し、元の監査テーブルを保持します。
 
 Face DINO v2の顔後処理を有効にすると、通常の最終出力検証後に次を追加します。
 
@@ -119,6 +122,16 @@ Mask IoUまたは方向付き被覆率で比較し、bboxはbroad phaseだけに
 残します。クラス別処理は既定3 workerで並列実行され、クラスごとに異なる目標間隔を
 指定しても直列化されません。最終Recall監査結果は`production_polygon_manifest`へ
 全件記録されます。
+
+`production.curve_v1_cpu`は、閉じたuniform Catmull–Rom splineを使います。
+tensionは1.0、Catmull–Romから3次Bezierへの係数は1/6で固定し、編集・最適化する
+変数は曲線が通過する点`P`だけです。Bezier handleは隣接する`P`から毎回導出し、
+独立した自由変数として保存しません。点数はpolygonと同じtrack別14/16/18/20点、
+最小Recallは0.97、目標間隔はsoft targetです。DP、pair-vote、点座標最適化、
+全選択辺と全最終frameの監査はすべてexact CPU経路で実行し、CUDAを初期化しません。
+局所最適化はDP後の正常なframeをIoU 0.85未満へ落とせず、既にそれ未満のframeも
+DP基準から0.005を超えて悪化できません。最終監査結果と例外的な空間修復は
+`production_curve_manifest`へ全件記録します。
 
 ### 未追跡の検出SQLite
 
@@ -190,7 +203,7 @@ segmentation_points(polygon_id, point_index, x, y)
 class_postprocess_policies(
   label TEXT PRIMARY KEY,
   policy_source TEXT,          -- class / default
-  shape_mode TEXT,             -- Productionでは常にpolygon
+  shape_mode TEXT,             -- 互換上polygon。実形状はmanifest/provenanceで識別
   keyframe_interval INTEGER,
   max_gap INTEGER
 )
@@ -301,6 +314,13 @@ result_capabilities(
 `masks.polygons`から再fitしません。角度はradianへ統一します。性器ポリゴンは
 内部`keyframes.sqlite`の選択頂点を保持します。クラス別pipelineでも
 各groupの内部manifestをたどり、同じ公開表へ統合します。
+
+Catmull–Romの編集点`P`も既存のpolygon ring/point表へ輪郭順に保存します。
+`mask_geometry_provenance`の`source_kind=postprocess_catmull_rom`と
+`algorithm=production.catmull_rom_cpu_exact_v1`、およびsegmentの
+`interpolation_method=catmull_rom_uniform_tension_1_v1`が、直線polygonの頂点と
+区別する正本です。overlayは前後keyframeの`P`を同じindexで線形補間した後、固定
+1/6式からcurveを再構成します。
 
 `mask_track_segments`はscene、連続frame、shape、component topologyごとに
 分割され、補間方式を`interpolation_method`へ保存します。複数componentは

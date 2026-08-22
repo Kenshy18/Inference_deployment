@@ -8,7 +8,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 
 @dataclass(frozen=True)
@@ -28,8 +28,11 @@ def track_sort_key(track_id: str) -> tuple[int, int | str]:
         return 1, text
 
 
-def read_mask_rows(path: Path) -> list[MaskRow]:
-    with sqlite3.connect(str(path)) as connection:
+def iter_mask_rows(path: Path) -> Iterator[MaskRow]:
+    """Yield mask rows with memory independent of video duration."""
+
+    source = Path(path).expanduser().resolve()
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as connection:
         columns = {
             str(row[1])
             for row in connection.execute("PRAGMA table_info(masks)").fetchall()
@@ -48,17 +51,19 @@ def read_mask_rows(path: Path) -> list[MaskRow]:
             FROM masks
             ORDER BY track_id, frame
             """
-        ).fetchall()
-    output = [
-        MaskRow(
-            frame=int(frame),
-            track_id=str(track_id),
-            polygons=str(polygons),
-            label=str(row_label),
-            shape_type=str(shape_type),
         )
-        for frame, track_id, polygons, row_label, shape_type in rows
-    ]
+        for frame, track_id, polygons, row_label, shape_type in rows:
+            yield MaskRow(
+                frame=int(frame),
+                track_id=str(track_id),
+                polygons=str(polygons),
+                label=str(row_label),
+                shape_type=str(shape_type),
+            )
+
+
+def read_mask_rows(path: Path) -> list[MaskRow]:
+    output = list(iter_mask_rows(path))
     output.sort(key=lambda row: (track_sort_key(row.track_id), row.frame))
     return output
 
@@ -108,32 +113,51 @@ def write_mask_sqlite(
             )
         else:
             connection.execute("DELETE FROM masks")
-        materialized = list(rows)
-        connection.executemany(
-            """
-            INSERT OR REPLACE INTO masks(
-                frame, track_id, polygons, shape_type, dilate_px, feather_px,
-                mosaic_block, mosaic_alias, label
-            )
-            VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?)
-            """,
-            [
-                (
-                    row.frame,
-                    row.track_id,
-                    row.polygons,
-                    row.shape_type,
-                    row.label,
+        labels: dict[str, str] = {}
+        batch: list[tuple[int, str, str, str, str]] = []
+
+        def flush() -> None:
+            if not batch:
+                return
+            connection.executemany(
+                """
+                INSERT OR REPLACE INTO masks(
+                    frame, track_id, polygons, shape_type, dilate_px, feather_px,
+                    mosaic_block, mosaic_alias, label
                 )
-                for row in materialized
-            ],
-        )
+                VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?)
+                """,
+                batch,
+            )
+            batch.clear()
+
+        for row in rows:
+            batch.append(
+                (
+                    int(row.frame),
+                    str(row.track_id),
+                    str(row.polygons),
+                    str(row.shape_type),
+                    str(row.label),
+                )
+            )
+            if reference is None:
+                labels.setdefault(str(row.track_id), str(row.label))
+            if len(batch) >= 2000:
+                flush()
+        flush()
         if reference is None:
-            labels: dict[str, str] = {}
-            for row in materialized:
-                labels.setdefault(row.track_id, row.label)
             connection.executemany(
                 "INSERT OR REPLACE INTO tracks(track_id, label) VALUES (?, ?)",
                 sorted(labels.items(), key=lambda item: track_sort_key(item[0])),
             )
     return output_path
+
+
+__all__ = (
+    "MaskRow",
+    "iter_mask_rows",
+    "read_mask_rows",
+    "track_sort_key",
+    "write_mask_sqlite",
+)

@@ -90,11 +90,7 @@ DEFAULT_GAPFILL_TEMP_POINTS = 128
 DEFAULT_MAX_RUN_FRAMES = 30000
 DEFAULT_RUN_OVERLAP_FRAMES = 900
 DEFAULT_POINT_PREDICTOR_MODEL_DIR = (
-    ROOT
-    / "experiments"
-    / "linear_polygon_bezier_workspace_20260410"
-    / "output"
-    / "mask_point_predictor_wide96_20260411"
+    ROOT.parents[1] / "models" / "polygon_point_predictor"
 )
 
 from .kernel.model import (

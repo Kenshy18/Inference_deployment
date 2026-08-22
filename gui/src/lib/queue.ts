@@ -83,7 +83,11 @@ export function settingsSummary(draft: PipelineDraft): string {
     parts.push(models.join(" + "));
   }
   if (inference.mode !== "face" && postprocess.enabled) {
-    parts.push("ポリゴン");
+    parts.push(
+      postprocess.maskGeometry === "catmull_rom"
+        ? "Catmull–Rom曲線"
+        : "ポリゴン",
+    );
   }
   parts.push(
     overlay.enabled ? `overlay ${overlay.executionMode}` : "overlayなし",

@@ -7,6 +7,8 @@ import type {
 import { PRODUCTION_POSTPROCESS } from "../../shared/production-contract";
 import { normalizeBackend, normalizeFaceBackend } from "./models";
 
+// maskGeometry is merged from defaultDraft for older saved values, so adding
+// it does not require replaying the one-time v6 interval migration.
 export const DRAFT_STORAGE_VERSION = "6";
 
 export const defaultDraft: PipelineDraft = {
@@ -62,6 +64,7 @@ export const defaultDraft: PipelineDraft = {
     precomputeCutsDuringInference: true,
     removeShortTracksMaxFrames: 10,
     keyframeInterval: PRODUCTION_POSTPROCESS.defaultKeyframeInterval,
+    maskGeometry: "polygon",
     exportLegacySqlite: false,
     faceMaskTarget: "eyes",
     eyeMaskShape: "rectangle",
@@ -198,7 +201,7 @@ export const browserSettings: AppSettings = {
 
 const LEGACY_DEFAULT_CLASSES = new Set(["男性器", "女性器", "結合部分"]);
 
-/** Migrate saved drafts to the only deployed genital postprocess geometry. */
+/** Apply one-time migrations for drafts older than the current contract. */
 export function migrateProductionPostprocessDefaults(
   savedVersion: string | null,
   value: PostprocessDraft,

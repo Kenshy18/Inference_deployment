@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -11,56 +10,9 @@ from typing import Any
 from contracts.stages import StageContext, StageResult
 
 from ..config import PRODUCTION, ProductionConfig
+from ..source import source_dimensions, source_labels
 from .materialize import materialize_outputs
 from .runtime_bridge import build_runtime_config, optimize, prepare_inputs
-
-
-def _labels(path: Path) -> tuple[str, ...]:
-    with sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True) as db:
-        tables = {
-            str(row[0])
-            for row in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")
-        }
-        if "tracks" not in tables:
-            return ()
-        columns = {str(row[1]) for row in db.execute("PRAGMA table_info(tracks)")}
-        if "label" not in columns:
-            return ()
-        return tuple(
-            str(row[0])
-            for row in db.execute(
-                "SELECT DISTINCT COALESCE(label, '') FROM tracks ORDER BY 1"
-            )
-        )
-
-
-def _dimensions(
-    path: Path,
-    *,
-    fallback_width: int,
-    fallback_height: int,
-) -> tuple[int, int]:
-    with sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True) as db:
-        tables = {
-            str(row[0])
-            for row in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")
-        }
-        if "frames" not in tables:
-            if fallback_width <= 0 or fallback_height <= 0:
-                raise RuntimeError(f"source dimensions are unavailable: {path}")
-            return fallback_width, fallback_height
-        columns = {str(row[1]) for row in db.execute("PRAGMA table_info(frames)")}
-        if not {"width", "height"}.issubset(columns):
-            if fallback_width <= 0 or fallback_height <= 0:
-                raise RuntimeError(f"source dimensions are unavailable: {path}")
-            return fallback_width, fallback_height
-        frame_column = "frame_index" if "frame_index" in columns else "frame"
-        row = db.execute(
-            f"SELECT width,height FROM frames ORDER BY {frame_column} LIMIT 1"
-        ).fetchone()
-    if row is None or int(row[0] or 0) <= 0 or int(row[1] or 0) <= 0:
-        raise RuntimeError(f"source dimensions are unavailable: {path}")
-    return int(row[0]), int(row[1])
 
 
 @dataclass(frozen=True)
@@ -100,11 +52,11 @@ class ProductionPolygonStage:
         context.report_progress("polygon:preparing", 0.01)
         stage_dir = Path(context.stage_dir).expanduser().resolve()
         tracked = Path(context.artifacts["tracked_sqlite"]).resolve()
-        input_labels = _labels(tracked)
+        input_labels = source_labels(tracked)
         passthrough_labels = tuple(
             label for label in input_labels if label not in config.labels
         )
-        width, height = _dimensions(
+        width, height = source_dimensions(
             tracked,
             fallback_width=int(self.options.get("frame_width", 1920)),
             fallback_height=int(self.options.get("frame_height", 1080)),
