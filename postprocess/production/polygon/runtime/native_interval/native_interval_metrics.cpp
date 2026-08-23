@@ -417,15 +417,20 @@ ExactMetricCounts exact_metric_counts_from_reference(
       if (start_x >= end_x) {
         continue;
       }
-      // OpenCV's countNonZero uses the platform SIMD kernels.  The previous
-      // scalar byte loop dominated exact Recall/IoU evaluation for large
-      // masks even though the reference was already compressed into row
-      // runs.  Counting the identical half-open slice preserves every pixel
-      // decision while vectorizing the hot intersection reduction.
-      output.intersection += static_cast<std::int64_t>(cv::countNonZero(
-          pred_mask.row(local_y).colRange(
-              start_x - pred_origin_x,
-              end_x - pred_origin_x)));
+      // A reference row is already compressed into short foreground runs.
+      // Calling countNonZero for every run constructs two Mat views and
+      // dispatches an OpenCV kernel thousands of times per candidate.  That
+      // fixed cost is larger than the work for the typical narrow mask run.
+      // Summing the contiguous bytes directly keeps the exact pixel contract
+      // and lets -O3 vectorize the reduction without per-run dispatch.
+      const std::uint8_t* predicted_row = pred_mask.ptr<std::uint8_t>(local_y);
+      const int local_start_x = start_x - pred_origin_x;
+      const int local_end_x = end_x - pred_origin_x;
+      std::int64_t run_intersection = 0;
+      for (int local_x = local_start_x; local_x < local_end_x; ++local_x) {
+        run_intersection += predicted_row[local_x];
+      }
+      output.intersection += run_intersection;
     }
   }
   output.union_area = output.gt_area + output.pred_area - output.intersection;
