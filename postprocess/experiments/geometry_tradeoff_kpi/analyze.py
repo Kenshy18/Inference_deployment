@@ -43,6 +43,7 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--interval-maximum", type=int, default=7)
     return parser
 
 
@@ -136,7 +137,9 @@ def _point_budget_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             sorted(Counter(by_track.values()).items())
         ),
         "source_frame_points_mean": float(np.mean(frame_values)),
-        "source_frame_point_budget_distribution": dict(sorted(frame_distribution.items())),
+        "source_frame_point_budget_distribution": dict(
+            sorted(frame_distribution.items())
+        ),
     }
 
 
@@ -194,12 +197,19 @@ def _polygon_run(
     for group in classwise["groups"]:
         label = str(group["labels"][0])
         group_root = run / "00_classwise_postprocess" / "groups" / str(group["id"])
-        policy_path = group_root / "pipeline/00_polygon_optimization/preparation/vertex_policy.json"
+        policy_path = (
+            group_root
+            / "pipeline/00_polygon_optimization/preparation/vertex_policy.json"
+        )
         policy = _json(policy_path)
         for track_id, item in policy["tracks"].items():
             track_points[str(track_id)] = int(item["vertices_per_component"])
-        keyframe_paths.append(group_root / "pipeline/00_polygon_optimization/keyframes.sqlite")
-        metrics_paths = list(group_root.rglob("runtime/exact/keyframe_exact_metrics.csv"))
+        keyframe_paths.append(
+            group_root / "pipeline/00_polygon_optimization/keyframes.sqlite"
+        )
+        metrics_paths = list(
+            group_root.rglob("runtime/exact/keyframe_exact_metrics.csv")
+        )
         audit_paths = list(group_root.rglob("runtime/phase2_audit.json"))
         if len(metrics_paths) != 1 or len(audit_paths) != 1:
             raise RuntimeError(f"unexpected polygon artifacts in {group_root}")
@@ -279,9 +289,7 @@ def _polygon_run(
         "quality_rescue_inserted_keys": 0,
         "cuda_used": True,
         "execution_profile": "2 class workers x 3 optimizer workers; CUDA lazy exact",
-        "sqlite": str(
-            (run / "00_classwise_postprocess/predictions.sqlite").resolve()
-        ),
+        "sqlite": str((run / "00_classwise_postprocess/predictions.sqlite").resolve()),
     }
     return summary, quality_rows, _class_summaries(summary, quality_rows)
 
@@ -370,7 +378,9 @@ def _curve_run(
             f"curve interval {interval}: keyframe SQLite and engine disagree"
         )
     output_rows = int(classwise["merge"]["output_masks"])
-    if all_metric_rows != output_rows or gapfill_metric_rows != output_rows - len(source_keys):
+    if all_metric_rows != output_rows or gapfill_metric_rows != output_rows - len(
+        source_keys
+    ):
         raise RuntimeError(f"curve interval {interval}: metric population mismatch")
     summary = {
         "geometry": "catmull_rom",
@@ -398,9 +408,7 @@ def _curve_run(
         "quality_rescue_inserted_keys": int(quality_rescue_inserted),
         "cuda_used": False,
         "execution_profile": "6 balanced CPU shards x 4 native threads; CUDA disabled",
-        "sqlite": str(
-            (run / "00_classwise_postprocess/predictions.sqlite").resolve()
-        ),
+        "sqlite": str((run / "00_classwise_postprocess/predictions.sqlite").resolve()),
     }
     return summary, quality_rows, _class_summaries(summary, quality_rows)
 
@@ -422,7 +430,9 @@ def _class_summaries(
                 "label": label,
                 "materialized_rows": len(selected),
                 "keyframe_rows": keys,
-                "effective_interval_on_source_rows": float(len(selected) / max(keys, 1)),
+                "effective_interval_on_source_rows": float(
+                    len(selected) / max(keys, 1)
+                ),
                 **_quality_summary(selected),
             }
         )
@@ -466,7 +476,8 @@ def _paired_outputs(
         )
         indexed[key] = row
     paired: list[dict[str, Any]] = []
-    for interval in range(1, 8):
+    intervals = sorted({int(row["target_interval"]) for row in quality_rows})
+    for interval in intervals:
         for _target, _geometry, track_id, frame in sorted(
             key for key in indexed if key[0] == interval and key[1] == "polygon"
         ):
@@ -495,7 +506,7 @@ def _paired_outputs(
             )
     paired_summary: list[dict[str, Any]] = []
     review_candidates: list[dict[str, Any]] = []
-    for interval in range(1, 8):
+    for interval in intervals:
         selected = [row for row in paired if row["target_interval"] == interval]
         iou_delta = np.asarray(
             [float(row["curve_minus_polygon_iou"]) for row in selected],
@@ -519,15 +530,22 @@ def _paired_outputs(
             }
         )
         reasons = (
-            ("polygon_low_iou", sorted(selected, key=lambda row: row["polygon_iou"])[:20]),
+            (
+                "polygon_low_iou",
+                sorted(selected, key=lambda row: row["polygon_iou"])[:20],
+            ),
             ("curve_low_iou", sorted(selected, key=lambda row: row["curve_iou"])[:20]),
             (
                 "polygon_high_expansion",
-                sorted(selected, key=lambda row: row["polygon_area_ratio"], reverse=True)[:20],
+                sorted(
+                    selected, key=lambda row: row["polygon_area_ratio"], reverse=True
+                )[:20],
             ),
             (
                 "curve_high_expansion",
-                sorted(selected, key=lambda row: row["curve_area_ratio"], reverse=True)[:20],
+                sorted(selected, key=lambda row: row["curve_area_ratio"], reverse=True)[
+                    :20
+                ],
             ),
             (
                 "curve_largest_gain",
@@ -555,7 +573,9 @@ def _sqlite_integrity(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         with sqlite3.connect(path) as connection:
             integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
             masks = int(connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0])
-            tracks = int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
+            tracks = int(
+                connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+            )
             policies = int(
                 connection.execute(
                     "SELECT COUNT(*) FROM class_postprocess_policies"
@@ -586,7 +606,10 @@ def main() -> None:
     summaries: list[dict[str, Any]] = []
     by_class: list[dict[str, Any]] = []
     all_quality: list[dict[str, Any]] = []
-    for interval in range(1, 8):
+    interval_maximum = int(args.interval_maximum)
+    if interval_maximum < 1:
+        raise ValueError("interval maximum must be at least one")
+    for interval in range(1, interval_maximum + 1):
         for loader in (_polygon_run, _curve_run):
             summary, quality, class_rows = loader(root, interval, source_keys)
             summaries.append(summary)
@@ -658,7 +681,7 @@ def main() -> None:
         "paired_summary": paired_summary,
         "sqlite_integrity": sqlite_checks,
         "validation": {
-            "expected_run_count": 14,
+            "expected_run_count": 2 * interval_maximum,
             "actual_run_count": len(summaries),
             "all_quality_rows_equal_source": all(
                 int(row["quality_rows"]) == len(source_keys) for row in summaries
@@ -669,7 +692,9 @@ def main() -> None:
             "all_topology_valid": all(
                 int(row["topology_invalid_or_rejected"]) == 0 for row in summaries
             ),
-            "all_outputs_exist": all(Path(str(row["sqlite"])).is_file() for row in summaries),
+            "all_outputs_exist": all(
+                Path(str(row["sqlite"])).is_file() for row in summaries
+            ),
             "all_sqlite_integrity_checks_passed": all(
                 row["integrity"] == "ok"
                 and int(row["mask_rows"]) == 25_090
