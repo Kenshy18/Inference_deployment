@@ -18,6 +18,7 @@ from classwise.sqlite import read_track_labels
 from production.polygon.runtime.kernel.stream import iter_track_streams_from_sqlite
 
 from .config import CurveProductionConfig
+from .runtime.candidate_states import interval_aware_fallback_states
 from .runtime.fitter import FitConfig, fit_sequence
 from .runtime.keyframe_dp import (
     KeyframeDpConfig,
@@ -718,10 +719,22 @@ def run_curve_optimizer(
                             controls,
                             tuple(config.fast_state_scales),
                         )
-                        fallback_states, fallback_state_labels = isotropic_curve_states(
+                        (
+                            fallback_states,
+                            fallback_state_labels,
+                        ) = interval_aware_fallback_states(
                             controls,
-                            tuple(config.state_scales),
+                            target_interval=int(config.target_interval),
                         )
+                        if int(config.target_interval) >= 4:
+                            # Sparse targets always need the interval-aware
+                            # family. Starting with the compact two-state
+                            # graph would only evaluate a graph that is then
+                            # discarded; it cannot change the final solution.
+                            states = fallback_states
+                            state_labels = fallback_state_labels
+                            fallback_states = None
+                            fallback_state_labels = None
                         dp_config = KeyframeDpConfig(
                             target_interval=int(config.target_interval),
                             recall_floor=float(config.recall_floor),
@@ -734,7 +747,14 @@ def run_curve_optimizer(
                             low_iou_quadratic_weight=float(
                                 config.low_iou_quadratic_weight
                             ),
-                            quality_rescue_enabled=True,
+                            path_selection_mode=str(config.path_selection_mode),
+                            cardinality_maximum_factor=float(
+                                config.cardinality_maximum_factor
+                            ),
+                            # Never change K after selecting the Pareto point.
+                            # Hard streams are globally re-solved with the
+                            # interval-aware palette above instead.
+                            quality_rescue_enabled=False,
                             quality_rescue_iou_floor=float(
                                 config.quality_rescue_iou_floor
                             ),

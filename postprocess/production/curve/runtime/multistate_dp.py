@@ -276,18 +276,19 @@ def _local_scores_group(
         ):
             selected_controls = np.concatenate(
                 [
-                    dense[
-                        int(offsets[trial_index]) : int(offsets[trial_index + 1])
-                    ]
+                    dense[int(offsets[trial_index]) : int(offsets[trial_index + 1])]
                     for trial_index in promising
                 ],
                 axis=0,
             )
-            topology = exact_raster.catmull_topology(
-                selected_controls,
-                samples_per_segment=int(catmull_samples),
-                threads=threads,
-            ) > 0
+            topology = (
+                exact_raster.catmull_topology(
+                    selected_controls,
+                    samples_per_segment=int(catmull_samples),
+                    threads=threads,
+                )
+                > 0
+            )
             topology_offsets = np.cumsum(
                 np.asarray(
                     (0, *(spans[trial_index] for trial_index in promising)),
@@ -301,9 +302,7 @@ def _local_scores_group(
                     output[trial_index] = None
         else:
             selected_parts = [
-                boundaries[
-                    int(offsets[trial_index]) : int(offsets[trial_index + 1])
-                ]
+                boundaries[int(offsets[trial_index]) : int(offsets[trial_index + 1])]
                 for trial_index in promising
             ]
             topology = ~strict_self_intersection_batch(
@@ -1119,6 +1118,57 @@ class _MultistateIntervalEvaluator:
                 self._native_decode_costs[index] = np.inf
             self._lazy_topology_rejected_edges += int(len(invalid))
 
+    def decode_cardinality_native(
+        self,
+        frame_count: int,
+        state_count: int,
+        first_losses: np.ndarray,
+        target_count: int,
+        maximum_count: int,
+    ) -> _NodePath | None:
+        """Return the lowest-loss hard-Recall path at (or just above) K.
+
+        Unlike a Lagrangian penalty sweep, this retains non-convex points of
+        the key-count/IoU frontier.  Lazy topology rejection has the same
+        semantics as ``decode_native``: a selected invalid edge is removed
+        and the fixed-cardinality graph is decoded again.
+        """
+
+        module = native_module()
+        if (
+            module is None
+            or not hasattr(module, "decode_cardinality_path")
+            or self._native_decode_edges is None
+            or self._native_decode_costs is None
+        ):
+            return None
+        initial = np.ascontiguousarray(first_losses, dtype=np.float64)
+        while True:
+            frames, states, raw_cost, _actual_count = module.decode_cardinality_path(
+                self._native_decode_edges,
+                self._native_decode_costs,
+                initial,
+                int(frame_count),
+                int(state_count),
+                int(target_count),
+                int(maximum_count),
+            )
+            if not frames:
+                return None
+            path = _NodePath(
+                tuple(int(value) for value in frames),
+                tuple(int(value) for value in states),
+                float(raw_cost),
+            )
+            self._lazy_topology_decodes += 1
+            invalid = self._invalid_path_edges(path)
+            if not invalid:
+                return path
+            for edge in invalid:
+                index = self._native_edge_offset(*edge)
+                self._native_decode_costs[index] = np.inf
+            self._lazy_topology_rejected_edges += int(len(invalid))
+
     def _native_edge_offset(
         self,
         start_frame: int,
@@ -1386,6 +1436,91 @@ def _decode(
     return _NodePath(tuple(frames), tuple(states), float(raw[-1, end_state]))
 
 
+def _decode_fixed_cardinality(
+    frame_count: int,
+    state_count: int,
+    evaluator: _MultistateIntervalEvaluator,
+    target_count: int,
+    maximum_count: int,
+    maximum_gap: int,
+    first_losses: np.ndarray,
+) -> _NodePath:
+    """Scalar oracle for the native fixed-cardinality decoder."""
+
+    bounded_maximum = min(int(frame_count), max(int(target_count), int(maximum_count)))
+    cost = np.full(
+        (bounded_maximum + 1, frame_count, state_count),
+        np.inf,
+        dtype=np.float64,
+    )
+    parent_frame = np.full(cost.shape, -1, dtype=np.int32)
+    parent_state = np.full(cost.shape, -1, dtype=np.int16)
+    cost[1, 0] = np.asarray(first_losses, dtype=np.float64)
+    for end in range(1, frame_count):
+        for end_state in range(state_count):
+            for start in range(max(0, end - int(maximum_gap)), end):
+                last_count = min(bounded_maximum - 1, start + 1)
+                for start_state in range(state_count):
+                    edge = evaluator.edge(start, start_state, end, end_state)
+                    if not edge.feasible:
+                        continue
+                    for count in range(1, last_count + 1):
+                        previous = float(cost[count, start, start_state])
+                        if not np.isfinite(previous):
+                            continue
+                        candidate = previous + float(edge.cost)
+                        current = float(cost[count + 1, end, end_state])
+                        old_parent = (
+                            int(parent_frame[count + 1, end, end_state]),
+                            int(parent_state[count + 1, end, end_state]),
+                        )
+                        if candidate < current - _EPSILON or (
+                            abs(candidate - current) <= _EPSILON
+                            and (int(start), int(start_state)) < old_parent
+                        ):
+                            cost[count + 1, end, end_state] = candidate
+                            parent_frame[count + 1, end, end_state] = int(start)
+                            parent_state[count + 1, end, end_state] = int(start_state)
+
+    selected_count = -1
+    selected_state = -1
+    count_order = (
+        *range(int(target_count), bounded_maximum + 1),
+        *range(int(target_count) - 1, 0, -1),
+    )
+    for count in count_order:
+        state = int(np.argmin(cost[count, -1]))
+        if np.isfinite(cost[count, -1, state]):
+            selected_count = int(count)
+            selected_state = int(state)
+            break
+    if selected_state < 0:
+        raise RuntimeError("no hard-Recall-feasible fixed-cardinality curve path")
+    frames: list[int] = []
+    states: list[int] = []
+    frame = frame_count - 1
+    state = selected_state
+    count = selected_count
+    while count > 0:
+        frames.append(int(frame))
+        states.append(int(state))
+        if count == 1:
+            break
+        next_frame = int(parent_frame[count, frame, state])
+        next_state = int(parent_state[count, frame, state])
+        if next_frame < 0 or next_state < 0:
+            raise RuntimeError("broken fixed-cardinality curve predecessor chain")
+        frame, state = next_frame, next_state
+        count -= 1
+    frames.reverse()
+    states.reverse()
+    return _NodePath(
+        tuple(frames),
+        tuple(states),
+        float(cost[selected_count, -1, selected_state]),
+    )
+
+
 def _select_path(
     frame_count: int,
     state_count: int,
@@ -1394,6 +1529,49 @@ def _select_path(
     config: KeyframeDpConfig,
     first_losses: np.ndarray,
 ) -> tuple[_NodePath, float]:
+    if str(config.path_selection_mode) == "fixed_cardinality":
+        maximum_count = min(
+            int(frame_count),
+            max(
+                int(target_count),
+                int(
+                    np.ceil(
+                        float(target_count) * float(config.cardinality_maximum_factor)
+                    )
+                ),
+                int(target_count) + 8,
+            ),
+        )
+        path = evaluator.decode_cardinality_native(
+            int(frame_count),
+            int(state_count),
+            first_losses,
+            int(target_count),
+            int(maximum_count),
+        )
+        if path is None:
+            # The compact probe palette can require more than the bounded K
+            # range. Decode its minimum-cardinality path so the caller can
+            # switch to the wider state palette instead of failing before the
+            # fallback has a chance to run.
+            path = evaluator.decode_native(
+                int(frame_count),
+                int(state_count),
+                first_losses,
+                max(float(config.penalty_maximum), 1.0e12),
+            )
+            if path is None:
+                path = _decode_fixed_cardinality(
+                    int(frame_count),
+                    int(state_count),
+                    evaluator,
+                    int(target_count),
+                    int(frame_count),
+                    int(config.maximum_gap),
+                    first_losses,
+                )
+        return path, 0.0
+
     candidates: dict[
         tuple[tuple[int, ...], tuple[int, ...]], tuple[float, _NodePath]
     ] = {}
@@ -1534,7 +1712,42 @@ def optimize_multistate_keyframes(
                 + _EPSILON
             )
         )
-        if len(path.frames) > max(2, maximum_fast_keys):
+        use_full_palette = len(path.frames) > max(2, maximum_fast_keys)
+        if (
+            str(config.path_selection_mode) == "fixed_cardinality"
+            and int(config.target_interval) >= 4
+        ):
+            # For the sparse half of the supported 1--6 range, evaluate the
+            # complete candidate family. Otherwise an exact-K compact path
+            # could hide a better exact-K point available to endpoint states.
+            use_full_palette = True
+        if not use_full_palette:
+            provisional_controls = np.asarray(
+                [
+                    controls[frame, state]
+                    for frame, state in zip(path.frames, path.states, strict=True)
+                ],
+                dtype=np.float64,
+            )
+            provisional_dense = materialize_controls(
+                len(controls),
+                path.frames,
+                provisional_controls,
+            )
+            _boundaries, provisional_audit = audit_dense_path(
+                references,
+                provisional_dense,
+                renderer,
+                exact_raster=exact_raster,
+                threads=int(config.native_cpu_threads),
+            )
+            use_full_palette = bool(
+                np.min(provisional_audit.iou)
+                < float(config.quality_rescue_iou_floor) - _EPSILON
+                or np.max(provisional_audit.area_ratio)
+                > float(config.quality_rescue_area_ratio_cap) + _EPSILON
+            )
+        if use_full_palette:
             probe_seconds = float(time.perf_counter() - probe_started)
             controls = fallback_controls
             state_labels = fallback_labels or ()

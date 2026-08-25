@@ -22,7 +22,13 @@ class CurveProductionConfig:
     state_scales: tuple[float, ...] = (1.0, 1.005, 1.025, 1.035)
     fast_state_scales: tuple[float, ...] = (1.0, 1.005)
     fast_state_target_ratio: float = 0.95
-    low_iou_quadratic_weight: float = 4.0
+    # Penalize a locally bad frame more than an imperceptible average-IoU
+    # change spread over the rest of its track.
+    low_iou_quadratic_weight: float = 16.0
+    # Solve the requested key cardinality directly. A lambda-only sweep can
+    # skip non-convex points of the key-count/IoU Pareto frontier.
+    path_selection_mode: str = "fixed_cardinality"
+    cardinality_maximum_factor: float = 2.0
     # Four target intervals preserve the selected V3 paths while avoiding
     # exact evaluation of graph edges that the supported 1--6 range never uses.
     maximum_gap: int = 24
@@ -36,15 +42,11 @@ class CurveProductionConfig:
     quality_rescue_iou_floor: float = 0.85
     quality_rescue_regret_floor: float = 0.04
     quality_rescue_area_ratio_cap: float = 1.20
-    # Zero means that no artificial key-count ceiling is imposed.  A rescue key
-    # is still accepted only when the independent spatial curve is materially
-    # better and every exact Recall/topology/lower-tail guard remains valid.
-    # Consequently difficult motion pays with additional keys instead of a
-    # silently bad frame.  Positive values remain available to experiments as
-    # an explicit insertion cap.
+    # Retained for explicit legacy ablations. Production no longer inserts
+    # rescue keys after DP; the quality thresholds above trigger a wider
+    # whole-track state search while preserving the selected cardinality.
     quality_rescue_maximum_extra_keys: int = 0
-    # The former target-density allowance could stop rescue before its explicit
-    # IoU/area guards were met.  Disabling it preserves the soft-target rule.
+    # These fields remain part of the experimental rescue contract only.
     quality_rescue_density_budget: bool = False
     quality_rescue_maximum_iou_regression: float = 0.005
     quality_rescue_maximum_area_ratio_regression: float = 0.01
@@ -84,6 +86,10 @@ class CurveProductionConfig:
             raise ValueError("fast state target ratio must be in (0, 1]")
         if int(self.maximum_gap) < 1 or int(self.gapfill_max_gap) < 0:
             raise ValueError("curve temporal gap settings are invalid")
+        if self.path_selection_mode not in {"penalty", "fixed_cardinality"}:
+            raise ValueError("unsupported curve path selection mode")
+        if float(self.cardinality_maximum_factor) < 1.0:
+            raise ValueError("curve cardinality maximum factor must be at least one")
         if int(self.pair_vote_sweeps) < 0 or int(self.point_refine_sweeps) < 0:
             raise ValueError("curve refinement sweeps must be non-negative")
         if not 0.0 <= float(self.quality_rescue_iou_floor) <= 1.0:

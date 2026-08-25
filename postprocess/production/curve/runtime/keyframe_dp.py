@@ -35,6 +35,8 @@ class KeyframeDpConfig:
     maximum_gap: int = 30
     penalty_binary_steps: int = 18
     penalty_maximum: float = 1024.0
+    path_selection_mode: str = "penalty"
+    cardinality_maximum_factor: float = 2.0
     shape_distance_weight: float = 0.4
     pair_vote_enabled: bool = True
     pair_vote_sweeps: int = 2
@@ -65,6 +67,10 @@ class KeyframeDpConfig:
             raise ValueError("maximum_gap must be positive")
         if int(self.penalty_binary_steps) < 1:
             raise ValueError("penalty_binary_steps must be positive")
+        if self.path_selection_mode not in {"penalty", "fixed_cardinality"}:
+            raise ValueError("unsupported curve path selection mode")
+        if float(self.cardinality_maximum_factor) < 1.0:
+            raise ValueError("cardinality_maximum_factor must be at least one")
         if int(self.pair_vote_sweeps) < 0:
             raise ValueError("pair_vote_sweeps must be nonnegative")
         if float(self.low_iou_quadratic_weight) < 0.0:

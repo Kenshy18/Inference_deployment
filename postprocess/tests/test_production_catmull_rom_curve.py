@@ -12,6 +12,9 @@ import numpy as np
 import production.curve.runtime.multistate_dp as multistate_dp
 
 from production.curve.config import CurveProductionConfig
+from production.curve.runtime.candidate_states import (
+    interval_aware_fallback_states,
+)
 from production.curve.engine import (
     _compact_fit_summary,
     _repair_if_needed,
@@ -79,6 +82,9 @@ def _ellipse(center: tuple[float, float], radii=(34.0, 20.0), count=96):
 def test_production_quality_rescue_guards_are_explicit_and_validated() -> None:
     config = CurveProductionConfig()
     assert config.maximum_gap == 24
+    assert config.path_selection_mode == "fixed_cardinality"
+    assert config.cardinality_maximum_factor == 2.0
+    assert config.low_iou_quadratic_weight == 16.0
     assert config.quality_rescue_maximum_extra_keys == 0
     assert not config.quality_rescue_density_budget
     assert config.quality_rescue_maximum_iou_regression == 0.005
@@ -105,6 +111,7 @@ def test_supported_target_intervals_share_the_frozen_exact_contract() -> None:
         assert config.recall_floor == 0.97
         assert config.samples_per_segment == 16
         assert config.state_scales == (1.0, 1.005, 1.025, 1.035)
+        assert config.path_selection_mode == "fixed_cardinality"
 
 
 def test_fit_summary_compaction_is_bounded_and_does_not_mutate_input() -> None:
@@ -273,9 +280,7 @@ def test_engine_audits_and_exports_every_multi_component_observation(
     monkeypatch.setattr("production.curve.engine._fit_component", fake_fit)
     preparation = {
         "active_labels": ["女性器"],
-        "classes": {
-            "女性器": {"endpoint_sqlite": str(tracked), "input_rows": 3}
-        },
+        "classes": {"女性器": {"endpoint_sqlite": str(tracked), "input_rows": 3}},
         "passthrough_track_ids": [],
         "vertex_policy": {
             "tracks": {"7": {"vertices_per_component": 14}},
@@ -428,23 +433,28 @@ def test_refinement_guard_does_not_move_subfloor_debt_to_another_frame(
         "audit_dense_path",
         fake_audit_dense_path,
     )
-    keys, _dense, _boundaries, result, triggered, alpha = (
-        multistate_dp._guard_refined_controls(
-            [np.zeros((3, 2), dtype=np.float64) for _frame in range(3)],
-            chosen,
-            baseline_keys,
-            refined_keys,
-            lambda values: values,
-            KeyframeDpConfig(
-                target_interval=2,
-                recall_floor=0.97,
-                quality_rescue_iou_floor=0.85,
-                quality_rescue_maximum_iou_regression=0.005,
-                native_cpu_batches=False,
-                native_cpu_threads=1,
-            ),
-            None,
-        )
+    (
+        keys,
+        _dense,
+        _boundaries,
+        result,
+        triggered,
+        alpha,
+    ) = multistate_dp._guard_refined_controls(
+        [np.zeros((3, 2), dtype=np.float64) for _frame in range(3)],
+        chosen,
+        baseline_keys,
+        refined_keys,
+        lambda values: values,
+        KeyframeDpConfig(
+            target_interval=2,
+            recall_floor=0.97,
+            quality_rescue_iou_floor=0.85,
+            quality_rescue_maximum_iou_regression=0.005,
+            native_cpu_batches=False,
+            native_cpu_threads=1,
+        ),
+        None,
     )
     assert triggered
     assert alpha == 0.0
@@ -489,23 +499,28 @@ def test_refinement_guard_allows_redistribution_above_quality_floor(
         "audit_dense_path",
         fake_audit_dense_path,
     )
-    keys, _dense, _boundaries, result, triggered, alpha = (
-        multistate_dp._guard_refined_controls(
-            [np.zeros((3, 2), dtype=np.float64) for _frame in range(3)],
-            chosen,
-            baseline_keys,
-            refined_keys,
-            lambda values: values,
-            KeyframeDpConfig(
-                target_interval=2,
-                recall_floor=0.97,
-                quality_rescue_iou_floor=0.85,
-                quality_rescue_maximum_iou_regression=0.005,
-                native_cpu_batches=False,
-                native_cpu_threads=1,
-            ),
-            None,
-        )
+    (
+        keys,
+        _dense,
+        _boundaries,
+        result,
+        triggered,
+        alpha,
+    ) = multistate_dp._guard_refined_controls(
+        [np.zeros((3, 2), dtype=np.float64) for _frame in range(3)],
+        chosen,
+        baseline_keys,
+        refined_keys,
+        lambda values: values,
+        KeyframeDpConfig(
+            target_interval=2,
+            recall_floor=0.97,
+            quality_rescue_iou_floor=0.85,
+            quality_rescue_maximum_iou_regression=0.005,
+            native_cpu_batches=False,
+            native_cpu_threads=1,
+        ),
+        None,
     )
     assert not triggered
     assert alpha == 1.0
@@ -592,9 +607,8 @@ def test_native_catmull_control_batches_match_materialized_boundaries() -> None:
 
     scales = np.asarray((1.0, 1.012, 1.04, 1.08), dtype=np.float64)
     centers = np.mean(controls, axis=1, keepdims=True)
-    scale_controls = (
-        centers[:, None]
-        + scales[None, :, None, None] * (controls[:, None] - centers[:, None])
+    scale_controls = centers[:, None] + scales[None, :, None, None] * (
+        controls[:, None] - centers[:, None]
     )
     scale_boundaries = sample_curve_sequence(
         scale_controls.reshape(-1, controls.shape[1], 2),
@@ -909,6 +923,86 @@ def test_multistate_dp_selects_exact_curve_scale_without_free_handles() -> None:
     assert result.summary()["minimum_iou"] == 1.0
     assert result.summary()["recall_violations"] == 0
     assert result.summary()["topology_invalid_frames"] == 0
+
+
+def test_fixed_cardinality_curve_dp_keeps_requested_pareto_point() -> None:
+    base = np.asarray(
+        ((50, 30), (70, 28), (82, 43), (72, 61), (48, 63), (38, 45)),
+        dtype=np.float64,
+    )
+    controls = np.asarray(
+        [base + np.asarray((1.5 * frame, 0.5 * frame)) for frame in range(10)]
+    )
+    states, labels = isotropic_curve_states(controls, (1.0, 1.02))
+    renderer = catmull_rom_renderer(12)
+    references = [renderer(frame) for frame in states[:, 1]]
+    result = optimize_multistate_keyframes(
+        references,
+        states,
+        state_labels=labels,
+        base_controls=controls,
+        representation="catmull_rom_multistate",
+        renderer=renderer,
+        config=KeyframeDpConfig(
+            target_interval=3,
+            recall_floor=0.97,
+            maximum_gap=12,
+            path_selection_mode="fixed_cardinality",
+            pair_vote_enabled=False,
+            quality_rescue_enabled=False,
+        ),
+        point_refine=CurvePointRefineConfig(enabled=False),
+    )
+    assert result.target_keyframes == 3
+    assert len(result.chosen_indices) == 3
+    assert result.quality_rescue_inserted_indices == ()
+    assert result.summary()["recall_violations"] == 0
+
+
+def test_native_cardinality_decoder_relaxes_only_upward() -> None:
+    module = native_module()
+    assert module is not None and hasattr(module, "decode_cardinality_path")
+    # The only route to the final frame has three keys. Asking for two must
+    # therefore return three, never a less safe one-key path.
+    edges = np.asarray(((0, 0, 1, 0), (1, 0, 2, 0)), dtype=np.int32)
+    costs = np.asarray((1.0, 1.0), dtype=np.float64)
+    frames, states, raw_cost, count = module.decode_cardinality_path(
+        edges,
+        costs,
+        np.asarray((0.0,), dtype=np.float64),
+        3,
+        1,
+        2,
+        3,
+    )
+    assert tuple(frames) == (0, 1, 2)
+    assert tuple(states) == (0, 0, 0)
+    assert raw_cost == 2.0
+    assert count == 3
+
+
+def test_interval_aware_palette_is_bounded_superset() -> None:
+    base = np.asarray(
+        ((50, 30), (70, 28), (82, 43), (72, 61), (48, 63), (38, 45)),
+        dtype=np.float64,
+    )
+    controls = np.asarray(
+        [
+            base
+            + np.asarray((2.0 * frame, float(frame)))
+            + 0.2 * frame * np.sin(np.arange(len(base)))[:, None]
+            for frame in range(12)
+        ]
+    )
+    states, labels = interval_aware_fallback_states(
+        controls,
+        target_interval=6,
+    )
+    assert states.shape == (12, 4, 6, 2)
+    np.testing.assert_allclose(states[:, 0], controls, atol=1e-12, rtol=0.0)
+    assert labels[:2] == ("scale_1.000", "scale_1.060")
+    assert labels[-2:] == ("forward_ls_h6_s1.080", "backward_ls_h6_s1.080")
+    assert np.all(np.isfinite(states))
 
 
 def test_isotropic_state_shape_distances_are_deduplicated_exactly() -> None:

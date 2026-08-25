@@ -2517,6 +2517,161 @@ py::tuple decode_penalty_path(
   return py::make_tuple(positions, states, raw_costs[index_of(frame_count - 1, final_state)]);
 }
 
+py::tuple decode_cardinality_path(
+    const py::array_t<std::int32_t, py::array::c_style | py::array::forcecast>& edges,
+    const py::array_t<double, py::array::c_style | py::array::forcecast>& edge_costs,
+    const py::array_t<double, py::array::c_style | py::array::forcecast>& initial_losses,
+    const int frame_count,
+    const int state_count,
+    const int target_count,
+    const int maximum_count) {
+  if (edges.ndim() != 2 || edges.shape(1) != 4) {
+    throw py::value_error("edges must have shape (E, 4)");
+  }
+  if (edge_costs.ndim() != 1 || edge_costs.shape(0) != edges.shape(0)) {
+    throw py::value_error("edge_costs must have shape (E,)");
+  }
+  if (initial_losses.ndim() != 1 || initial_losses.shape(0) != state_count) {
+    throw py::value_error("initial_losses must have shape (states,)");
+  }
+  if (frame_count <= 0 || state_count <= 0 || target_count <= 0 ||
+      maximum_count < target_count) {
+    throw py::value_error("invalid cardinality decoder dimensions");
+  }
+  const int bounded_maximum = std::min(maximum_count, frame_count);
+  const int bounded_target = std::min(target_count, bounded_maximum);
+  const auto edge_view = edges.unchecked<2>();
+  const auto edge_cost_view = edge_costs.unchecked<1>();
+  const auto initial_view = initial_losses.unchecked<1>();
+  const std::size_t nodes =
+      static_cast<std::size_t>(frame_count) * static_cast<std::size_t>(state_count);
+  const std::size_t values =
+      static_cast<std::size_t>(bounded_maximum + 1) * nodes;
+  const double infinity = std::numeric_limits<double>::infinity();
+  std::vector<double> costs(values, infinity);
+  std::vector<std::int32_t> back_pos(values, -1);
+  std::vector<std::int16_t> back_state(values, -1);
+  const auto node_of = [state_count](const int frame, const int state) {
+    return static_cast<std::size_t>(frame) * static_cast<std::size_t>(state_count)
+        + static_cast<std::size_t>(state);
+  };
+  const auto index_of = [nodes, &node_of](
+                            const int count, const int frame, const int state) {
+    return static_cast<std::size_t>(count) * nodes + node_of(frame, state);
+  };
+  for (int state = 0; state < state_count; ++state) {
+    const double loss = initial_view(state);
+    if (std::isfinite(loss)) {
+      costs[index_of(1, 0, state)] = loss;
+    }
+  }
+  {
+    py::gil_scoped_release release;
+    for (py::ssize_t edge_index = 0; edge_index < edges.shape(0); ++edge_index) {
+      const double edge_cost = edge_cost_view(edge_index);
+      if (!std::isfinite(edge_cost)) {
+        continue;
+      }
+      const int start_frame = edge_view(edge_index, 0);
+      const int start_state = edge_view(edge_index, 1);
+      const int end_frame = edge_view(edge_index, 2);
+      const int end_state = edge_view(edge_index, 3);
+      if (start_frame < 0 || start_frame >= end_frame || end_frame >= frame_count ||
+          start_state < 0 || start_state >= state_count ||
+          end_state < 0 || end_state >= state_count) {
+        continue;
+      }
+      // A path reaching start_frame cannot contain more than start_frame + 1
+      // nodes.  This bound removes most empty K states for long target gaps.
+      const int last_count = std::min(bounded_maximum - 1, start_frame + 1);
+      for (int count = 1; count <= last_count; ++count) {
+        const std::size_t source = index_of(count, start_frame, start_state);
+        if (!std::isfinite(costs[source])) {
+          continue;
+        }
+        const std::size_t destination =
+            index_of(count + 1, end_frame, end_state);
+        const double candidate = costs[source] + edge_cost;
+        if (candidate < costs[destination] - 1e-12 ||
+            (std::abs(candidate - costs[destination]) <= 1e-12 &&
+             std::tie(start_frame, start_state) <
+                 std::tie(back_pos[destination], back_state[destination]))) {
+          costs[destination] = candidate;
+          back_pos[destination] = start_frame;
+          back_state[destination] = static_cast<std::int16_t>(start_state);
+        }
+      }
+    }
+  }
+  int selected_count = -1;
+  int selected_state = -1;
+  const auto select_count = [&](const int count) {
+    int state_best = -1;
+    for (int state = 0; state < state_count; ++state) {
+      const double value = costs[index_of(count, frame_count - 1, state)];
+      if (!std::isfinite(value)) {
+        continue;
+      }
+      if (state_best < 0 ||
+          std::tie(value, state) <
+              std::tie(costs[index_of(count, frame_count - 1, state_best)], state_best)) {
+        state_best = state;
+      }
+    }
+    return state_best;
+  };
+  // Recall is the hard constraint.  Prefer exactly K; if no such path exists,
+  // add the minimum number of keys needed to make the graph feasible.  Only a
+  // structurally unusual graph falls back below the requested cardinality.
+  for (int count = bounded_target; count <= bounded_maximum; ++count) {
+    const int state = select_count(count);
+    if (state >= 0) {
+      selected_count = count;
+      selected_state = state;
+      break;
+    }
+  }
+  if (selected_state < 0) {
+    for (int count = bounded_target - 1; count >= 1; --count) {
+      const int state = select_count(count);
+      if (state >= 0) {
+        selected_count = count;
+        selected_state = state;
+        break;
+      }
+    }
+  }
+  if (selected_state < 0) {
+    return py::make_tuple(py::list(), py::list(), infinity, -1);
+  }
+  std::vector<int> positions;
+  std::vector<int> states;
+  int position = frame_count - 1;
+  int state = selected_state;
+  int count = selected_count;
+  while (count > 0) {
+    positions.push_back(position);
+    states.push_back(state);
+    if (count == 1) {
+      break;
+    }
+    const std::size_t index = index_of(count, position, state);
+    position = back_pos[index];
+    state = static_cast<int>(back_state[index]);
+    --count;
+    if (position < 0 || state < 0) {
+      throw std::runtime_error("broken cardinality DP predecessor chain");
+    }
+  }
+  std::reverse(positions.begin(), positions.end());
+  std::reverse(states.begin(), states.end());
+  return py::make_tuple(
+      positions,
+      states,
+      costs[index_of(selected_count, frame_count - 1, selected_state)],
+      selected_count);
+}
+
 class IncrementalPenaltyPathDecoder {
  public:
   IncrementalPenaltyPathDecoder(
@@ -3598,6 +3753,16 @@ PYBIND11_MODULE(native_interval_metrics, module) {
       py::arg("frame_count"),
       py::arg("state_count"),
       py::arg("penalty"));
+  module.def(
+      "decode_cardinality_path",
+      &decode_cardinality_path,
+      py::arg("edges"),
+      py::arg("edge_costs"),
+      py::arg("initial_losses"),
+      py::arg("frame_count"),
+      py::arg("state_count"),
+      py::arg("target_count"),
+      py::arg("maximum_count"));
   py::class_<IncrementalPenaltyPathDecoder>(
       module, "IncrementalPenaltyPathDecoder")
       .def(
