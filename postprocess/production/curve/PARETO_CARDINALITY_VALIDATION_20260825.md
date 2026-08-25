@@ -58,3 +58,21 @@ Artifacts:
 The native fixed-cardinality decode itself took about 3 ms on a 300-frame,
 four-state graph. Sparse-target runtime remains dominated by exact interval
 raster evaluation and point refinement, not by the cardinality dimension.
+
+## Holdout: joined-region track 60
+
+A third, previously unused shape class was evaluated after implementation.
+
+| Target | Keys | Effective interval | Mean IoU | q05 IoU | Minimum IoU | Minimum Recall | Maximum area ratio |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 300 | 1.000 | 0.9873 | 0.9854 | 0.9842 | 0.99041 | 1.0076 |
+| 3 | 100 | 3.000 | 0.9456 | 0.9027 | 0.8651 | 0.97000 | 1.1432 |
+| 6 | 60 | 5.000 | 0.8772 | 0.8124 | 0.6917 | 0.97000 | 1.4168 |
+
+Target 6 was not feasible at exactly 50 keys with the bounded palette. The
+decoder correctly returned the smallest feasible count above the request
+(60 keys) without violating Recall. More aggressive coverage/endpoint scales
+up to 1.10 and correction fractions up to 0.25 still reached only effective
+interval 5.66 while degrading mean IoU to 0.813 and maximum area ratio to
+1.80. They were rejected: preserving a soft target miss is safer than forcing
+the requested count through a giant-mask state.
