@@ -31,6 +31,7 @@ from .runtime.multistate_dp import (
     isotropic_curve_states,
     optimize_multistate_keyframes,
 )
+from .runtime.role_states import curve_role_ids, polygon_role_curve_states
 from .runtime.spatial import (
     complete_spatial_recall_with_envelopes,
     repair_spatial_controls,
@@ -714,14 +715,37 @@ def run_curve_optimizer(
                     )
                     fit_summary["cross_chunk_phase_shift"] = int(phase_shift)
                     if int(run.contour_count) == 1:
-                        states, state_labels = isotropic_curve_states(
-                            controls,
-                            tuple(config.fast_state_scales),
-                        )
-                        fallback_states, fallback_state_labels = isotropic_curve_states(
-                            controls,
-                            tuple(config.state_scales),
-                        )
+                        role_ids = curve_role_ids(label)
+                        if role_ids:
+                            all_states, all_state_labels = polygon_role_curve_states(
+                                controls,
+                                run.frame_numbers,
+                                role_ids,
+                                renderer=catmull_rom_renderer(
+                                    int(config.samples_per_segment)
+                                ),
+                                samples_per_segment=int(config.samples_per_segment),
+                            )
+                            states = np.ascontiguousarray(all_states[:, :2])
+                            state_labels = tuple(all_state_labels[:2])
+                            fallback_states = all_states
+                            fallback_state_labels = all_state_labels
+                            fast_target_ratio = float(config.fast_state_target_ratio)
+                            fast_quality_probe = False
+                        else:
+                            states, state_labels = isotropic_curve_states(
+                                controls,
+                                tuple(config.fast_state_scales),
+                            )
+                            (
+                                fallback_states,
+                                fallback_state_labels,
+                            ) = isotropic_curve_states(
+                                controls,
+                                tuple(config.state_scales),
+                            )
+                            fast_target_ratio = float(config.fast_state_target_ratio)
+                            fast_quality_probe = True
                         dp_config = KeyframeDpConfig(
                             target_interval=int(config.target_interval),
                             recall_floor=float(config.recall_floor),
@@ -739,11 +763,11 @@ def run_curve_optimizer(
                                 config.cardinality_maximum_factor
                             ),
                             shape_distance_weight=float(config.shape_distance_weight),
-                            # K is selected globally first.  This final guard
-                            # may only add keys where the exact dense path has
-                            # a local collapse/inflation; the target remains a
-                            # soft goal and Recall remains hard.
-                            quality_rescue_enabled=True,
+                            # Recall/topology are hard graph constraints. IoU
+                            # remains the cost traded against the requested
+                            # key cardinality; no post-DP key insertion changes
+                            # that selected Pareto point.
+                            quality_rescue_enabled=False,
                             quality_rescue_iou_floor=float(
                                 config.quality_rescue_iou_floor
                             ),
@@ -790,9 +814,8 @@ def run_curve_optimizer(
                             interval_renderer=renderer,
                             fallback_state_controls=fallback_states,
                             fallback_state_labels=fallback_state_labels,
-                            fast_state_target_ratio=float(
-                                config.fast_state_target_ratio
-                            ),
+                            fast_state_target_ratio=fast_target_ratio,
+                            fast_state_quality_probe=fast_quality_probe,
                         )
                         dense_controls = np.asarray(result.dense_controls)
                         selected = {

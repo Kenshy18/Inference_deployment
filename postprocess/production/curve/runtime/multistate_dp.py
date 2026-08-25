@@ -1632,6 +1632,7 @@ def optimize_multistate_keyframes(
     fallback_state_controls: np.ndarray | None = None,
     fallback_state_labels: tuple[str, ...] | None = None,
     fast_state_target_ratio: float = 0.0,
+    fast_state_quality_probe: bool = True,
 ) -> KeyframeDpResult:
     """Optimize frame, state and P jointly under exact per-frame Recall."""
     config.validate()
@@ -1716,7 +1717,7 @@ def optimize_multistate_keyframes(
             )
         )
         use_full_palette = len(path.frames) > max(2, maximum_fast_keys)
-        if not use_full_palette:
+        if not use_full_palette and bool(fast_state_quality_probe):
             provisional_controls = np.asarray(
                 [
                     controls[frame, state]

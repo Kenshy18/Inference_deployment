@@ -1,78 +1,79 @@
-# Fixed-cardinality Catmull--Rom DP validation (2026-08-25)
+# Catmull--Rom interval trade-off validation (2026-08-25)
 
-## Final contract
+## Production contract
 
-- Minimum per-frame Recall: `0.97` (hard edge and final-audit constraint).
-- Topology: no invalid interpolated frame.
-- Key count: solve the requested cardinality directly; if it is infeasible,
-  choose the smallest feasible count above it.
-- States: first solve the inexpensive two-state graph, then use the validated
-  four-state isotropic palette only for streams that miss the density or local
-  quality gates.
-- Local quality: after global selection, the existing exact quality guard may
-  add keys for a local `IoU < 0.85` or `area ratio > 1.20`. The target interval
-  is a soft goal; Recall and these catastrophic-failure guards take priority.
-- Editable geometry: Catmull--Rom interpolation points `P` only; handles remain
-  derived by the frozen `1/6` conversion.
+- Per-frame Recall `>= 0.97` and valid interpolated topology are hard graph
+  and final-audit constraints.
+- IoU and keyframe count are the trade-off. A low-IoU or enlarged frame does
+  not add a key after DP and does not veto the requested Pareto point.
+- The requested target interval is a soft target. If no path at that key count
+  satisfies the hard constraints, the smallest feasible key count above the
+  target is selected.
+- Targets 1 through 6 use the same fixed-cardinality optimizer. There are no
+  target-specific quality thresholds.
+- Editable geometry remains Catmull--Rom interpolation points `P`; every
+  Bezier handle is derived by the frozen closed uniform `1/6` conversion.
 
-The rejected variant forced a four-state temporal-endpoint palette for every
-target from 4 through 6 and disabled the final local-quality guard. On the full
-KPI corpus it reduced throughput and produced minimum IoU `0.2399` and maximum
-area ratio `4.1543`. It is not part of Production.
+## State palette
 
-## Controlled speed comparison
+The former isotropic-only palette could not express sparse valid paths for
+several male and joint streams. Production now retains the inexpensive raw
+and temporal-coverage probe first, and expands only streams that miss the
+requested density:
 
-Both revisions were run consecutively on the same host, same 15-minute KPI
-tracked SQLite, same six classwise workers, target interval 6, and CPU-only
-exact raster path. The baseline is commit `efeb989`; the candidate uses the
-fixed-cardinality decoder and the final contract above.
+- female: the existing compact isotropic palette;
+- male: `raw`, `C02_125`, `A06_K3`, `D6_R5_P1`;
+- joint: `raw`, `C02_125`, `A06`, `VF8_P1`.
 
-| Metric | Previous penalty DP | Fixed-cardinality candidate | Change |
-|---|---:|---:|---:|
-| Output mask rows | 25,090 | 25,090 | identical |
-| Classwise wall seconds | 106.063 | 107.548 | +1.40% |
-| Output-mask FPS | 236.56 | 233.29 | -1.38% |
-| Maximum worker RSS KiB | 1,790,076 | 1,785,940 | -0.23% |
-| Keyframes | 7,570 | 7,559 | -11 |
-| Effective interval | 3.3144 | 3.3192 | +0.15% |
+The role transforms operate directly on the fixed Catmull points, preserving
+point count and cyclic phase. They do not introduce free Bezier handles.
 
-The 1.38% throughput difference is within the run-to-run spread observed on
-this host. Two isolated checks support that interpretation:
+## Full KPI trade-off
 
-- stable 300-frame track: baseline median `139.46 FPS`, candidate median
-  `139.83 FPS`;
-- difficult 1,332-frame track 48: baseline `55.19 FPS`, candidate
-  `56.77 FPS`.
+All rows below come from the same 25,090-mask V3 KPI SQLite, six classwise
+workers and the authoritative exact CPU raster path. Pair-vote and point
+refinement remained enabled.
 
-The native cardinality decode itself is about 3 ms for a 300-frame graph. The
-dominant work remains exact interval rasterization, curve fitting and point
-refinement. No expensive temporal-endpoint state family is used in Production.
+| Target | Keys | Effective interval | Mean IoU | IoU q05 | Minimum IoU | Mean area ratio | Area q95 | Recall violations | FPS |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 25,090 | 1.000 | 0.985337 | 0.975841 | 0.934211 | 1.000899 | 1.007407 | 0 | 195.40 |
+| 2 | 12,569 | 1.996 | 0.972148 | 0.927748 | 0.373807 | 1.006487 | 1.053266 | 0 | 219.92 |
+| 3 | 8,485 | 2.957 | 0.956718 | 0.869131 | 0.339171 | 1.020606 | 1.128962 | 0 | 244.07 |
+| 4 | 6,516 | 3.851 | 0.941434 | 0.829633 | 0.316516 | 1.039177 | 1.184096 | 0 | 253.02 |
+| 5 | 5,404 | 4.643 | 0.927597 | 0.789901 | 0.240613 | 1.058051 | 1.238491 | 0 | 254.29 |
+| 6 | 4,747 | 5.285 | 0.915507 | 0.757105 | 0.240613 | 1.075845 | 1.295262 | 0 | 244.58 |
 
-## Full-corpus quality comparison
+Minimum Recall was at least `0.97` and topology-invalid component frames were
+zero at every target. Effective interval rises monotonically while mean IoU
+falls monotonically, so targets 1--6 now expose the intended key-count/IoU
+trade-off. Target 6 does not reach an exact effective interval of 6 because
+the hard Recall constraint makes that key count infeasible on some streams.
 
-| Metric | Previous penalty DP | Fixed-cardinality candidate |
+The low IoU tail and area maxima at sparse settings are deliberately reported,
+not hidden: maximum area ratio was `4.1428` at targets 5 and 6. Under this
+contract those are costs of selecting the sparse Pareto point, not reasons to
+silently insert keys and change the user's requested trade-off.
+
+## Controlled target-6 comparison
+
+| Metric | Previous quality-guarded palette | Role-palette trade-off |
 |---|---:|---:|
-| Mean IoU | 0.958740 | 0.958556 |
-| IoU q01 | 0.882244 | 0.884279 |
-| IoU q05 | 0.907584 | 0.908823 |
-| Minimum IoU | 0.851086 | 0.852016 |
-| Minimum Recall | 0.970000 | 0.970000 |
+| Keys | 7,559 | 4,747 |
+| Effective interval | 3.319 | 5.285 |
+| Mean IoU | 0.958556 | 0.915507 |
 | Recall violations | 0 | 0 |
-| Mean area ratio | 1.015704 | 1.015495 |
-| Area ratio q99 | 1.110255 | 1.109652 |
-| Maximum area ratio | 1.167614 | 1.166193 |
-| Local-quality violations | 0 | 0 |
+| Classwise wall seconds | 107.548 | 102.585 |
+| Output-mask FPS | 233.29 | 244.58 |
 
-The candidate preserves mean quality to within `0.000184` IoU while slightly
-improving q01, q05, minimum IoU and area statistics. The difficult track 48
-also remained stable: minimum IoU changed from `0.86542` to `0.86645`, maximum
-area ratio from `1.10953` to `1.11213`, and effective interval from `5.026` to
-`5.065`, with zero Recall violations.
+The adaptive two-state probe reduced the role-palette DP time enough to make
+the new sparse trade-off faster than the former quality-guarded path. The
+37.2% key reduction is paid for by a 0.0430 reduction in mean IoU, which is the
+explicit behavior of the requested trade-off rather than a quality regression
+at a fixed key count.
 
-## Decision
+## Regression evidence
 
-The fixed-cardinality decoder is retained, but only behind the adaptive
-two-state/four-state isotropic search and the exact local-quality guard. This
-provides direct Pareto-point selection where feasible without paying for a
-larger graph on easy streams or forcing sparse but visibly broken masks on
-difficult streams.
+- Production Catmull--Rom tests: `37 passed`.
+- All six full runs: Recall violations `0`, topology-invalid frames `0`.
+- The runtime imports only Production modules; no experimental module is used.
+- SQLite geometry and interpolation identifiers are unchanged.

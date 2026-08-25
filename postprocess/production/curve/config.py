@@ -46,9 +46,9 @@ class CurveProductionConfig:
     quality_rescue_iou_floor: float = 0.85
     quality_rescue_regret_floor: float = 0.04
     quality_rescue_area_ratio_cap: float = 1.20
-    # Retained for explicit legacy ablations. Production no longer inserts
-    # rescue keys after DP; the quality thresholds above trigger a wider
-    # whole-track state search while preserving the selected cardinality.
+    # Retained for refinement guards and explicit legacy ablations. Production
+    # does not insert rescue keys after DP: Recall/topology are hard, while IoU
+    # is allowed to trade against the requested key cardinality through six.
     quality_rescue_maximum_extra_keys: int = 0
     # These fields remain part of the experimental rescue contract only.
     quality_rescue_density_budget: bool = False

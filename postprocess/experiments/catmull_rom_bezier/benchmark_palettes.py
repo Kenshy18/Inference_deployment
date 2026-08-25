@@ -21,6 +21,7 @@ from production.curve.runtime.multistate_dp import (
     isotropic_curve_states,
     optimize_multistate_keyframes,
 )
+from production.curve.runtime.role_states import polygon_role_curve_states
 
 from .io import load_track_contours
 
@@ -50,6 +51,21 @@ def _case(text: str) -> tuple[str, Path, str, int, int, int]:
         raise argparse.ArgumentTypeError(
             "case must be NAME|SQLITE|TRACK|START|FRAMES|POINTS"
         ) from error
+
+
+def _roles(text: str) -> tuple[str, tuple[str, ...]]:
+    try:
+        name, raw_values = text.split("=", 1)
+        values = tuple(
+            value.strip() for value in raw_values.split(",") if value.strip()
+        )
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "role set must be NAME=ROLE,ROLE,..."
+        ) from error
+    if not name or not values:
+        raise argparse.ArgumentTypeError("role set must contain a name and roles")
+    return name, values
 
 
 def _hash_arrays(*values: np.ndarray) -> str:
@@ -160,6 +176,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also test 4/5-state forward/backward LS endpoint candidates",
     )
+    parser.add_argument("--no-quality-rescue", action="store_true")
+    parser.add_argument("--no-fast-quality-probe", action="store_true")
+    parser.add_argument(
+        "--polygon-role-palette",
+        action="store_true",
+        help="also test the promoted polygon role palette projected to Catmull P",
+    )
+    parser.add_argument("--curve-role-palette", action="append", type=_roles)
     parser.add_argument("--output-json", type=Path, required=True)
     return parser
 
@@ -217,6 +241,46 @@ def main(argv: list[str] | None = None) -> int:
                         labels,
                     )
                 )
+        requested_role_sets = list(args.curve_role_palette or ())
+        if args.polygon_role_palette:
+            requested_role_sets.append(
+                (
+                    "polygon_roles",
+                    (
+                        "C02_125",
+                        "G02",
+                        "G04",
+                        "A06",
+                        "F3_P1",
+                        "D6_P1",
+                        "VF8_P1",
+                    ),
+                )
+            )
+        if requested_role_sets:
+            union_roles = tuple(
+                dict.fromkeys(
+                    role for _name, roles in requested_role_sets for role in roles
+                )
+            )
+            all_values, all_labels = polygon_role_curve_states(
+                controls,
+                track.frames,
+                union_roles,
+                renderer=renderer,
+                samples_per_segment=int(config.samples_per_segment),
+            )
+            label_to_state = {label: index for index, label in enumerate(all_labels)}
+            for name, roles in requested_role_sets:
+                indices = (0, *(label_to_state[role] for role in roles))
+                candidates.append(
+                    (
+                        str(name),
+                        None,
+                        np.ascontiguousarray(all_values[:, indices]),
+                        ("raw", *roles),
+                    )
+                )
         for palette_name, scales, fallback_controls, fallback_labels in candidates:
             fast_controls = np.ascontiguousarray(fallback_controls[:, :2])
             fast_labels = tuple(fallback_labels[:2])
@@ -230,7 +294,10 @@ def main(argv: list[str] | None = None) -> int:
                 pair_vote_enabled=True,
                 pair_vote_sweeps=int(config.pair_vote_sweeps),
                 low_iou_quadratic_weight=float(config.low_iou_quadratic_weight),
-                quality_rescue_enabled=True,
+                path_selection_mode=str(config.path_selection_mode),
+                cardinality_maximum_factor=float(config.cardinality_maximum_factor),
+                shape_distance_weight=float(config.shape_distance_weight),
+                quality_rescue_enabled=not bool(args.no_quality_rescue),
                 quality_rescue_iou_floor=float(config.quality_rescue_iou_floor),
                 quality_rescue_regret_floor=float(config.quality_rescue_regret_floor),
                 quality_rescue_area_ratio_cap=float(
@@ -269,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
                 fallback_state_controls=fallback_controls,
                 fallback_state_labels=fallback_labels,
                 fast_state_target_ratio=float(config.fast_state_target_ratio),
+                fast_state_quality_probe=not bool(args.no_fast_quality_probe),
             )
             summary = result.summary()
             case_rows.append(

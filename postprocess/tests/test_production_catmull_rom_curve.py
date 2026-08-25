@@ -53,6 +53,10 @@ from production.curve.runtime.multistate_dp import (
     optimize_multistate_keyframes,
 )
 from production.curve.runtime.native_cpu import ExactDoubleRasterBatch, native_module
+from production.curve.runtime.role_states import (
+    curve_role_ids,
+    polygon_role_curve_states,
+)
 from production.curve.runtime.topology import (
     has_strict_self_intersection,
     strict_self_intersection_batch,
@@ -110,6 +114,50 @@ def test_supported_target_intervals_share_the_frozen_exact_contract() -> None:
         assert config.samples_per_segment == 16
         assert config.state_scales == (1.0, 1.005, 1.025, 1.035)
         assert config.path_selection_mode == "fixed_cardinality"
+
+
+def test_curve_role_palette_is_minimal_and_class_specific() -> None:
+    assert curve_role_ids("女性器") == ()
+    assert curve_role_ids("男性器") == ("C02_125", "A06_K3", "D6_R5_P1")
+    assert curve_role_ids("結合部分") == ("C02_125", "A06", "VF8_P1")
+    assert curve_role_ids("unknown") == ()
+
+
+def test_curve_role_states_preserve_raw_points_phase_and_are_deterministic() -> None:
+    base = np.asarray(
+        ((20, 20), (36, 18), (49, 28), (46, 44), (29, 50), (17, 37)),
+        dtype=np.float64,
+    )
+    controls = np.asarray(
+        [
+            base
+            + np.asarray((1.25 * frame, 0.4 * frame))
+            + np.asarray((0.0, 1.5 * np.sin(frame / 2.0)))
+            for frame in range(9)
+        ]
+    )
+    frames = np.arange(100, 109, dtype=np.int64)
+    renderer = catmull_rom_renderer(16)
+    first, labels = polygon_role_curve_states(
+        controls,
+        frames,
+        ("C02_125", "A06"),
+        renderer=renderer,
+        samples_per_segment=16,
+    )
+    second, second_labels = polygon_role_curve_states(
+        controls,
+        frames,
+        ("C02_125", "A06"),
+        renderer=renderer,
+        samples_per_segment=16,
+    )
+    assert labels == second_labels == ("raw", "C02_125", "A06")
+    assert first.shape == (9, 3, 6, 2)
+    assert np.array_equal(first[:, 0], controls)
+    assert np.array_equal(first, second)
+    assert np.all(np.isfinite(first))
+    assert np.any(np.abs(first[:, 1:] - controls[:, None]) > 1e-9)
 
 
 def test_fit_summary_compaction_is_bounded_and_does_not_mutate_input() -> None:
