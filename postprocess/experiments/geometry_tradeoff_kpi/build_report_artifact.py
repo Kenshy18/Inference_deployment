@@ -89,6 +89,7 @@ def main() -> None:
     root = _parser().parse_args().analysis_dir.resolve()
     summary = _rows(root, "summary.csv")
     by_class = _rows(root, "summary_by_class.csv")
+    stability = _rows(root, "stability_summary.csv")
     manifest = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     polygon = [row for row in summary if row["geometry"] == "polygon"]
     curve = [row for row in summary if row["geometry"] == "catmull_rom"]
@@ -127,7 +128,9 @@ def main() -> None:
             "mean_iou": _number(row, "iou_mean"),
             "q05_iou": _number(row, "iou_q05"),
             "min_iou": _number(row, "iou_minimum"),
+            "mean_recall": _number(row, "recall_mean"),
             "min_recall": _number(row, "recall_minimum"),
+            "area_mean": _number(row, "area_ratio_mean"),
             "area_q95": _number(row, "area_ratio_q95"),
             "area_max": _number(row, "area_ratio_maximum"),
             "mean_points": _number(row, "editable_points_mean_per_keyframe"),
@@ -135,6 +138,36 @@ def main() -> None:
         }
         for row in summary
     ]
+    stability_index = {
+        (row["geometry"], int(row["target_interval"])): row
+        for row in stability
+        if row["geometry"] != "source_raw"
+    }
+    for row in table_rows:
+        key = (
+            "catmull_rom" if row["geometry"] == "Catmull–Rom" else "polygon",
+            int(row["target"]),
+        )
+        stable = stability_index[key]
+        row.update(
+            {
+                "area_accel_q95": _number(stable, "log_area_acceleration_q95"),
+                "centroid_accel_q95": _number(
+                    stable, "centroid_acceleration_radii_q95"
+                ),
+                "shape_accel_q95": _number(stable, "shape_acceleration_q95"),
+                "area_velocity_error_q95": _number(
+                    stable, "log_area_velocity_error_q95"
+                ),
+                "centroid_velocity_error_q95": _number(
+                    stable, "centroid_velocity_error_radii_q95"
+                ),
+                "shape_velocity_error_q95": _number(
+                    stable, "shape_velocity_error_q95"
+                ),
+            }
+        )
+    _write_csv(root / "combined_summary.csv", table_rows)
     class_rows = [
         {
             "geometry": (
@@ -175,17 +208,17 @@ def main() -> None:
             )
 
     source_id = "geometry_benchmark_analysis"
-    source_path = str(root.relative_to(Path.cwd().resolve()) / "summary.csv")
+    source_path = str(root.relative_to(Path.cwd().resolve()) / "combined_summary.csv")
     source = {
         "id": source_id,
-        "label": "Validated polygon and Catmull–Rom benchmark summary",
+        "label": "Validated quality, stability and speed benchmark summary",
         "path": source_path,
         "query": {
             "engine": "sqlite",
             "language": "sql",
             "description": (
-                "Exact per-frame metrics joined to the common source "
-                "(track_id, frame) population."
+                "Exact per-frame quality plus temporal stability metrics joined "
+                "to the common source (track_id, frame) population."
             ),
             "sql": (
                 "SELECT CAST(track_id AS TEXT) AS track_id, frame, label " "FROM masks"
@@ -194,6 +227,10 @@ def main() -> None:
             "code": (
                 "python postprocess/experiments/geometry_tradeoff_kpi/analyze.py "
                 f"--benchmark-root {Path(manifest['benchmark_root']).relative_to(Path.cwd().resolve())} "
+                f"--interval-maximum {maximum_target}; python "
+                "postprocess/experiments/geometry_tradeoff_kpi/analyze_stability.py "
+                f"--benchmark-root {Path(manifest['benchmark_root']).relative_to(Path.cwd().resolve())} "
+                f"--source-sqlite {Path(manifest['source_sqlite']).relative_to(Path.cwd().resolve())} "
                 f"--interval-maximum {maximum_target}"
             ),
             "executed_at": manifest["generated_at"],
@@ -206,6 +243,18 @@ def main() -> None:
                 "iou": "exact raster intersection / union against the source AI mask",
                 "recall": "exact raster intersection / source AI-mask area",
                 "area_ratio": "output raster area / source AI-mask area",
+                "centroid_acceleration_radii_q95": (
+                    "95th percentile norm of the output centroid second difference, "
+                    "divided by the source-mask equivalent radius"
+                ),
+                "centroid_velocity_error_radii_q95": (
+                    "95th percentile norm of output minus source centroid velocity, "
+                    "divided by the source-mask equivalent radius"
+                ),
+                "shape_acceleration_q95": (
+                    "95th percentile second difference of a translation-, rotation- "
+                    "and phase-invariant primary-contour Fourier descriptor"
+                ),
             },
         },
     }
@@ -379,6 +428,56 @@ def main() -> None:
                 },
             },
         },
+        {
+            "id": "stability_motion",
+            "title": "Centroid acceleration versus effective interval",
+            "subtitle": "95th percentile, normalized by source-mask radius; lower is smoother.",
+            "type": "line",
+            "dataset": "quality",
+            "sourceId": source_id,
+            "encodings": {
+                "x": {
+                    "field": "actual_interval",
+                    "type": "quantitative",
+                    "label": "Effective interval",
+                },
+                "y": {
+                    "field": "centroid_accel_q95",
+                    "type": "quantitative",
+                    "label": "Centroid acceleration p95",
+                },
+                "color": {
+                    "field": "geometry",
+                    "type": "nominal",
+                    "label": "Geometry",
+                },
+            },
+        },
+        {
+            "id": "motion_fidelity",
+            "title": "Centroid-velocity error versus effective interval",
+            "subtitle": "95th percentile difference from source-mask motion; lower follows motion better.",
+            "type": "line",
+            "dataset": "quality",
+            "sourceId": source_id,
+            "encodings": {
+                "x": {
+                    "field": "actual_interval",
+                    "type": "quantitative",
+                    "label": "Effective interval",
+                },
+                "y": {
+                    "field": "centroid_velocity_error_q95",
+                    "type": "quantitative",
+                    "label": "Centroid velocity error p95",
+                },
+                "color": {
+                    "field": "geometry",
+                    "type": "nominal",
+                    "label": "Geometry",
+                },
+            },
+        },
     ]
     tables = [
         {
@@ -401,12 +500,28 @@ def main() -> None:
                 {"field": "q05_iou", "label": "IoU p05", "format": "percent"},
                 {"field": "min_iou", "label": "Min IoU", "format": "percent"},
                 {
+                    "field": "mean_recall",
+                    "label": "Mean Recall",
+                    "format": "percent",
+                },
+                {
                     "field": "min_recall",
                     "label": "Min Recall",
                     "format": "percent",
                 },
+                {"field": "area_mean", "label": "Area mean", "format": "number"},
                 {"field": "area_q95", "label": "Area p95", "format": "number"},
                 {"field": "area_max", "label": "Area max", "format": "number"},
+                {
+                    "field": "centroid_accel_q95",
+                    "label": "Motion accel p95",
+                    "format": "number",
+                },
+                {
+                    "field": "centroid_velocity_error_q95",
+                    "label": "Motion error p95",
+                    "format": "number",
+                },
                 {"field": "keyframes", "label": "Keys", "format": "number"},
             ],
         },
@@ -538,6 +653,23 @@ def main() -> None:
             ),
         },
         {"id": "speed_chart", "type": "chart", "chartId": "speed"},
+        {
+            "id": "stability_finding",
+            "type": "markdown",
+            "sourceId": source_id,
+            "body": (
+                "## Smoothness and motion fidelity expose a real trade-off\n\n"
+                "Polygon has lower p95 temporal acceleration, so its output is the "
+                "smoother of the two. Catmull–Rom, however, has lower p95 centroid-"
+                "velocity error against the source sequence at every target, and it "
+                "also has higher IoU. The extra curve motion is therefore mostly "
+                "better tracking rather than ungrounded jitter. These two metrics "
+                "must be read together; acceleration alone would reward a frozen or "
+                "lagging mask."
+            ),
+        },
+        {"id": "stability_chart", "type": "chart", "chartId": "stability_motion"},
+        {"id": "motion_fidelity_chart", "type": "chart", "chartId": "motion_fidelity"},
         {"id": "equal_interval_table", "type": "table", "tableId": "equal_interval"},
         {"id": "all_results", "type": "table", "tableId": "complete_results"},
         {
@@ -550,7 +682,11 @@ def main() -> None:
                 "587 deterministic gap-fill rows are excluded. Effective interval "
                 "uses all 25,090 materialized rows divided by keyframe rows. Target "
                 "interval is a soft request under the hard per-frame Recall 0.97 and "
-                "topology constraints."
+                "topology constraints. Stability uses consecutive original observations: "
+                "p95 log-area acceleration, centroid acceleration normalized by source "
+                "radius, and a rotation/translation/phase-invariant Fourier contour "
+                "descriptor. Corresponding source-velocity errors prevent static masks "
+                "from being scored as stable."
             ),
         },
         {
@@ -577,6 +713,8 @@ def main() -> None:
                 "The equal-interval comparison linearly interpolates between measured "
                 "polygon points and is descriptive, not inferential. Speed runs were on "
                 "the same host but not interleaved; polygon uses GPU and curve uses CPU. "
+                "Stability is descriptive and uses the largest contour for its shape "
+                "descriptor; IoU/Recall still use the complete exact raster mask. "
                 "Sparse curve targets intentionally permit low local IoU instead of "
                 "silently adding keys, so visual review of the saved low-tail candidates "
                 "remains required."
