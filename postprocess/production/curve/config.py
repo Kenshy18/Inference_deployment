@@ -29,6 +29,10 @@ class CurveProductionConfig:
     # skip non-convex points of the key-count/IoU Pareto frontier.
     path_selection_mode: str = "fixed_cardinality"
     cardinality_maximum_factor: float = 2.0
+    # Preserve the inexpensive temporal-shape regularizer.  Production states
+    # are isotropic variants, so this is evaluated once per frame pair rather
+    # than once per state pair.
+    shape_distance_weight: float = 0.4
     # Four target intervals preserve the selected V3 paths while avoiding
     # exact evaluation of graph edges that the supported 1--6 range never uses.
     maximum_gap: int = 24
@@ -90,6 +94,8 @@ class CurveProductionConfig:
             raise ValueError("unsupported curve path selection mode")
         if float(self.cardinality_maximum_factor) < 1.0:
             raise ValueError("curve cardinality maximum factor must be at least one")
+        if float(self.shape_distance_weight) < 0.0:
+            raise ValueError("curve shape distance weight must be non-negative")
         if int(self.pair_vote_sweeps) < 0 or int(self.point_refine_sweeps) < 0:
             raise ValueError("curve refinement sweeps must be non-negative")
         if not 0.0 <= float(self.quality_rescue_iou_floor) <= 1.0:

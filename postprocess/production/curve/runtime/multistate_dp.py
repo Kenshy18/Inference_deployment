@@ -1055,7 +1055,10 @@ class _MultistateIntervalEvaluator:
             frames_covered = np.rint(exact[:, 3]).astype(np.int32)
             topology_valid = exact[:, 4] > 0.5
             self.frame_evaluations += int(np.sum(frames_covered, dtype=np.int64))
-            shape_distances = self._shape_distances_for_edges(pending_edges)
+            if float(self.config.shape_distance_weight) > _EPSILON:
+                shape_distances = self._shape_distances_for_edges(pending_edges)
+            else:
+                shape_distances = np.zeros((len(pending_edges),), dtype=np.float64)
             floor = float(self.config.recall_floor)
             feasible = (
                 topology_valid
@@ -1713,14 +1716,6 @@ def optimize_multistate_keyframes(
             )
         )
         use_full_palette = len(path.frames) > max(2, maximum_fast_keys)
-        if (
-            str(config.path_selection_mode) == "fixed_cardinality"
-            and int(config.target_interval) >= 4
-        ):
-            # For the sparse half of the supported 1--6 range, evaluate the
-            # complete candidate family. Otherwise an exact-K compact path
-            # could hide a better exact-K point available to endpoint states.
-            use_full_palette = True
         if not use_full_palette:
             provisional_controls = np.asarray(
                 [

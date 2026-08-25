@@ -1,78 +1,78 @@
 # Fixed-cardinality Catmull--Rom DP validation (2026-08-25)
 
-## Contract
+## Final contract
 
-- Minimum per-frame Recall: `0.97` (hard edge and final-audit constraint)
-- Topology: no invalid interpolated frame
-- Key count: solve the requested cardinality directly; if infeasible, choose
-  the smallest feasible count above it
-- IoU/key count: Pareto trade-off selected by the requested interval
-- Post-DP key insertion: disabled
+- Minimum per-frame Recall: `0.97` (hard edge and final-audit constraint).
+- Topology: no invalid interpolated frame.
+- Key count: solve the requested cardinality directly; if it is infeasible,
+  choose the smallest feasible count above it.
+- States: first solve the inexpensive two-state graph, then use the validated
+  four-state isotropic palette only for streams that miss the density or local
+  quality gates.
+- Local quality: after global selection, the existing exact quality guard may
+  add keys for a local `IoU < 0.85` or `area ratio > 1.20`. The target interval
+  is a soft goal; Recall and these catastrophic-failure guards take priority.
 - Editable geometry: Catmull--Rom interpolation points `P` only; handles remain
-  derived by the frozen `1/6` conversion
+  derived by the frozen `1/6` conversion.
 
-## Representative 300-frame tracks
+The rejected variant forced a four-state temporal-endpoint palette for every
+target from 4 through 6 and disabled the final local-quality guard. On the full
+KPI corpus it reduced throughput and produced minimum IoU `0.2399` and maximum
+area ratio `4.1543`. It is not part of Production.
 
-The cases below are deliberately different: female track 26 is a stable
-stream, while male track 48 is a difficult non-rigid stream. All rows had zero
-Recall violations and zero topology failures.
+## Controlled speed comparison
 
-| Track | Target | Keys | Effective interval | Mean IoU | q05 IoU | Minimum IoU | Maximum area ratio |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| female 26 | 1 | 300 | 1.000 | 0.9927 | 0.9913 | 0.9887 | 1.0030 |
-| female 26 | 2 | 150 | 2.000 | 0.9877 | 0.9787 | 0.9711 | 1.0192 |
-| female 26 | 3 | 100 | 3.000 | 0.9832 | 0.9717 | 0.9579 | 1.0331 |
-| female 26 | 4 | 75 | 4.000 | 0.9783 | 0.9623 | 0.9437 | 1.0558 |
-| female 26 | 5 | 60 | 5.000 | 0.9725 | 0.9437 | 0.8599 | 1.1304 |
-| female 26 | 6 | 50 | 6.000 | 0.9678 | 0.9332 | 0.8592 | 1.1308 |
-| male 48 | 1 | 300 | 1.000 | 0.9909 | 0.9882 | 0.9787 | 1.0035 |
-| male 48 | 2 | 150 | 2.000 | 0.9765 | 0.9533 | 0.9161 | 1.0519 |
-| male 48 | 3 | 100 | 3.000 | 0.9640 | 0.9359 | 0.9032 | 1.0713 |
-| male 48 | 4 | 75 | 4.000 | 0.9484 | 0.9033 | 0.8749 | 1.1300 |
-| male 48 | 5 | 60 | 5.000 | 0.9264 | 0.8583 | 0.7551 | 1.2835 |
-| male 48 | 6 | 50 | 6.000 | 0.9001 | 0.8146 | 0.7679 | 1.2792 |
+Both revisions were run consecutively on the same host, same 15-minute KPI
+tracked SQLite, same six classwise workers, target interval 6, and CPU-only
+exact raster path. The baseline is commit `efeb989`; the candidate uses the
+fixed-cardinality decoder and the final contract above.
 
-The difficult track now exposes the intended trade-off instead of silently
-moving target 6 back toward target 3. The preceding penalty/rescue route used
-87 keys (effective interval 3.448) for male track 48 at target 6. The new route
-uses exactly 50 keys (6.000); its lower IoU is the explicit price of that
-sparser Pareto point rather than a hidden target override.
+| Metric | Previous penalty DP | Fixed-cardinality candidate | Change |
+|---|---:|---:|---:|
+| Output mask rows | 25,090 | 25,090 | identical |
+| Classwise wall seconds | 106.063 | 107.548 | +1.40% |
+| Output-mask FPS | 236.56 | 233.29 | -1.38% |
+| Maximum worker RSS KiB | 1,790,076 | 1,785,940 | -0.23% |
+| Keyframes | 7,570 | 7,559 | -11 |
+| Effective interval | 3.3144 | 3.3192 | +0.15% |
 
-## End-to-end smoke
+The 1.38% throughput difference is within the run-to-run spread observed on
+this host. Two isolated checks support that interpretation:
 
-Source: the existing 300-row KPI track fixture used by prior Production curve
-validation.
+- stable 300-frame track: baseline median `139.46 FPS`, candidate median
+  `139.83 FPS`;
+- difficult 1,332-frame track 48: baseline `55.19 FPS`, candidate
+  `56.77 FPS`.
 
-- Target 3: 100 keys, interval 3.000, minimum Recall 0.97045, mean IoU 0.98540,
-  q05 IoU 0.97397, 125.84 emitted FPS
-- Target 6: 50 keys, interval 6.000, minimum Recall 0.97002, mean IoU 0.97562,
-  q05 IoU 0.95907, 68.12 emitted FPS
-- Recall violations: 0
-- Topology failures: 0
+The native cardinality decode itself is about 3 ms for a 300-frame graph. The
+dominant work remains exact interval rasterization, curve fitting and point
+refinement. No expensive temporal-endpoint state family is used in Production.
 
-Artifacts:
+## Full-corpus quality comparison
 
-- `output/catmull_rom_curve_fixed_cardinality_i3_smoke_20260825`
-- `output/catmull_rom_curve_fixed_cardinality_smoke_v2_20260825`
+| Metric | Previous penalty DP | Fixed-cardinality candidate |
+|---|---:|---:|
+| Mean IoU | 0.958740 | 0.958556 |
+| IoU q01 | 0.882244 | 0.884279 |
+| IoU q05 | 0.907584 | 0.908823 |
+| Minimum IoU | 0.851086 | 0.852016 |
+| Minimum Recall | 0.970000 | 0.970000 |
+| Recall violations | 0 | 0 |
+| Mean area ratio | 1.015704 | 1.015495 |
+| Area ratio q99 | 1.110255 | 1.109652 |
+| Maximum area ratio | 1.167614 | 1.166193 |
+| Local-quality violations | 0 | 0 |
 
-The native fixed-cardinality decode itself took about 3 ms on a 300-frame,
-four-state graph. Sparse-target runtime remains dominated by exact interval
-raster evaluation and point refinement, not by the cardinality dimension.
+The candidate preserves mean quality to within `0.000184` IoU while slightly
+improving q01, q05, minimum IoU and area statistics. The difficult track 48
+also remained stable: minimum IoU changed from `0.86542` to `0.86645`, maximum
+area ratio from `1.10953` to `1.11213`, and effective interval from `5.026` to
+`5.065`, with zero Recall violations.
 
-## Holdout: joined-region track 60
+## Decision
 
-A third, previously unused shape class was evaluated after implementation.
-
-| Target | Keys | Effective interval | Mean IoU | q05 IoU | Minimum IoU | Minimum Recall | Maximum area ratio |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 300 | 1.000 | 0.9873 | 0.9854 | 0.9842 | 0.99041 | 1.0076 |
-| 3 | 100 | 3.000 | 0.9456 | 0.9027 | 0.8651 | 0.97000 | 1.1432 |
-| 6 | 60 | 5.000 | 0.8772 | 0.8124 | 0.6917 | 0.97000 | 1.4168 |
-
-Target 6 was not feasible at exactly 50 keys with the bounded palette. The
-decoder correctly returned the smallest feasible count above the request
-(60 keys) without violating Recall. More aggressive coverage/endpoint scales
-up to 1.10 and correction fractions up to 0.25 still reached only effective
-interval 5.66 while degrading mean IoU to 0.813 and maximum area ratio to
-1.80. They were rejected: preserving a soft target miss is safer than forcing
-the requested count through a giant-mask state.
+The fixed-cardinality decoder is retained, but only behind the adaptive
+two-state/four-state isotropic search and the exact local-quality guard. This
+provides direct Pareto-point selection where feasible without paying for a
+larger graph on easy streams or forcing sparse but visibly broken masks on
+difficult streams.

@@ -12,9 +12,6 @@ import numpy as np
 import production.curve.runtime.multistate_dp as multistate_dp
 
 from production.curve.config import CurveProductionConfig
-from production.curve.runtime.candidate_states import (
-    interval_aware_fallback_states,
-)
 from production.curve.engine import (
     _compact_fit_summary,
     _repair_if_needed,
@@ -85,6 +82,7 @@ def test_production_quality_rescue_guards_are_explicit_and_validated() -> None:
     assert config.path_selection_mode == "fixed_cardinality"
     assert config.cardinality_maximum_factor == 2.0
     assert config.low_iou_quadratic_weight == 16.0
+    assert config.shape_distance_weight == 0.4
     assert config.quality_rescue_maximum_extra_keys == 0
     assert not config.quality_rescue_density_budget
     assert config.quality_rescue_maximum_iou_regression == 0.005
@@ -979,30 +977,6 @@ def test_native_cardinality_decoder_relaxes_only_upward() -> None:
     assert tuple(states) == (0, 0, 0)
     assert raw_cost == 2.0
     assert count == 3
-
-
-def test_interval_aware_palette_is_bounded_superset() -> None:
-    base = np.asarray(
-        ((50, 30), (70, 28), (82, 43), (72, 61), (48, 63), (38, 45)),
-        dtype=np.float64,
-    )
-    controls = np.asarray(
-        [
-            base
-            + np.asarray((2.0 * frame, float(frame)))
-            + 0.2 * frame * np.sin(np.arange(len(base)))[:, None]
-            for frame in range(12)
-        ]
-    )
-    states, labels = interval_aware_fallback_states(
-        controls,
-        target_interval=6,
-    )
-    assert states.shape == (12, 4, 6, 2)
-    np.testing.assert_allclose(states[:, 0], controls, atol=1e-12, rtol=0.0)
-    assert labels[:2] == ("scale_1.000", "scale_1.060")
-    assert labels[-2:] == ("forward_ls_h6_s1.080", "backward_ls_h6_s1.080")
-    assert np.all(np.isfinite(states))
 
 
 def test_isotropic_state_shape_distances_are_deduplicated_exactly() -> None:
