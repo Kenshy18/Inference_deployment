@@ -207,34 +207,49 @@ def evaluate_cached_intervals(
     if max_width > np.iinfo(np.uint16).max:
         raise ValueError("CUDA scanline prefix supports ROI widths up to 65535 pixels")
     prefix_offsets = np.empty((frame_count,), dtype=np.int64)
-    prefix_parts: list[np.ndarray] = []
     gt_area = np.empty((frame_count,), dtype=np.int32)
     heights = np.empty((frame_count,), dtype=np.int32)
     widths = np.empty((frame_count,), dtype=np.int32)
     shifts = np.empty((frame_count, 2), dtype=np.float32)
     scales = np.empty((frame_count,), dtype=np.float32)
     prefix_offset = 0
-    for index, context in enumerate(eval_contexts):
-        mask = np.asarray(context.gt_mask, dtype=np.uint8)
-        height, width = mask.shape
+    # First collect only layout/metadata.  The old implementation retained a
+    # list of every per-frame prefix image and then concatenated it, briefly
+    # holding two complete video-sized copies in each optimizer worker.
+    for index in range(frame_count):
+        context = eval_contexts[index]
+        height, width = context.shape_hw
         prefix_offsets[index] = prefix_offset
-        # A row prefix cannot exceed the ROI width. uint16 therefore remains
-        # exact for normal video dimensions and halves both host/GPU storage
-        # and PCIe traffic compared with int32.
-        frame_prefix = np.zeros((height, width + 1), dtype=np.uint16)
-        frame_prefix[:, 1:] = np.cumsum(mask, axis=1, dtype=np.uint16)
-        prefix_parts.append(frame_prefix.reshape(-1))
-        prefix_offset += frame_prefix.size
+        prefix_offset += int(height) * (int(width) + 1)
         gt_area[index] = int(context.gt_area)
         heights[index] = height
         widths[index] = width
         shifts[index] = np.asarray(context.shift_xy, dtype=np.float32)
         scales[index] = float(context.scale_factor)
-    prefix = np.concatenate(prefix_parts) if prefix_parts else np.zeros((0,), np.uint16)
     started = time.perf_counter()
     kernel = cp.RawKernel(KERNEL_SOURCE, "interval_scanline", options=("--std=c++14",))
     vectors_gpu = cp.asarray(vectors_np)
-    prefix_gpu = cp.asarray(prefix)
+    prefix_gpu = cp.empty((prefix_offset,), dtype=cp.uint16)
+    for index, context in enumerate(eval_contexts):
+        mask = np.asarray(context.gt_mask, dtype=np.uint8)
+        height, width = mask.shape
+        start = int(prefix_offsets[index])
+        stop = start + int(height) * (int(width) + 1)
+        frame_prefix = np.empty((height, width + 1), dtype=np.uint16)
+        # A row prefix cannot exceed the ROI width. uint16 therefore remains
+        # exact for normal video dimensions and halves both host/GPU storage
+        # and PCIe traffic compared with int32.  Writing cumsum directly into
+        # the final flat buffer avoids another full-size temporary.
+        frame_prefix[:, 0] = 0
+        np.cumsum(mask, axis=1, dtype=np.uint16, out=frame_prefix[:, 1:])
+        prefix_gpu[start:stop].set(frame_prefix.reshape(-1))
+    # The complete host prefix and cached ROI masks are not used again by the
+    # CUDA pass.  Release them before allocating per-edge result arrays.  Lazy
+    # contexts remain valid and rebuild on demand for the later final audit.
+    cp.cuda.Stream.null.synchronize()
+    clear_contexts = getattr(eval_contexts, "clear", None)
+    if clear_contexts is not None:
+        clear_contexts()
     gt_area_gpu = cp.asarray(gt_area)
     heights_gpu = cp.asarray(heights)
     widths_gpu = cp.asarray(widths)

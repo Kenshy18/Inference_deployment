@@ -174,7 +174,11 @@ def build_frame_eval_contexts(
                 gt_mean_radius=float(gt_mean_radius),
                 gt_polygon_area=float(gt_polygon_area),
                 scratch_pred_mask=np.zeros(shape_hw, dtype=np.uint8),
-                scratch_intersection_mask=np.zeros(shape_hw, dtype=np.uint8),
+                # The prediction scratch is reused in-place for intersection
+                # counting after its area has been measured.  Keeping a second
+                # full-size scratch image per cached frame wastes one third of
+                # the raster cache without changing any metric.
+                scratch_intersection_mask=None,
             )
         )
     return contexts
@@ -189,11 +193,8 @@ def compute_cached_metrics_from_polygons(
         out_mask=gt_context.scratch_pred_mask,
     )
     pred_area = int(cv2.countNonZero(pred_mask))
-    intersection_mask = gt_context.scratch_intersection_mask
-    if intersection_mask is None:
-        intersection_mask = np.zeros(gt_context.shape_hw, dtype=np.uint8)
-    cv2.bitwise_and(gt_context.gt_mask, pred_mask, dst=intersection_mask)
-    intersection = int(cv2.countNonZero(intersection_mask))
+    cv2.bitwise_and(gt_context.gt_mask, pred_mask, dst=pred_mask)
+    intersection = int(cv2.countNonZero(pred_mask))
     union = int(gt_context.gt_area + pred_area - intersection)
     recall = intersection / gt_context.gt_area if gt_context.gt_area > 0 else 1.0
     precision = intersection / pred_area if pred_area > 0 else 1.0
@@ -223,11 +224,8 @@ def compute_cached_metrics_from_interpolated_polygons(
         out_mask=gt_context.scratch_pred_mask,
     )
     pred_area = int(cv2.countNonZero(pred_mask))
-    intersection_mask = gt_context.scratch_intersection_mask
-    if intersection_mask is None:
-        intersection_mask = np.zeros(gt_context.shape_hw, dtype=np.uint8)
-    cv2.bitwise_and(gt_context.gt_mask, pred_mask, dst=intersection_mask)
-    intersection = int(cv2.countNonZero(intersection_mask))
+    cv2.bitwise_and(gt_context.gt_mask, pred_mask, dst=pred_mask)
+    intersection = int(cv2.countNonZero(pred_mask))
     union = int(gt_context.gt_area + pred_area - intersection)
     recall = intersection / gt_context.gt_area if gt_context.gt_area > 0 else 1.0
     precision = intersection / pred_area if pred_area > 0 else 1.0

@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from types import ModuleType
 
+from ..kernel import solver as kernel_solver
+
 
 def install_native_dp_adapters(
     module: ModuleType,
@@ -50,6 +52,7 @@ static DecodeResult decode_once(
     const double* edge_costs,
     const double* edge_budgets,
     const int32_t* pred_start,
+    const int64_t* edge_offsets,
     double first_loss,
     double first_budget
 ) {
@@ -75,7 +78,8 @@ static DecodeResult decode_once(
             if (!std::isfinite(prev_cost)) {
                 continue;
             }
-            const int edge_idx = prev_node_pos * node_count + node_pos;
+            const int64_t edge_idx = edge_offsets[node_pos] +
+                static_cast<int64_t>(prev_node_pos - begin);
             const double edge_cost = edge_costs[edge_idx];
             if (!std::isfinite(edge_cost)) {
                 continue;
@@ -139,6 +143,7 @@ static DecodeResult decode_for_recall_mu(
     const double* edge_costs,
     const double* edge_budgets,
     const int32_t* pred_start,
+    const int64_t* edge_offsets,
     double first_loss,
     double first_budget
 ) {
@@ -157,6 +162,7 @@ static DecodeResult decode_for_recall_mu(
             edge_costs,
             edge_budgets,
             pred_start,
+            edge_offsets,
             first_loss,
             first_budget
         );
@@ -219,6 +225,7 @@ extern "C" int polygon_single_state_decode(
     const double* edge_costs,
     const double* edge_budgets,
     const int32_t* pred_start,
+    const int64_t* edge_offsets,
     double first_loss,
     double first_budget,
     int32_t* out_path,
@@ -231,6 +238,7 @@ extern "C" int polygon_single_state_decode(
         edge_costs == nullptr ||
         edge_budgets == nullptr ||
         pred_start == nullptr ||
+        edge_offsets == nullptr ||
         out_path == nullptr ||
         out_count == nullptr ||
         out_lambda == nullptr
@@ -258,6 +266,7 @@ extern "C" int polygon_single_state_decode(
                 edge_costs,
                 edge_budgets,
                 pred_start,
+                edge_offsets,
                 first_loss,
                 first_budget
             );
@@ -304,6 +313,7 @@ extern "C" int polygon_single_state_decode(
             edge_costs,
             edge_budgets,
             pred_start,
+            edge_offsets,
             first_loss,
             first_budget
         );
@@ -395,7 +405,20 @@ extern "C" int polygon_repair_key_scores(
                 tmp_lib_path = (
                     build_dir / f"polygon_dp_{digest}.{os_mod.getpid()}.tmp.so"
                 )
-                compiler = os_mod.environ.get("CXX") or "g++"
+                compiler = os_mod.environ.get("CXX")
+                if not compiler:
+                    # The packaged runtime invokes its Python executable
+                    # directly instead of activating the environment, so its
+                    # bundled compiler is not necessarily on PATH.  Resolve it
+                    # beside the active interpreter before falling back to the
+                    # host toolchain.
+                    python_bin = module.Path(__import__("sys").executable).parent
+                    bundled_compiler = python_bin / "g++"
+                    compiler = (
+                        str(bundled_compiler)
+                        if bundled_compiler.is_file()
+                        else (__import__("shutil").which("g++") or "g++")
+                    )
                 subprocess.run(
                     [
                         compiler,
@@ -427,6 +450,7 @@ extern "C" int polygon_repair_key_scores(
                 ctypes_mod.POINTER(ctypes_mod.c_double),
                 ctypes_mod.POINTER(ctypes_mod.c_double),
                 ctypes_mod.POINTER(ctypes_mod.c_int32),
+                ctypes_mod.POINTER(ctypes_mod.c_int64),
                 ctypes_mod.c_double,
                 ctypes_mod.c_double,
                 ctypes_mod.POINTER(ctypes_mod.c_int32),
@@ -450,7 +474,9 @@ extern "C" int polygon_repair_key_scores(
         except Exception as exc:
             module._native_polygon_dp_unavailable = True
             if not bool(getattr(module, "_native_polygon_dp_warning_printed", False)):
-                compiler_text = os_mod.environ.get("CXX") or "g++"
+                compiler_text = os_mod.environ.get("CXX") or str(
+                    module.Path(__import__("sys").executable).parent / "g++"
+                )
                 print(
                     f"[polygon-optimize-warning] native DP unavailable with compiler={compiler_text!r}; "
                     f"using Python DP ({exc})",
@@ -468,24 +494,6 @@ extern "C" int polygon_repair_key_scores(
         eval_contexts=None,
     ):
         node_count = int(len(candidate_frames))
-        dense_bytes = int(node_count) * int(node_count) * 16
-        try:
-            dense_limit = int(
-                __import__("os").environ.get(
-                    "ATOSYORI_POLYGON_NATIVE_DENSE_LIMIT_BYTES", str(512 * 1024 * 1024)
-                )
-            )
-        except ValueError:
-            dense_limit = 512 * 1024 * 1024
-        if dense_bytes > max(1, int(dense_limit)):
-            return original_run_single_state_penalty_path(
-                run,
-                candidate_frames,
-                candidates_by_frame,
-                target_count,
-                args,
-                eval_contexts=eval_contexts,
-            )
         if ensure_native_polygon_dp_lib() is None:
             return original_run_single_state_penalty_path(
                 run,
@@ -516,11 +524,50 @@ extern "C" int polygon_repair_key_scores(
         )
         candidate_frames_i = [int(v) for v in candidate_frames]
         pred_start = module.np.zeros((node_count,), dtype=module.np.int32)
+        edge_offsets = module.np.zeros((node_count + 1,), dtype=module.np.int64)
+        for node_pos in range(1, node_count):
+            end_frame = int(candidate_frames_i[node_pos])
+            min_prev_pos = int(
+                module.bisect.bisect_left(
+                    candidate_frames_i,
+                    end_frame - int(dynamic_max_gap),
+                    0,
+                    node_pos,
+                )
+            )
+            pred_start[node_pos] = int(min_prev_pos)
+            edge_offsets[node_pos + 1] = int(
+                edge_offsets[node_pos] + node_pos - min_prev_pos
+            )
+        compact_edge_count = int(edge_offsets[-1])
+        compact_bytes = int(compact_edge_count) * 16
+        os_mod = __import__("os")
+        try:
+            compact_limit = int(
+                os_mod.environ.get(
+                    "ATOSYORI_POLYGON_NATIVE_EDGE_LIMIT_BYTES",
+                    os_mod.environ.get(
+                        "ATOSYORI_POLYGON_NATIVE_DENSE_LIMIT_BYTES",
+                        str(512 * 1024 * 1024),
+                    ),
+                )
+            )
+        except ValueError:
+            compact_limit = 512 * 1024 * 1024
+        if compact_bytes > max(1, int(compact_limit)):
+            return original_run_single_state_penalty_path(
+                run,
+                candidate_frames,
+                candidates_by_frame,
+                target_count,
+                args,
+                eval_contexts=eval_contexts,
+            )
         edge_costs = module.np.full(
-            (node_count, node_count), module.np.inf, dtype=module.np.float64
+            (compact_edge_count,), module.np.inf, dtype=module.np.float64
         )
         edge_budgets = module.np.full(
-            (node_count, node_count), module.np.inf, dtype=module.np.float64
+            (compact_edge_count,), module.np.inf, dtype=module.np.float64
         )
         counters = {"interval_evals": 0, "interval_frames": 0}
         reachable = [False] * node_count
@@ -528,12 +575,7 @@ extern "C" int polygon_repair_key_scores(
 
         for node_pos in range(1, node_count):
             end_frame = int(candidate_frames_i[node_pos])
-            min_prev_pos = int(
-                module.bisect.bisect_left(
-                    candidate_frames_i, end_frame - int(dynamic_max_gap), 0, node_pos
-                )
-            )
-            pred_start[node_pos] = int(min_prev_pos)
+            min_prev_pos = int(pred_start[node_pos])
             node_reachable = False
             end_candidate = candidates_by_frame[end_frame][0]
             for prev_node_pos in range(min_prev_pos, node_pos):
@@ -553,8 +595,11 @@ extern "C" int polygon_repair_key_scores(
                     start_candidate=start_candidate,
                     end_candidate=end_candidate,
                 )
-                edge_costs[prev_node_pos, node_pos] = float(info.cost)
-                edge_budgets[prev_node_pos, node_pos] = float(info.recall_budget)
+                edge_idx = int(
+                    edge_offsets[node_pos] + prev_node_pos - min_prev_pos
+                )
+                edge_costs[edge_idx] = float(info.cost)
+                edge_budgets[edge_idx] = float(info.recall_budget)
                 counters["interval_evals"] += 1
                 counters["interval_frames"] += int(info.frames_covered)
                 if module.np.isfinite(float(info.cost)):
@@ -591,6 +636,9 @@ extern "C" int polygon_repair_key_scores(
             edge_budgets, dtype=module.np.float64
         )
         pred_start = module.np.ascontiguousarray(pred_start, dtype=module.np.int32)
+        edge_offsets = module.np.ascontiguousarray(
+            edge_offsets, dtype=module.np.int64
+        )
         status = int(
             fn(
                 ctypes_mod.c_int(node_count),
@@ -609,6 +657,7 @@ extern "C" int polygon_repair_key_scores(
                 edge_costs.ctypes.data_as(ctypes_mod.POINTER(ctypes_mod.c_double)),
                 edge_budgets.ctypes.data_as(ctypes_mod.POINTER(ctypes_mod.c_double)),
                 pred_start.ctypes.data_as(ctypes_mod.POINTER(ctypes_mod.c_int32)),
+                edge_offsets.ctypes.data_as(ctypes_mod.POINTER(ctypes_mod.c_int64)),
                 ctypes_mod.c_double(float(first_candidate.frame_loss)),
                 ctypes_mod.c_double(float(first_candidate.recall_budget)),
                 out_path.ctypes.data_as(ctypes_mod.POINTER(ctypes_mod.c_int32)),
@@ -940,6 +989,11 @@ extern "C" int polygon_repair_key_scores(
         return module.np.asarray(current, dtype=module.np.float32)
 
     module.run_single_state_penalty_path = native_single_state_penalty_path
+    # ``run_multistate_penalty_path`` is defined in ``kernel.solver`` and its
+    # single-state fast branch resolves this module global, not the symbol
+    # re-exported by optimizer_kernel.  Update both owners so Production
+    # actually reaches the native implementation.
+    kernel_solver.run_single_state_penalty_path = native_single_state_penalty_path
     module.repair_keyframe_vectors_for_exact_recall = (
         repair_keyframe_vectors_for_exact_recall_native_key_scores
     )

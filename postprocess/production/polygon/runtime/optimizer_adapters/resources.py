@@ -39,6 +39,7 @@ def install_resource_adapters(
         import os as os_mod
 
         default_cache = 512
+        default_cache_bytes = 512 * 1024 * 1024
         try:
             max_items = int(
                 os_mod.environ.get(
@@ -48,13 +49,60 @@ def install_resource_adapters(
         except ValueError:
             max_items = default_cache
         max_items = max(1, int(max_items))
+        try:
+            max_bytes = int(
+                os_mod.environ.get(
+                    "ATOSYORI_POLYGON_EVAL_CONTEXT_CACHE_BYTES",
+                    str(default_cache_bytes),
+                )
+            )
+        except ValueError:
+            max_bytes = default_cache_bytes
+        max_bytes = max(1, int(max_bytes))
 
         class LazyFrameEvalContexts:
             def __init__(self):
                 self._cache = collections_mod.OrderedDict()
+                self._cache_bytes = 0
+
+            @staticmethod
+            def _context_bytes(context):
+                # Count only owned raster buffers.  Small coordinate/proxy
+                # arrays are bounded by the polygon point count and do not
+                # affect the large-mask memory peak.
+                return int(
+                    sum(
+                        int(value.nbytes)
+                        for value in (
+                            context.gt_mask,
+                            context.scratch_pred_mask,
+                            context.scratch_intersection_mask,
+                        )
+                        if value is not None
+                    )
+                )
 
             def __len__(self):
                 return int(len(run.frame_numbers))
+
+            def clear(self):
+                """Release cached ROI rasters at an explicit phase boundary."""
+
+                self._cache.clear()
+                self._cache_bytes = 0
+                # Large variable-size OpenCV/NumPy allocations can remain in
+                # glibc arenas after their Python owners are gone.  A phase
+                # boundary is infrequent enough that returning those pages is
+                # preferable to carrying them into CUDA edge evaluation.
+                try:
+                    import ctypes as ctypes_mod
+
+                    libc = ctypes_mod.CDLL(None)
+                    trim = getattr(libc, "malloc_trim", None)
+                    if trim is not None:
+                        trim(0)
+                except Exception:
+                    pass
 
             def _build_one(self, frame_idx):
                 scale_factor = float(
@@ -127,9 +175,7 @@ def install_resource_adapters(
                     gt_mean_radius=float(gt_mean_radius),
                     gt_polygon_area=float(gt_polygon_area),
                     scratch_pred_mask=module.np.zeros(shape_hw, dtype=module.np.uint8),
-                    scratch_intersection_mask=module.np.zeros(
-                        shape_hw, dtype=module.np.uint8
-                    ),
+                    scratch_intersection_mask=None,
                 )
 
             def __getitem__(self, frame_idx):
@@ -144,8 +190,13 @@ def install_resource_adapters(
                     return cached
                 context = self._build_one(idx)
                 self._cache[idx] = context
-                if len(self._cache) > max_items:
-                    self._cache.popitem(last=False)
+                self._cache_bytes += self._context_bytes(context)
+                while len(self._cache) > 1 and (
+                    len(self._cache) > max_items
+                    or self._cache_bytes > max_bytes
+                ):
+                    _old_idx, old_context = self._cache.popitem(last=False)
+                    self._cache_bytes -= self._context_bytes(old_context)
                 return context
 
         return LazyFrameEvalContexts()

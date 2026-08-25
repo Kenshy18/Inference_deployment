@@ -46,6 +46,13 @@ import numpy as np
 import torch
 from torch import nn
 
+
+# On Linux the Production adapter intentionally uses ``fork``.  Runs built in
+# the parent are immutable during optimization, so workers can inherit them by
+# copy-on-write and receive only a small integer index through the task queue.
+# The spawn fallback below retains the portable pickled-run behavior.
+_FORK_SHARED_RUNS: list[object | None] | None = None
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # Stable numerical defaults for the raw-only kernel.
@@ -611,7 +618,28 @@ def process_single_run_for_worker(
     return result
 
 
+def process_fork_shared_run_for_worker(
+    run_index: int, args: argparse.Namespace
+) -> dict[str, object]:
+    """Optimize one inherited run without pickling its mask data per task."""
+
+    global _FORK_SHARED_RUNS
+    if _FORK_SHARED_RUNS is None:
+        raise RuntimeError("fork-shared polygon runs were not initialized")
+    index = int(run_index)
+    run = _FORK_SHARED_RUNS[index]
+    if run is None:
+        raise RuntimeError(f"fork-shared polygon run {index} was already released")
+    result = process_single_run_for_worker(run, args)
+    # Each child owns a private copy of this reference list.  Releasing the
+    # completed run lets long-lived workers return its private cache pages
+    # before accepting the next task, while other inherited runs remain COW.
+    _FORK_SHARED_RUNS[index] = None
+    return result
+
+
 def main() -> None:
+    global _FORK_SHARED_RUNS
     args = apply_fixed_practical_defaults(build_parser().parse_args())
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -658,6 +686,8 @@ def main() -> None:
     total_interval_frames = 0
     total_candidate_frames = 0
     total_stage_times: dict[str, float] = {}
+    start_method: str | None = None
+    use_fork_shared_runs = False
 
     def collect_result(result: dict[str, object]) -> None:
         nonlocal total_interval_evals, total_interval_frames, total_candidate_frames
@@ -731,18 +761,34 @@ def main() -> None:
         )
         mp_ctx = multiprocessing.get_context("spawn")
         worker_count = min(int(effective_workers), int(len(runs)))
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=worker_count, mp_context=mp_ctx
-        ) as executor:
-            for result in executor.map(
-                process_single_run_for_worker,
-                runs,
-                [args] * len(runs),
-                chunksize=1,
-            ):
-                union_store.add_rows(result["union_rows"])
-                collect_result(result)
-                result = None
+        start_method = str(mp_ctx.get_start_method())
+        use_fork_shared_runs = start_method == "fork"
+        if use_fork_shared_runs:
+            _FORK_SHARED_RUNS = runs
+        try:
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=worker_count, mp_context=mp_ctx
+            ) as executor:
+                if use_fork_shared_runs:
+                    result_iterator = executor.map(
+                        process_fork_shared_run_for_worker,
+                        range(len(runs)),
+                        [args] * len(runs),
+                        chunksize=1,
+                    )
+                else:
+                    result_iterator = executor.map(
+                        process_single_run_for_worker,
+                        runs,
+                        [args] * len(runs),
+                        chunksize=1,
+                    )
+                for result in result_iterator:
+                    union_store.add_rows(result["union_rows"])
+                    collect_result(result)
+                    result = None
+        finally:
+            _FORK_SHARED_RUNS = None
         runs.clear()
         union_store.commit()
         union_row_count = int(union_store.row_count)
@@ -833,6 +879,25 @@ def main() -> None:
         "max_run_frames": int(args.max_run_frames),
         "run_overlap_frames": int(args.run_overlap_frames),
         "num_workers": int(effective_workers),
+        "worker_start_method": (
+            str(start_method)
+            if not streaming_rows and effective_workers > 1 and run_count > 1
+            else None
+        ),
+        "worker_transfer_mode": (
+            "fork_inherited_index"
+            if (
+                not streaming_rows
+                and effective_workers > 1
+                and run_count > 1
+                and use_fork_shared_runs
+            )
+            else (
+                "pickled_run"
+                if not streaming_rows and effective_workers > 1 and run_count > 1
+                else "in_process"
+            )
+        ),
         "stream_sqlite_rows": bool(streaming_rows),
         "row_count": int(union_row_count),
         "target_ratio": float(args.target_ratio),
