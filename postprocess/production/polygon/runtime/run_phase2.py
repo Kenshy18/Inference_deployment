@@ -93,6 +93,15 @@ def parse_args() -> argparse.Namespace:
             "CPU evaluator; no edge is filtered by the approximation"
         ),
     )
+    parser.add_argument(
+        "--cuda-lazy-frame-hints",
+        action="store_true",
+        help=(
+            "within CUDA lazy exact mode, use approximate lowest-Recall frame "
+            "indices only to order the exact OpenCV checks"
+        ),
+    )
+    parser.add_argument("--cuda-exact-hint-count", type=int, default=8)
     parser.add_argument("--anchors-per-contour", type=int, default=48)
     parser.add_argument("--min-anchors-per-contour", type=int, default=8)
     parser.add_argument(
@@ -265,6 +274,11 @@ def run_cell(
                     "MASK_PIPELINE_PHASE2_CUDA_LAZY_MIN_RETAINED_RATIO": "0",
                 }
             )
+            if args.cuda_lazy_frame_hints:
+                environment["MASK_PIPELINE_PHASE2_CUDA_EXACT_HINT"] = "1"
+                environment["MASK_PIPELINE_PHASE2_CUDA_EXACT_HINT_COUNT"] = str(
+                    args.cuda_exact_hint_count
+                )
         else:
             environment["MASK_PIPELINE_PHASE2_CUDA_APPROX_ONLY"] = "1"
     environment["PYTHONPATH"] = os.pathsep.join(
@@ -336,6 +350,10 @@ def main() -> int:
             "exactly one of --cuda-fast, --cuda-lazy-exact, "
             "--cuda-hint-exact, or --native-exact is required"
         )
+    if args.cuda_exact_hint_count < 1:
+        raise ValueError("cuda-exact-hint-count must be >= 1")
+    if args.cuda_lazy_frame_hints and not args.cuda_lazy_exact:
+        raise ValueError("--cuda-lazy-frame-hints requires --cuda-lazy-exact")
     if args.anchors_per_contour < 1 or args.min_anchors_per_contour < 1:
         raise ValueError("anchor counts must be >= 1")
     if args.min_anchors_per_contour > args.anchors_per_contour:
@@ -483,6 +501,8 @@ def main() -> int:
                 "max_tracks_per_label": args.max_tracks,
                 "cuda_fast": bool(args.cuda_fast),
                 "cuda_lazy_exact": bool(args.cuda_lazy_exact),
+                "cuda_lazy_frame_hints": bool(args.cuda_lazy_frame_hints),
+                "cuda_exact_hint_count": int(args.cuda_exact_hint_count),
                 "cuda_hint_exact": bool(args.cuda_hint_exact),
                 "native_exact": bool(args.native_exact),
                 "anchors_per_contour": int(args.anchors_per_contour),

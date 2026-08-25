@@ -589,6 +589,28 @@ def process_single_run(run: InstanceRun, args: argparse.Namespace) -> dict[str, 
     }
 
 
+def process_single_run_for_worker(
+    run: InstanceRun, args: argparse.Namespace
+) -> dict[str, object]:
+    """Return a process-safe result for one independently optimized track.
+
+    The serial path deliberately returns ``LazyUnionRows`` so rows can be
+    streamed straight into the parent SQLite store without materializing a
+    whole track.  That lazy object owns ``InstanceRun``.  Candidate generation
+    attaches a native ``CachedIntervalEvaluator`` to the run, and pybind11
+    evaluator objects cannot cross a multiprocessing result queue.
+
+    A worker therefore materializes only its final public row dictionaries
+    before returning.  The native evaluator and all other track-local caches
+    remain owned by the worker and die there.  No numerical operation or row
+    ordering changes at this boundary.
+    """
+
+    result = process_single_run(run, args)
+    result["union_rows"] = list(result["union_rows"])
+    return result
+
+
 def main() -> None:
     args = apply_fixed_practical_defaults(build_parser().parse_args())
     output_dir = Path(args.output_dir)
@@ -628,8 +650,6 @@ def main() -> None:
         )
 
     run_count = int(len(runs))
-    union_rows_all: list[dict[str, object]] = []
-    union_rows: list[dict[str, object]] = []
     union_store: SqliteUnionRowStore | None = None
     union_row_count = 0
     final_keyframes: list[dict[str, object]] = []
@@ -702,19 +722,30 @@ def main() -> None:
         union_store.commit()
         union_row_count = int(union_store.row_count)
     else:
-        mp_ctx = multiprocessing.get_context("spawn")
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=effective_workers, mp_context=mp_ctx
-        ) as executor:
-            results = list(executor.map(process_single_run, runs, [args] * len(runs)))
-        for result in results:
-            union_rows_all.extend(result["union_rows"])
-            collect_result(result)
-        union_rows = sorted(
-            union_rows_all,
-            key=lambda row: (int(row["frame"]), int(str(row["track_id"]))),
+        # Keep native evaluators and CUDA/CPU scratch buffers inside their
+        # owning worker.  Results are consumed in input order and immediately
+        # streamed to SQLite, avoiding both an unpicklable lazy result and an
+        # all-tracks result list in parent memory.
+        union_store = SqliteUnionRowStore(
+            output_dir / ".polygon_union_rows.tmp.sqlite"
         )
-        union_row_count = int(len(union_rows))
+        mp_ctx = multiprocessing.get_context("spawn")
+        worker_count = min(int(effective_workers), int(len(runs)))
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=worker_count, mp_context=mp_ctx
+        ) as executor:
+            for result in executor.map(
+                process_single_run_for_worker,
+                runs,
+                [args] * len(runs),
+                chunksize=1,
+            ):
+                union_store.add_rows(result["union_rows"])
+                collect_result(result)
+                result = None
+        runs.clear()
+        union_store.commit()
+        union_row_count = int(union_store.row_count)
     chunk_counts_by_run: dict[tuple[str, int], int] = {}
     for row in stream_rows:
         if int(row.get("chunk_count", 1)) < 0:
@@ -736,9 +767,7 @@ def main() -> None:
     if union_store is not None:
         union_store.write_union_json(opt_dir / "interpolated_union.json")
     else:
-        (opt_dir / "interpolated_union.json").write_text(
-            json.dumps(union_rows, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        raise RuntimeError("polygon optimizer did not initialize its union-row store")
     write_compact_json_array(opt_dir / "final_keyframes.json", final_keyframes)
     write_csv(
         stream_rows,

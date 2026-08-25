@@ -69,6 +69,12 @@ class ExactPairVoteEvaluator:
             if native is not None
             else None
         )
+        cached_evaluator = getattr(run, "_native_interval_evaluator", None)
+        self.cached_exact_batch = (
+            getattr(cached_evaluator, "exact_frame_metrics_batch", None)
+            if cached_evaluator is not None
+            else None
+        )
         self.executor = (
             concurrent.futures.ThreadPoolExecutor(
                 max_workers=self.worker_count,
@@ -80,6 +86,9 @@ class ExactPairVoteEvaluator:
         self.stats["evaluator_builds"] = int(self.stats.get("evaluator_builds", 0)) + 1
         self.stats["parallel_workers"] = self.worker_count
         self.stats["native_pair_vote_batch"] = self.native_batch is not None
+        self.stats["cached_exact_pair_vote_batch"] = (
+            self.cached_exact_batch is not None
+        )
         if self.native_batch is not None and self.native_full_batch is not None:
             self.stats["mode"] = "native_cpp_exact_alpha_batches"
         self.stats["evaluator_build_seconds"] = float(
@@ -163,6 +172,61 @@ class ExactPairVoteEvaluator:
 
     def full_metrics_many(self, vectors: list[np.ndarray]) -> list[tuple[float, float]]:
         """Return (mean IoU, minimum Recall) for complete alpha trials."""
+        if self.cached_exact_batch is not None and vectors:
+            started = time.perf_counter()
+            trial_values = [np.asarray(value, dtype=np.float32) for value in vectors]
+            frame_count = len(self.bindings)
+            case_count = len(trial_values) * frame_count
+            point_count = int(self.run.contour_count) * int(
+                self.run.anchors_per_contour
+            )
+            frame_indices = np.tile(
+                np.arange(frame_count, dtype=np.int32), len(trial_values)
+            )
+            cases = np.empty((case_count, point_count, 2), dtype=np.float32)
+            case_index = 0
+            for trial in trial_values:
+                for frame in range(frame_count):
+                    cases[case_index] = self._vector_for_frame(trial, frame).reshape(
+                        point_count, 2
+                    )
+                    case_index += 1
+            values = np.asarray(
+                self.cached_exact_batch(
+                    frame_indices,
+                    cases,
+                    int(self.run.contour_count),
+                    int(self.run.anchors_per_contour),
+                    int(self.worker_count),
+                ),
+                dtype=np.float64,
+            )
+            output: list[tuple[float, float]] = []
+            for trial_index in range(len(trial_values)):
+                start = trial_index * frame_count
+                stop = start + frame_count
+                trial_metrics = values[start:stop]
+                # Preserve the reference evaluator's frame-order double
+                # summation rather than using a reduction with a different
+                # tree/order.
+                total_iou_loss = 0.0
+                minimum_recall = 1.0
+                for row in trial_metrics:
+                    total_iou_loss += 1.0 - float(row[6])
+                    minimum_recall = min(minimum_recall, float(row[4]))
+                output.append(
+                    (
+                        float(1.0 - total_iou_loss / max(frame_count, 1)),
+                        float(minimum_recall),
+                    )
+                )
+            self.stats["cached_full_batches"] = int(
+                self.stats.get("cached_full_batches", 0)
+            ) + 1
+            self.stats["cached_full_batch_seconds"] = float(
+                self.stats.get("cached_full_batch_seconds", 0.0)
+            ) + (time.perf_counter() - started)
+            return output
         if self.native_full_batch is None:
             output = []
             for value in vectors:
@@ -242,6 +306,63 @@ class ExactPairVoteEvaluator:
         trial_vectors: list[np.ndarray],
     ) -> list[tuple[float, float]]:
         """Evaluate independent alpha trials concurrently, without approximation."""
+        if self.cached_exact_batch is not None and trial_vectors:
+            started = time.perf_counter()
+            left_key = max(0, key_pos - 1)
+            right_key = min(len(self.chosen) - 1, key_pos + 1)
+            start_frame = self.chosen[left_key]
+            end_frame = self.chosen[right_key]
+            local_frame_count = end_frame - start_frame + 1
+            point_count = int(self.run.contour_count) * int(
+                self.run.anchors_per_contour
+            )
+            trial_values = [
+                np.asarray(value, dtype=np.float32) for value in trial_vectors
+            ]
+            local_frames = np.arange(start_frame, end_frame + 1, dtype=np.int32)
+            frame_indices = np.tile(local_frames, len(trial_values))
+            cases = np.empty(
+                (len(trial_values) * local_frame_count, point_count, 2),
+                dtype=np.float32,
+            )
+            case_index = 0
+            for trial in trial_values:
+                for frame in range(start_frame, end_frame + 1):
+                    cases[case_index] = self._vector_for_frame(
+                        current,
+                        frame,
+                        replacement_pos=key_pos,
+                        replacement_vector=trial,
+                    ).reshape(point_count, 2)
+                    case_index += 1
+            values = np.asarray(
+                self.cached_exact_batch(
+                    frame_indices,
+                    cases,
+                    int(self.run.contour_count),
+                    int(self.run.anchors_per_contour),
+                    int(self.worker_count),
+                ),
+                dtype=np.float64,
+            )
+            output: list[tuple[float, float]] = []
+            for trial_index in range(len(trial_values)):
+                start = trial_index * local_frame_count
+                stop = start + local_frame_count
+                trial_metrics = values[start:stop]
+                iou_total = 0.0
+                minimum_recall = 1.0
+                for row in trial_metrics:
+                    iou_total += float(row[6])
+                    minimum_recall = min(minimum_recall, float(row[4]))
+                output.append((float(iou_total), float(minimum_recall)))
+            self.stats["cached_local_batches"] = int(
+                self.stats.get("cached_local_batches", 0)
+            ) + 1
+            self.stats["cached_local_batch_seconds"] = float(
+                self.stats.get("cached_local_batch_seconds", 0.0)
+            ) + (time.perf_counter() - started)
+            return output
         if self.native_batch is not None and trial_vectors:
             started = time.perf_counter()
             values = np.asarray(

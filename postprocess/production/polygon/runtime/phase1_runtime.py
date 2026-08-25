@@ -126,6 +126,12 @@ def _patch_embedded_optimizer(module: ModuleType) -> ModuleType:
                 frames_covered=0,
             )
         evaluator = get_native_interval_evaluator(eval_contexts, run.gt_polygons)
+        # The exact GT references are expensive to parse and rasterize.  Keep
+        # the active track's evaluator reachable for the later pair-vote
+        # stage, which evaluates the same GT sequence under the same OpenCV
+        # pixel contract.  InstanceRun is track-local and is discarded after
+        # the run, so this does not introduce a video-length cache.
+        run._native_interval_evaluator = evaluator
         native_profile = getattr(module, "_phase1_interval_profile", None)
         raster_started = time.perf_counter()
         (

@@ -92,10 +92,10 @@ class TemporalConfig:
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     label_workers: int = 3
-    optimizer_workers: int = 1
+    optimizer_workers: int = 8
     candidate_frame_workers: int = 1
-    pair_vote_threads: int = 8
-    native_batch_threads: int = 8
+    pair_vote_threads: int = 4
+    native_batch_threads: int = 4
     # Keep one conservative, data-independent CUDA screening budget.  More
     # Aggressive area-adaptive filtering is intentionally outside this
     # frozen Production profile until it has
@@ -117,6 +117,10 @@ class RuntimeConfig:
     run_overlap_frames: int = 900
     predictor_device: str = "cpu"
     interval_evaluation: str = "cuda_lazy_exact"
+    # CUDA only orders the frames tested by the exact OpenCV evaluator.  It
+    # never decides feasibility or contributes the published metrics.
+    cuda_lazy_frame_hints: bool = True
+    cuda_exact_hint_count: int = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,6 +258,7 @@ class CandidateConfig:
             ("candidate frame workers", self.runtime.candidate_frame_workers),
             ("pair-vote threads", self.runtime.pair_vote_threads),
             ("native threads", self.runtime.native_batch_threads),
+            ("CUDA exact hint count", self.runtime.cuda_exact_hint_count),
             (
                 "lazy fallback minimum exact edges",
                 self.runtime.lazy_fallback_min_exact_edges,
@@ -273,6 +278,7 @@ class CandidateConfig:
                 self.runtime.candidate_frame_workers,
                 self.runtime.pair_vote_threads,
                 self.runtime.native_batch_threads,
+                self.runtime.cuda_exact_hint_count,
                 self.runtime.gc_interval,
             )
             < 1

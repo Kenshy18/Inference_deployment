@@ -57,6 +57,8 @@ def parse_args() -> argparse.Namespace:
         choices=("cuda_lazy_exact", "native_exact"),
         default="cuda_lazy_exact",
     )
+    parser.add_argument("--cuda-lazy-frame-hints", action="store_true")
+    parser.add_argument("--cuda-exact-hint-count", type=int, default=8)
     parser.add_argument("--max-tracks", type=int, default=0)
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
@@ -117,6 +119,14 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
         == "cuda_lazy_exact"
         else "--native-exact"
     )
+    if bool(getattr(args, "cuda_lazy_frame_hints", False)):
+        command.extend(
+            (
+                "--cuda-lazy-frame-hints",
+                "--cuda-exact-hint-count",
+                str(max(1, int(args.cuda_exact_hint_count))),
+            )
+        )
     if args.force:
         command.append("--force")
     return command
@@ -167,6 +177,12 @@ def main() -> int:
         raise ValueError("intervals must contain positive integers")
     if not labels:
         raise ValueError("labels must contain at least one non-empty class name")
+    if args.cuda_exact_hint_count < 1:
+        raise ValueError("cuda-exact-hint-count must be >= 1")
+    if args.cuda_lazy_frame_hints and args.interval_evaluation != "cuda_lazy_exact":
+        raise ValueError(
+            "cuda-lazy-frame-hints requires interval-evaluation=cuda_lazy_exact"
+        )
     unsupported = tuple(label for label in labels if label not in LABELS)
     if unsupported:
         raise ValueError(

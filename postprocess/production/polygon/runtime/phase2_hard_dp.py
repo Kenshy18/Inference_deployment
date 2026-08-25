@@ -225,9 +225,17 @@ def build_hard_multistate_penalty_path(module):
                     )
                 ),
             )
-            evaluator = module._phase1_get_native_interval_evaluator(
-                eval_contexts, run.gt_polygons
-            )
+            # Candidate endpoint feasibility already builds this immutable
+            # exact-reference evaluator for the same run/GT sequence.  Reuse
+            # it instead of parsing and raster-caching every reference twice.
+            evaluator = getattr(run, "_phase2_endpoint_evaluator", None)
+            if evaluator is None:
+                evaluator = module._phase1_get_native_interval_evaluator(
+                    eval_contexts, run.gt_polygons
+                )
+            # Reuse the same exact GT raster references in pair-vote after DP.
+            # The evaluator is active-track-local and never leaves the worker.
+            run._native_interval_evaluator = evaluator
             native_metrics = sys.modules.get("native_interval_metrics")
             if native_metrics is None:
                 raise RuntimeError(
@@ -241,6 +249,12 @@ def build_hard_multistate_penalty_path(module):
             cuda_recall_hint_frames = None
             cuda_exact_hint_requested = (
                 os.environ.get(CUDA_EXACT_HINT_ENV, "").strip() == "1"
+            )
+            cuda_lazy_requested_early = (
+                os.environ.get(CUDA_LAZY_EXACT_ENV, "").strip() == "1"
+            )
+            cuda_hint_with_lazy = bool(
+                cuda_exact_hint_requested and cuda_lazy_requested_early
             )
             # Frame hints are intentionally opt-in for the all-edge exact path.
             # Adding the same CUDA pass to the already-pruned lazy path preserved
@@ -332,9 +346,12 @@ def build_hard_multistate_penalty_path(module):
                 screened_indices = np.flatnonzero(
                     np.asarray(cuda_recall_deficit) <= prefilter_budget
                 )
-                if not cuda_exact_hint_requested:
+                if not cuda_exact_hint_requested or cuda_hint_with_lazy:
                     retained_indices = screened_indices
-                if not cuda_prefilter_verify and not cuda_exact_hint_requested:
+                if (
+                    not cuda_prefilter_verify
+                    and (not cuda_exact_hint_requested or cuda_hint_with_lazy)
+                ):
                     batch_edge_array = np.ascontiguousarray(
                         edge_array[retained_indices], dtype=np.int32
                     )
@@ -352,7 +369,10 @@ def build_hard_multistate_penalty_path(module):
                         len(screened_indices) / max(len(edge_array), 1)
                     ),
                     "verification_mode": bool(cuda_prefilter_verify),
-                    "hint_only_mode": bool(cuda_exact_hint_requested),
+                    "hint_only_mode": bool(
+                        cuda_exact_hint_requested and not cuda_hint_with_lazy
+                    ),
+                    "lazy_frame_hint_mode": bool(cuda_hint_with_lazy),
                 }
             lazy_exact_requested = (
                 os.environ.get(CUDA_LAZY_EXACT_ENV, "").strip() == "1"
@@ -365,12 +385,10 @@ def build_hard_multistate_penalty_path(module):
                     f"{CUDA_LAZY_EXACT_ENV}=1 and {CUDA_APPROX_ONLY_ENV}=1 "
                     "are mutually exclusive"
                 )
-            if cuda_exact_hint_requested and (
-                lazy_exact_requested or cuda_approx_only_requested
-            ):
+            if cuda_exact_hint_requested and cuda_approx_only_requested:
                 raise RuntimeError(
                     f"{CUDA_EXACT_HINT_ENV}=1 is mutually exclusive with "
-                    f"{CUDA_LAZY_EXACT_ENV}=1 and {CUDA_APPROX_ONLY_ENV}=1"
+                    f"{CUDA_APPROX_ONLY_ENV}=1"
                 )
             lazy_exact_enabled = bool(lazy_exact_requested)
             lazy_min_retained_ratio = max(

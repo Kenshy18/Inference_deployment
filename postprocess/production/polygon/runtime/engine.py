@@ -65,12 +65,12 @@ def assert_runtime_bridge_contract(
             )
     fixed_runtime = {
         "candidate_frame_workers": 1,
-        "pair_vote_threads": 8,
+        "pair_vote_threads": 4,
         "gapfill_max_gap": 15,
         "keyframe_max_gap": 30,
         "max_run_frames": 30000,
         "run_overlap_frames": 900,
-        "native_batch_threads": 8,
+        "native_batch_threads": 4,
         "cuda_prefilter_deficit_budget": 0.10,
         "cuda_prefilter_small_area": 0.0,
         "cuda_prefilter_small_deficit_budget": 0.10,
@@ -79,6 +79,8 @@ def assert_runtime_bridge_contract(
         "lazy_fallback_infeasible_ratio": 1.0,
         "gc_interval": 8,
         "predictor_device": "cpu",
+        "cuda_lazy_frame_hints": True,
+        "cuda_exact_hint_count": 8,
     }
     declared_runtime = {key: getattr(config.runtime, key) for key in fixed_runtime}
     if declared_runtime != fixed_runtime:
@@ -167,11 +169,15 @@ def run_polygon_optimizer(
         str(config.runtime.native_batch_threads),
         "--interval-evaluation",
         str(config.runtime.interval_evaluation),
+        "--cuda-exact-hint-count",
+        str(config.runtime.cuda_exact_hint_count),
         "--max-tracks",
         str(max(0, int(max_tracks))),
         "--profile",
         str(config.polygon_profile_id),
     ]
+    if config.runtime.cuda_lazy_frame_hints:
+        command.append("--cuda-lazy-frame-hints")
     vertex_policy = Path(source_root).resolve() / "vertex_policy.json"
     if config.spatial.adaptive_vertex_policy:
         if not vertex_policy.is_file():

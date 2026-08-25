@@ -673,9 +673,20 @@ def main() -> int:
                         coarse_metrics = local_metrics_many(
                             key_pos, [trial for _alpha, trial in coarse_trials]
                         )
+                        current_metrics = None
                         for (alpha, trial), (iou_sum, minimum_recall) in zip(
                             coarse_trials, coarse_metrics
                         ):
+                            # The current alpha is deliberately part of the
+                            # exact coarse batch.  Reuse that result only when
+                            # its reconstructed float32 vector is byte-equal
+                            # to the live key; otherwise retain the scalar
+                            # reference evaluation below.
+                            if patched.np.array_equal(trial, current[key_pos]):
+                                current_metrics = (
+                                    float(iou_sum),
+                                    float(minimum_recall),
+                                )
                             if minimum_recall + 1e-12 >= recall_floor:
                                 candidates.append((iou_sum, alpha, trial))
                         if not candidates:
@@ -753,9 +764,12 @@ def main() -> int:
                         if selected_candidate is None:
                             continue
                         best_iou, best_alpha, best_trial = selected_candidate
-                        current_iou, current_recall = local_metrics(
-                            key_pos, current[key_pos]
-                        )
+                        if current_metrics is None:
+                            current_iou, current_recall = local_metrics(
+                                key_pos, current[key_pos]
+                            )
+                        else:
+                            current_iou, current_recall = current_metrics
                         if (
                             current_recall + 1e-12 >= recall_floor
                             and current_iou > best_iou + 1e-12

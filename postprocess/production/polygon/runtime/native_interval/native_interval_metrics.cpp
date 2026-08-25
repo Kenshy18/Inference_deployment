@@ -196,6 +196,189 @@ py::array_t<std::uint8_t> strict_self_intersection_batch(
   return output;
 }
 
+bool polygon_is_simple_impl(
+    const double* points,
+    const std::size_t point_count) {
+  constexpr double epsilon = 1e-8;
+  if (point_count < 3U) {
+    return false;
+  }
+  double signed_twice_area = 0.0;
+  for (std::size_t index = 0; index < point_count; ++index) {
+    const std::size_t following = (index + 1U) % point_count;
+    const double x = points[index * 2U];
+    const double y = points[index * 2U + 1U];
+    const double next_x = points[following * 2U];
+    const double next_y = points[following * 2U + 1U];
+    if (!std::isfinite(x) || !std::isfinite(y) ||
+        !std::isfinite(next_x) || !std::isfinite(next_y)) {
+      return false;
+    }
+    if (std::hypot(next_x - x, next_y - y) <= epsilon) {
+      return false;
+    }
+    signed_twice_area += x * next_y - next_x * y;
+  }
+  if (std::abs(signed_twice_area) <= epsilon) {
+    return false;
+  }
+
+  const auto orientation = [](const double* a, const double* b, const double* c) {
+    return (b[0] - a[0]) * (c[1] - a[1]) -
+           (b[1] - a[1]) * (c[0] - a[0]);
+  };
+  const auto on_segment = [epsilon](
+                              const double* a,
+                              const double* b,
+                              const double* point) {
+    return std::min(a[0], b[0]) - epsilon <= point[0] &&
+           point[0] <= std::max(a[0], b[0]) + epsilon &&
+           std::min(a[1], b[1]) - epsilon <= point[1] &&
+           point[1] <= std::max(a[1], b[1]) + epsilon;
+  };
+  for (std::size_t first_edge = 0; first_edge < point_count; ++first_edge) {
+    const std::size_t first_following = (first_edge + 1U) % point_count;
+    const double* a = points + first_edge * 2U;
+    const double* b = points + first_following * 2U;
+    for (std::size_t second_edge = first_edge + 1U;
+         second_edge < point_count;
+         ++second_edge) {
+      if (second_edge == first_following ||
+          (second_edge + 1U) % point_count == first_edge) {
+        continue;
+      }
+      const std::size_t second_following = (second_edge + 1U) % point_count;
+      const double* c = points + second_edge * 2U;
+      const double* d = points + second_following * 2U;
+      const double first = orientation(a, b, c);
+      const double second = orientation(a, b, d);
+      const double third = orientation(c, d, a);
+      const double fourth = orientation(c, d, b);
+      if ((first * second < -epsilon && third * fourth < -epsilon) ||
+          (std::abs(first) <= epsilon && on_segment(a, b, c)) ||
+          (std::abs(second) <= epsilon && on_segment(a, b, d)) ||
+          (std::abs(third) <= epsilon && on_segment(c, d, a)) ||
+          (std::abs(fourth) <= epsilon && on_segment(c, d, b))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+py::array_t<std::uint8_t> polygon_is_simple_batch(
+    const py::array_t<double, py::array::c_style | py::array::forcecast>& values,
+    const int requested_threads) {
+  if (values.ndim() != 3 || values.shape(2) != 2) {
+    throw py::value_error("values must have shape (N, points, 2)");
+  }
+  const py::ssize_t case_count = values.shape(0);
+  const py::ssize_t point_count = values.shape(1);
+  py::array_t<std::uint8_t> output(case_count);
+  const double* input = values.data();
+  std::uint8_t* result = output.mutable_data();
+  const std::size_t values_per_case =
+      static_cast<std::size_t>(point_count) * 2U;
+  const int thread_count = std::max(1, requested_threads);
+  {
+    py::gil_scoped_release release;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) num_threads(thread_count)
+#endif
+    for (py::ssize_t index = 0; index < case_count; ++index) {
+      result[index] = polygon_is_simple_impl(
+                          input + static_cast<std::size_t>(index) * values_per_case,
+                          static_cast<std::size_t>(point_count))
+                          ? 1U
+                          : 0U;
+    }
+  }
+  return output;
+}
+
+py::array_t<std::int32_t> shared_area_best_cycle(
+    const py::array_t<double, py::array::c_style | py::array::forcecast>& costs,
+    int target) {
+  if (costs.ndim() != 2 || costs.shape(1) != costs.shape(0) + 1) {
+    throw py::value_error("costs must have shape (samples, samples + 1)");
+  }
+  const int samples = static_cast<int>(costs.shape(0));
+  target = std::max(3, std::min(target, samples));
+  const double* values = costs.data();
+  const int stride = samples + 1;
+  const double infinity = std::numeric_limits<double>::infinity();
+  double best_cost = infinity;
+  std::vector<std::int32_t> best_indices;
+  std::vector<double> previous(static_cast<std::size_t>(samples + 1));
+  std::vector<double> current(static_cast<std::size_t>(samples + 1));
+  std::vector<std::int32_t> parents(
+      static_cast<std::size_t>(target + 1) *
+          static_cast<std::size_t>(samples + 1),
+      -1);
+  for (int anchor = 0; anchor < samples; ++anchor) {
+    std::fill(previous.begin(), previous.end(), infinity);
+    previous[0] = 0.0;
+    std::fill(parents.begin(), parents.end(), -1);
+    for (int edge_count = 1; edge_count <= target; ++edge_count) {
+      std::fill(current.begin(), current.end(), infinity);
+      const int lower = edge_count;
+      const int upper = samples - (target - edge_count);
+      for (int end = lower; end <= upper; ++end) {
+        double selected_value = infinity;
+        int selected_start = -1;
+        for (int start = edge_count - 1; start < end; ++start) {
+          if (!std::isfinite(previous[static_cast<std::size_t>(start)])) {
+            continue;
+          }
+          const int distance = end - start;
+          const int row = (anchor + start) % samples;
+          const double candidate =
+              previous[static_cast<std::size_t>(start)] +
+              values[static_cast<std::size_t>(row) * stride + distance];
+          if (candidate < selected_value) {
+            selected_value = candidate;
+            selected_start = start;
+          }
+        }
+        if (selected_start >= 0) {
+          current[static_cast<std::size_t>(end)] = selected_value;
+          parents[static_cast<std::size_t>(edge_count) * (samples + 1) + end] =
+              selected_start;
+        }
+      }
+      previous.swap(current);
+    }
+    const double candidate_cost = previous[static_cast<std::size_t>(samples)];
+    if (candidate_cost >= best_cost) {
+      continue;
+    }
+    std::vector<std::int32_t> positions(static_cast<std::size_t>(target));
+    int end = samples;
+    for (int edge_count = target; edge_count > 0; --edge_count) {
+      const int start = parents[
+          static_cast<std::size_t>(edge_count) * (samples + 1) + end];
+      if (start < 0) {
+        throw std::runtime_error("broken shared-area DP parent chain");
+      }
+      positions[static_cast<std::size_t>(edge_count - 1)] = start;
+      end = start;
+    }
+    best_cost = candidate_cost;
+    best_indices.resize(static_cast<std::size_t>(target));
+    for (int index = 0; index < target; ++index) {
+      best_indices[static_cast<std::size_t>(index)] =
+          static_cast<std::int32_t>(
+              (anchor + positions[static_cast<std::size_t>(index)]) % samples);
+    }
+  }
+  if (best_indices.empty()) {
+    throw std::runtime_error("shared-area DP has no solution");
+  }
+  py::array_t<std::int32_t> output(target);
+  std::copy(best_indices.begin(), best_indices.end(), output.mutable_data());
+  return output;
+}
+
 std::vector<Polygon> parse_polygons(const py::iterable& values) {
   std::vector<Polygon> polygons;
   for (const py::handle value : values) {
@@ -1531,7 +1714,7 @@ class ExactDoubleRasterEvaluator {
     {
       py::gil_scoped_release release;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic, 64) num_threads(thread_count)
+#pragma omp parallel for schedule(static) num_threads(thread_count)
 #endif
       for (py::ssize_t case_index = 0; case_index < case_count; ++case_index) {
 #ifdef _OPENMP
@@ -2731,7 +2914,7 @@ class CachedIntervalEvaluator {
     {
       py::gil_scoped_release release;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic, 64) num_threads(thread_count)
+#pragma omp parallel for schedule(static) num_threads(thread_count)
 #endif
       for (py::ssize_t case_index = 0; case_index < case_count; ++case_index) {
 #ifdef _OPENMP
@@ -2864,11 +3047,13 @@ class CachedIntervalEvaluator {
       thread_intersection[static_cast<std::size_t>(thread)] =
           cv::Mat::zeros(max_height, max_width, CV_8UC1);
     }
+    const int edge_schedule_chunk =
+        edge_count <= static_cast<py::ssize_t>(thread_count * 16) ? 1 : 16;
 
     {
       py::gil_scoped_release release;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic, 16) num_threads(thread_count)
+#pragma omp parallel for schedule(dynamic, edge_schedule_chunk) num_threads(thread_count)
 #endif
       for (py::ssize_t edge_index = 0; edge_index < edge_count; ++edge_index) {
 #ifdef _OPENMP
@@ -3394,6 +3579,16 @@ PYBIND11_MODULE(native_interval_metrics, module) {
       &strict_self_intersection_batch,
       py::arg("values"),
       py::arg("threads") = 1);
+  module.def(
+      "polygon_is_simple_batch",
+      &polygon_is_simple_batch,
+      py::arg("values"),
+      py::arg("threads") = 1);
+  module.def(
+      "shared_area_best_cycle",
+      &shared_area_best_cycle,
+      py::arg("costs"),
+      py::arg("target"));
   module.def(
       "decode_penalty_path",
       &decode_penalty_path,

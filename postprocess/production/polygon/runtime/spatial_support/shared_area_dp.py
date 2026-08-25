@@ -8,6 +8,7 @@ to their reconstruction cost across time.  No video pixels are used.
 
 from __future__ import annotations
 
+import importlib
 from typing import Iterable
 
 import numpy as np
@@ -138,6 +139,22 @@ def _edge_costs(
 def _best_cycle(costs: np.ndarray, target: int) -> np.ndarray:
     samples = int(costs.shape[0])
     target = int(np.clip(int(target), 3, samples))
+    try:
+        native = importlib.import_module("native_interval_metrics")
+    except ImportError:
+        native = None
+    native_best_cycle = (
+        getattr(native, "shared_area_best_cycle", None)
+        if native is not None
+        else None
+    )
+    if native_best_cycle is not None:
+        return np.asarray(
+            native_best_cycle(
+                np.ascontiguousarray(costs, dtype=np.float64), int(target)
+            ),
+            dtype=np.int32,
+        )
     best_cost = float("inf")
     best_indices: np.ndarray | None = None
     infinity = float("inf")

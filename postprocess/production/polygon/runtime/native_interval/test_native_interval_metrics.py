@@ -812,6 +812,75 @@ def assert_exact_double_lazy_topology_contract() -> int:
     return 1
 
 
+def assert_polygon_simple_batch_contract() -> int:
+    values = np.asarray(
+        [
+            [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]],
+            [[0.0, 0.0], [4.0, 4.0], [0.0, 4.0], [4.0, 0.0]],
+            [[0.0, 0.0], [4.0, 0.0], [4.0, 0.0], [0.0, 4.0]],
+            [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]],
+        ],
+        dtype=np.float64,
+    )
+    expected = np.asarray([1, 0, 0, 0], dtype=np.uint8)
+    actual = np.asarray(
+        native_interval_metrics.polygon_is_simple_batch(values, 4),
+        dtype=np.uint8,
+    )
+    if not np.array_equal(actual, expected):
+        raise AssertionError(f"polygon simple batch contract changed: {actual}")
+    return len(values)
+
+
+def assert_shared_area_best_cycle_contract() -> int:
+    rng = np.random.default_rng(20260825)
+    samples = 16
+    target = 7
+    costs = rng.random((samples, samples + 1), dtype=np.float64)
+    costs[:, 0] = np.inf
+    best_cost = float("inf")
+    expected = None
+    for anchor in range(samples):
+        previous = np.full((samples + 1,), np.inf, dtype=np.float64)
+        previous[0] = 0.0
+        parents = np.full((target + 1, samples + 1), -1, dtype=np.int32)
+        for edge_count in range(1, target + 1):
+            current = np.full((samples + 1,), np.inf, dtype=np.float64)
+            upper = samples - (target - edge_count)
+            for end in range(edge_count, upper + 1):
+                starts = np.arange(edge_count - 1, end, dtype=np.int64)
+                starts = starts[np.isfinite(previous[starts])]
+                if not len(starts):
+                    continue
+                values = previous[starts] + costs[
+                    (anchor + starts) % samples, end - starts
+                ]
+                selected = int(np.argmin(values))
+                current[end] = float(values[selected])
+                parents[edge_count, end] = int(starts[selected])
+            previous = current
+        value = float(previous[samples])
+        if value >= best_cost:
+            continue
+        positions = np.empty((target,), dtype=np.int32)
+        end = samples
+        for edge_count in range(target, 0, -1):
+            start = int(parents[edge_count, end])
+            positions[edge_count - 1] = start
+            end = start
+        best_cost = value
+        expected = (anchor + positions) % samples
+    actual = np.asarray(
+        native_interval_metrics.shared_area_best_cycle(costs, target),
+        dtype=np.int32,
+    )
+    if expected is None or not np.array_equal(actual, expected):
+        raise AssertionError(
+            f"shared-area DP contract changed: expected={expected}, actual={actual}"
+        )
+    return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=10_000)
@@ -825,6 +894,8 @@ def main() -> int:
     pair_vote_local_cases, pair_vote_full_cases = assert_pair_vote_batch_parity()
     partial_cache = assert_partial_reference_cache_parity()
     lazy_topology_cases = assert_exact_double_lazy_topology_contract()
+    polygon_simple_cases = assert_polygon_simple_batch_contract()
+    shared_area_dp_cases = assert_shared_area_best_cycle_contract()
     result = {
         "implementation": native_interval_metrics.implementation,
         "parity_cases": checked,
@@ -835,6 +906,8 @@ def main() -> int:
         "pair_vote_full_parity_cases": pair_vote_full_cases,
         "partial_reference_cache": partial_cache,
         "lazy_topology_contract_cases": lazy_topology_cases,
+        "polygon_simple_batch_cases": polygon_simple_cases,
+        "shared_area_dp_cases": shared_area_dp_cases,
         "benchmark": benchmark(args.iterations),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
