@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -15,7 +16,11 @@ from ..config import (
 )
 
 
-def build_runtime_config(config: ProductionConfig):
+def build_runtime_config(
+    config: ProductionConfig,
+    *,
+    optimizer_workers: int | None = None,
+):
     """Translate the public contract to the parity-frozen internal payload."""
     from .runtime.candidate_config import (
         CANDIDATE,
@@ -29,6 +34,17 @@ def build_runtime_config(config: ProductionConfig):
         CANDIDATE,
     )
     runtime = with_interval_evaluation(config.interval_evaluation, runtime)
+    if optimizer_workers is not None:
+        if int(optimizer_workers) < 1:
+            raise ValueError("optimizer_workers must be >= 1")
+        runtime = replace(
+            runtime,
+            runtime=replace(
+                runtime.runtime,
+                optimizer_workers=int(optimizer_workers),
+            ),
+        )
+        runtime.validate()
     if runtime.profile_id != RUNTIME_CANDIDATE_PROFILE_ID:
         raise RuntimeError("polygon runtime profile contract drift")
     if runtime.polygon_profile_id != RUNTIME_POLYGON_PROFILE_ID:
@@ -92,12 +108,16 @@ def optimize(
     max_tracks: int,
     force: bool,
     config: ProductionConfig,
+    optimizer_workers: int | None = None,
     progress_callback: Callable[[str, float | None, float | None], None] | None = None,
 ) -> dict[str, object]:
     return run_polygon_optimizer(
         source_root,
         output_root,
-        config=build_runtime_config(config),
+        config=build_runtime_config(
+            config,
+            optimizer_workers=optimizer_workers,
+        ),
         labels=labels,
         max_tracks=max_tracks,
         force=force,

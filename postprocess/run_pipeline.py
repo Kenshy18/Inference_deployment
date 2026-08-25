@@ -60,6 +60,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--classwise-workers",
+        type=int,
+        help=(
+            "override independent class/group concurrency without changing "
+            "post-process semantics"
+        ),
+    )
+    parser.add_argument(
+        "--polygon-optimizer-workers",
+        type=int,
+        help=(
+            "override per-group polygon optimizer workers; useful for "
+            "memory-bounded long-video runs"
+        ),
+    )
+    parser.add_argument(
         "--score-min",
         type=float,
         help="explicitly override the selected pipeline stage",
@@ -146,6 +162,10 @@ def _geometry_stage_options(
     initial: dict[str, object] | None = None,
 ) -> dict[str, object]:
     options = {} if initial is None else dict(initial)
+    if args.polygon_optimizer_workers is not None:
+        if args.polygon_optimizer_workers < 1:
+            raise ValueError("--polygon-optimizer-workers must be >= 1")
+        options["optimizer_workers"] = int(args.polygon_optimizer_workers)
     # Geometry semantics are frozen. CUDA screens the graph while every
     # selected edge and the final dense output remain exact-audited.
     return options
@@ -205,6 +225,8 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
 
     if args.keyframe_interval is not None and args.keyframe_interval < 1:
         raise ValueError("--keyframe-interval must be >= 1")
+    if args.classwise_workers is not None and args.classwise_workers < 1:
+        raise ValueError("--classwise-workers must be >= 1")
     stages: list[StageSpec] = []
     for stage in source.stages:
         if (
@@ -264,6 +286,13 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             for stage in stages
             if stage.implementation in upstream_implementations
         ]
+        geometry_options = _geometry_stage_options(args)
+        if str(args.mask_geometry) == "polygon":
+            # Three class groups each spawning the historical nine optimizer
+            # workers can exceed a 30 GiB WSL VM.  Two groups with three
+            # workers each preserves exact output semantics and was validated
+            # on the full KPI masklet without memory exhaustion.
+            geometry_options.setdefault("optimizer_workers", 3)
         upstream.append(
             StageSpec(
                 "classwise_postprocess",
@@ -274,8 +303,12 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
                         if args.keyframe_interval is None
                         else int(args.keyframe_interval)
                     ),
-                    "geometry_options": _geometry_stage_options(args),
-                    "classwise_workers": 3,
+                    "geometry_options": geometry_options,
+                    "classwise_workers": (
+                        (2 if str(args.mask_geometry) == "polygon" else 3)
+                        if args.classwise_workers is None
+                        else int(args.classwise_workers)
+                    ),
                     "geometry_mode": str(args.mask_geometry),
                 },
             )

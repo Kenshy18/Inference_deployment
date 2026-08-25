@@ -5,6 +5,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from common.registry import create_stage
@@ -120,6 +121,20 @@ class PromotedProductionProfileTests(unittest.TestCase):
         self.assertFalse(hasattr(runtime.spatial, "vertex_fallbacks"))
         self.assertEqual(1.05, runtime.spatial.recall_repair_max_scale)
         self.assertEqual(0.97, runtime.temporal.recall_floor)
+
+    def test_runtime_worker_override_changes_only_worker_count(self) -> None:
+        baseline = build_runtime_config(PRODUCTION)
+        bounded = build_runtime_config(PRODUCTION, optimizer_workers=3)
+        self.assertEqual(3, bounded.runtime.optimizer_workers)
+        self.assertEqual(
+            baseline.runtime,
+            replace(
+                bounded.runtime,
+                optimizer_workers=baseline.runtime.optimizer_workers,
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "optimizer_workers"):
+            build_runtime_config(PRODUCTION, optimizer_workers=0)
 
     def test_manifest_contract_uses_the_requested_soft_interval(self) -> None:
         for interval in (1, 3, 6):

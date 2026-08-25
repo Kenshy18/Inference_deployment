@@ -53,6 +53,56 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("nms.adaptive", implementations)
         self.assertNotIn("approximation.polygon.production_v22", implementations)
 
+    def test_cli_exposes_memory_bounded_polygon_concurrency(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--input-jsonl",
+                "input.jsonl",
+                "--output-dir",
+                "output",
+                "--classwise-workers",
+                "2",
+                "--polygon-optimizer-workers",
+                "3",
+                "--class-postprocess-policy-json",
+                "policy.json",
+            ]
+        )
+        config = _configured_pipeline(args)
+        classwise = next(
+            stage
+            for stage in config.stages
+            if stage.implementation == "classwise.production"
+        )
+        self.assertEqual(2, classwise.options["classwise_workers"])
+        self.assertEqual(
+            3,
+            classwise.options["geometry_options"]["optimizer_workers"],
+        )
+
+    def test_classwise_polygon_defaults_are_memory_bounded(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--input-jsonl",
+                "input.jsonl",
+                "--output-dir",
+                "output",
+                "--class-postprocess-policy-json",
+                "policy.json",
+            ]
+        )
+        config = _configured_pipeline(args)
+        classwise = next(
+            stage
+            for stage in config.stages
+            if stage.implementation == "classwise.production"
+        )
+        self.assertEqual(2, classwise.options["classwise_workers"])
+        self.assertEqual(
+            3,
+            classwise.options["geometry_options"]["optimizer_workers"],
+        )
+
     def test_artifact_validation_is_cached_until_file_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "artifact.bin"

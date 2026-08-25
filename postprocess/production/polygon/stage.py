@@ -90,6 +90,11 @@ class ProductionPolygonStage:
             max_tracks=max(0, int(self.options.get("max_tracks", 0))),
             force=bool(self.options.get("force", False)),
             config=config,
+            optimizer_workers=(
+                None
+                if self.options.get("optimizer_workers") is None
+                else int(self.options["optimizer_workers"])
+            ),
             progress_callback=lambda detail, fraction, fps: context.report_progress(
                 detail,
                 None if fraction is None else 0.12 + 0.76 * fraction,
