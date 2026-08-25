@@ -92,7 +92,7 @@ class TemporalConfig:
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     label_workers: int = 3
-    optimizer_workers: int = 8
+    optimizer_workers: int = 9
     candidate_frame_workers: int = 1
     pair_vote_threads: int = 4
     native_batch_threads: int = 4
