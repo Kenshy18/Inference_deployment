@@ -770,17 +770,10 @@ class OrchestrationConfig:
                 "inference.parallel_model_stagger_seconds requires "
                 "inference.parallel_models=true"
             )
-        if self.inference.parallel_models and (
-            not self.inference.enabled
-            or self.inference.mode != "segmentation-face"
-            or self.inference.segmentation_model != "dinov3_codino_mh0"
-            or self.inference.face_model != "face_dino_v2"
-        ):
+        if self.inference.parallel_models:
             raise OrchestrationConfigError(
-                "inference.parallel_models=true is supported only when "
-                "inference.enabled=true and mode=segmentation-face with "
-                "segmentation_model=dinov3_codino_mh0 and "
-                "face_model=face_dino_v2"
+                "inference.parallel_models=true is retired in Production; "
+                "segmentation and face inference must run sequentially"
             )
         if self.inference.enabled:
             if self.inference.input_sqlite is not None:

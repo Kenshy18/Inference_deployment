@@ -111,78 +111,36 @@ class ConfigTests(unittest.TestCase):
                 command[command.index("--eye-mask-shape") + 1],
             )
 
-    def test_parallel_models_is_available_only_for_compact_dino_and_new_face(
-        self,
-    ) -> None:
+    def test_parallel_models_is_rejected_in_production(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             video = create_video(root / "input.avi")
             config_path = root / "config.json"
 
-            def write_config(
-                *,
-                mode: str,
-                segmentation_model: str,
-                face_model: str,
-            ) -> None:
-                config_path.write_text(
-                    json.dumps(
-                        {
-                            "input_video": str(video),
-                            "output_root": str(root / "output"),
-                            "execution": {"runtime_python": sys.executable},
-                            "inference": {
-                                "enabled": True,
-                                "mode": mode,
-                                "segmentation_model": segmentation_model,
-                                "face_model": face_model,
-                                "parallel_models": True,
-                            },
-                            "postprocess": {"enabled": False},
-                            "overlay": {"enabled": False},
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-
-            write_config(
-                mode="segmentation-face",
-                segmentation_model="dinov3_codino_mh0",
-                face_model="face_dino_v2",
-            )
-            approved = OrchestrationConfig.load(config_path)
-            self.assertIn(
-                "--parallel-models",
-                OrchestrationRunner(approved).inference_command(
-                    root / "inference.sqlite"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "input_video": str(video),
+                        "output_root": str(root / "output"),
+                        "execution": {"runtime_python": sys.executable},
+                        "inference": {
+                            "enabled": True,
+                            "mode": "segmentation-face",
+                            "segmentation_model": "dinov3_codino_mh0",
+                            "face_model": "face_dino_v2",
+                            "parallel_models": True,
+                        },
+                        "postprocess": {"enabled": False},
+                        "overlay": {"enabled": False},
+                    }
                 ),
+                encoding="utf-8",
             )
-
-            invalid = (
-                ("segmentation-face", "dinov3_codino", "face_dino_v2"),
-                (
-                    "segmentation-face",
-                    "dinov3_codino_mh0",
-                    "rtdetr_head_face",
-                ),
-                ("segmentation", "dinov3_codino_mh0", "face_dino_v2"),
-            )
-            for mode, segmentation_model, face_model in invalid:
-                with self.subTest(
-                    mode=mode,
-                    segmentation_model=segmentation_model,
-                    face_model=face_model,
-                ):
-                    write_config(
-                        mode=mode,
-                        segmentation_model=segmentation_model,
-                        face_model=face_model,
-                    )
-                    with self.assertRaisesRegex(
-                        OrchestrationConfigError,
-                        "mode=segmentation-face",
-                    ):
-                        OrchestrationConfig.load(config_path)
+            with self.assertRaisesRegex(
+                OrchestrationConfigError,
+                "retired in Production",
+            ):
+                OrchestrationConfig.load(config_path)
 
     def test_class_postprocess_policy_is_typed_and_forwarded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -45,13 +45,10 @@ RT-DETRで`--face-classes`へ値を渡さなければ、`VisibleBody`を含む�
 統一pipelineはモデルを隔離プロセスで実行し、成功した全結果だけを最後に
 1つのSQLiteへatomicに公開します。これによりDetectron2、Co-DINO、RT-DETRの
 依存関係とGPU初期化を上位層で混在させません。`segmentation-face`では現在、
-安全なモデル分離を優先して動画をモデルごとに読み込みます。既定は逐次実行です。
-`dinov3_codino_mh0`と`face_dino_v2`の組合せに限り、
-`--parallel-models`で両モデルを同時実行できます。巨大`dinov3_codino`、
-旧顔検出、片方だけの推論ではこのオプションを指定できません。
-GPUの電力上限で完全同時実行が遅くなる環境では、
-`--parallel-model-stagger-seconds N`により顔モデルを先に起動してピーク競合を
-調整できます。
+安全なモデル分離を優先して動画をモデルごとに読み込み、常に逐次実行します。
+旧設定との互換性のため`--parallel-models`はCLI上に残っていますが、指定すると
+明示的に拒否されます。`--parallel-model-stagger-seconds`もProductionでは
+使用できません。
 
 Face DINO v2は既定の固定B8 bundleに加え、build済みmanifestを
 `--face-trt-bundle /path/to/manifest.json`で選択できます。B16 profileは

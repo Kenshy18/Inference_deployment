@@ -709,14 +709,8 @@ export default function App() {
       changeMode: (mode: InferenceMode) => {
         patchInference({
           mode,
-          parallelModels:
-            mode === "segmentation-face"
-              ? draft.inference.parallelModels
-              : false,
-          parallelModelStaggerSeconds:
-            mode === "segmentation-face"
-              ? draft.inference.parallelModelStaggerSeconds
-              : 0,
+          parallelModels: false,
+          parallelModelStaggerSeconds: 0,
         });
         if (mode === "face") {
           patchPostprocess({
@@ -765,14 +759,8 @@ export default function App() {
         patchInference({
           segmentationModel,
           segmentationBackend: defaultBackend(segmentationModel),
-          parallelModels:
-            segmentationModel === "dinov3_codino_mh0"
-              ? draft.inference.parallelModels
-              : false,
-          parallelModelStaggerSeconds:
-            segmentationModel === "dinov3_codino_mh0"
-              ? draft.inference.parallelModelStaggerSeconds
-              : 0,
+          parallelModels: false,
+          parallelModelStaggerSeconds: 0,
         }),
       changeFaceModel: (faceModel) => {
         patchInference({
@@ -782,14 +770,8 @@ export default function App() {
             faceModel === "face_dino_v2"
               ? draft.inference.faceTrtBundle
               : "",
-          parallelModels:
-            faceModel === "face_dino_v2"
-              ? draft.inference.parallelModels
-              : false,
-          parallelModelStaggerSeconds:
-            faceModel === "face_dino_v2"
-              ? draft.inference.parallelModelStaggerSeconds
-              : 0,
+          parallelModels: false,
+          parallelModelStaggerSeconds: 0,
         });
         if (faceModel !== "face_dino_v2") {
           patchPostprocess({
@@ -847,8 +829,6 @@ export default function App() {
         ),
     }),
     [
-      draft.inference.parallelModelStaggerSeconds,
-      draft.inference.parallelModels,
       draft.inference.faceModel,
       draft.inference.faceTrtBundle,
       draft.inference.mode,

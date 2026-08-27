@@ -72,16 +72,10 @@ class OrchestrationRequest:
             raise ValueError(
                 "parallel_model_stagger_seconds requires parallel_models=true"
             )
-        if self.parallel_models and (
-            self.mode is not InferenceMode.SEGMENTATION_FACE
-            or self.segmentation_model != "dinov3_codino_mh0"
-            or self.face_model != "face_dino_v2"
-        ):
+        if self.parallel_models:
             raise ValueError(
-                "parallel_models=true is supported only for "
-                "mode=segmentation-face with "
-                "segmentation_model=dinov3_codino_mh0 and "
-                "face_model=face_dino_v2"
+                "parallel_models=true is retired in Production; segmentation "
+                "and face inference must run sequentially"
             )
         if not self.device.strip():
             raise ValueError("device must not be empty")

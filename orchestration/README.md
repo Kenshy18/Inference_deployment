@@ -41,7 +41,7 @@ python3 -m orchestration --config config.json --dry-run
     "segmentation_model": "dinov3_codino_mh0",
     "face_model": "face_dino_v2",
     "face_backend": "tensorrt-fast",
-    "parallel_models": true,
+    "parallel_models": false,
     "parallel_model_stagger_seconds": 0.0,
     "fast_sqlite": true
   },
@@ -55,16 +55,12 @@ python3 -m orchestration --config config.json --dry-run
 なく、全ての顔／複合overlayにも同じ値が渡ります。これにより最終SQLiteに残る
 AI生観測を詳細表示するときも、GUIで指定した検出下限を回避して表示しません。
 
-- `parallel_models`: segmentationと顔検出を隔離プロセスのまま同時実行。
-  `mode=segmentation-face`、高速`dinov3_codino_mh0`、新顔検出
-  `face_dino_v2`の3条件を満たす場合だけ`true`を選択できる。RTX 5090・
-  3分の同条件比較では推論を74.69秒から60.55秒へ18.9%短縮した。
-  巨大`dinov3_codino`、旧顔検出、片方だけの推論では設定エラーになる
+- `parallel_models`: Productionでは`false`固定。segmentationと顔検出は
+  GPU資源を奪い合わないよう直列実行する。旧設定の`true`は明示エラーになる
 - `face_backend`: 顔推論エンジン。現行は`face_dino_v2`が
   `tensorrt-fast`、`rtdetr_head_face`が`pytorch`に対応する。`auto`も
   モデル既定値として利用可能
-- `parallel_model_stagger_seconds`: モデル起動間隔。`0.0`は完全同時。
-  高速`dinov3_codino_mh0`とFace DINO v2のRTX 5090実測では`0.0`が最速
+- `parallel_model_stagger_seconds`: Productionでは`0.0`固定
 - `fast_sqlite`: SQLiteの異常終了耐性を速度優先に変更。最終公開はatomicのまま
 - `precompute_cuts_during_inference`: 独立したFFmpeg縮小decodeによるCPUカット
   検出をGPU推論と重ね、`cuts.json`を後処理または結果統合へ渡す。現在は

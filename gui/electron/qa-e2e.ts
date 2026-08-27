@@ -64,7 +64,7 @@ export async function runQaE2e(
           faceBackend: "tensorrt-fast",
           device: "cuda:0",
           maxFrames: options.maxFrames,
-          parallelModels: true,
+          parallelModels: false,
           parallelModelStaggerSeconds: 0,
           fastSqlite: true,
         });

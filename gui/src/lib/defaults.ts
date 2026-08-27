@@ -250,18 +250,11 @@ export function loadDraft(): PipelineDraft {
         inference.faceModel,
         inference.faceBackend,
       ),
-      parallelModels:
-        inference.parallelModels &&
-        inference.mode === "segmentation-face" &&
-        inference.segmentationModel === "dinov3_codino_mh0" &&
-        inference.faceModel === "face_dino_v2",
-      parallelModelStaggerSeconds:
-        inference.parallelModels &&
-        inference.mode === "segmentation-face" &&
-        inference.segmentationModel === "dinov3_codino_mh0" &&
-        inference.faceModel === "face_dino_v2"
-          ? inference.parallelModelStaggerSeconds
-          : 0,
+      // Production always runs segmentation and face inference sequentially.
+      // Normalize older persisted drafts so a retired parallel setting cannot
+      // silently reappear after an upgrade.
+      parallelModels: false,
+      parallelModelStaggerSeconds: 0,
     };
     let postprocess = {
       ...defaultDraft.postprocess,

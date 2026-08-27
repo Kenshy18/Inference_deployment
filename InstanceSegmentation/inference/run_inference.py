@@ -88,19 +88,15 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "run dinov3_codino_mh0 and face_dino_v2 subprocesses concurrently "
-            "in segmentation-face mode; each model still writes an isolated "
-            "SQLite before atomic merge"
+            "retired Production option; true is rejected because segmentation "
+            "and face inference run sequentially"
         ),
     )
     parser.add_argument(
         "--parallel-model-stagger-seconds",
         type=float,
         default=0.0,
-        help=(
-            "when parallel models are enabled, start face inference first and "
-            "delay sibling launch to reduce peak GPU power contention"
-        ),
+        help="retired Production option; must remain 0.0",
     )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(

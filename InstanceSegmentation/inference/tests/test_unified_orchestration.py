@@ -112,72 +112,35 @@ def _schema(path: Path) -> tuple[tuple[str, str], ...]:
 
 
 class UnifiedOrchestrationTest(unittest.TestCase):
-    def test_parallel_mode_runs_the_isolated_invocations_as_one_group(self) -> None:
+    def test_parallel_mode_is_rejected_in_production(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             input_path = root / "input.mp4"
             input_path.write_bytes(b"test")
-            output_path = root / "output.sqlite"
-
-            def execute_group(invocations, *, stagger_seconds):
-                self.assertEqual(7.0, stagger_seconds)
-                for invocation in invocations:
-                    _fake_execute(invocation)
-
-            with patch(
-                "orchestration.pipeline.execute_invocations_parallel",
-                side_effect=execute_group,
-            ) as execute:
-                result = run_orchestrated_inference(
-                    OrchestrationRequest(
-                        input_path=input_path,
-                        output_path=output_path,
-                        mode=InferenceMode.SEGMENTATION_FACE,
-                        segmentation_model="dinov3_codino_mh0",
-                        face_model="face_dino_v2",
-                        runtime_python=Path(sys.executable),
-                        parallel_models=True,
-                        parallel_model_stagger_seconds=7.0,
-                    )
-                )
-            execute.assert_called_once()
-            self.assertEqual(1, result.frames)
-            self.assertTrue(output_path.is_file())
-            self.assertFalse(Path(f"{output_path}-wal").exists())
-            self.assertFalse(Path(f"{output_path}-shm").exists())
-            with sqlite3.connect(output_path) as connection:
-                self.assertEqual(
-                    connection.execute("PRAGMA journal_mode").fetchone()[0],
-                    "delete",
+            with self.assertRaisesRegex(ValueError, "retired in Production"):
+                OrchestrationRequest(
+                    input_path=input_path,
+                    output_path=root / "output.sqlite",
+                    mode=InferenceMode.SEGMENTATION_FACE,
+                    segmentation_model="dinov3_codino_mh0",
+                    face_model="face_dino_v2",
+                    parallel_models=True,
                 )
 
-    def test_parallel_mode_rejects_unapproved_model_combinations(self) -> None:
+    def test_parallel_stagger_without_parallel_mode_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             input_path = root / "input.mp4"
             input_path.write_bytes(b"test")
-            output_path = root / "output.sqlite"
-            invalid = (
-                ("dinov3_codino", "face_dino_v2"),
-                ("dinov3_codino_mh0", "rtdetr_head_face"),
-            )
-            for segmentation_model, face_model in invalid:
-                with self.subTest(
-                    segmentation_model=segmentation_model,
-                    face_model=face_model,
-                ):
-                    with self.assertRaisesRegex(
-                        ValueError,
-                        "supported only for mode=segmentation-face",
-                    ):
-                        OrchestrationRequest(
-                            input_path=input_path,
-                            output_path=output_path,
-                            mode=InferenceMode.SEGMENTATION_FACE,
-                            segmentation_model=segmentation_model,
-                            face_model=face_model,
-                            parallel_models=True,
-                        )
+            with self.assertRaisesRegex(ValueError, "requires parallel_models=true"):
+                OrchestrationRequest(
+                    input_path=input_path,
+                    output_path=root / "output.sqlite",
+                    mode=InferenceMode.SEGMENTATION_FACE,
+                    segmentation_model="dinov3_codino_mh0",
+                    face_model="face_dino_v2",
+                    parallel_model_stagger_seconds=7.0,
+                )
 
     def test_all_modes_publish_the_identical_schema(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

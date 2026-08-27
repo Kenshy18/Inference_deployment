@@ -33,10 +33,6 @@ export function InferenceSection({
   const { inference, postprocess } = draft;
   const usesFaces = inference.mode !== "segmentation";
   const usesSegmentation = inference.mode !== "face";
-  const parallelCompatible =
-    inference.mode === "segmentation-face" &&
-    inference.segmentationModel === "dinov3_codino_mh0" &&
-    inference.faceModel === "face_dino_v2";
   const spec = modelSpec(inference.segmentationModel);
   const faceSpec = faceModelSpec(inference.faceModel);
 
@@ -55,12 +51,8 @@ export function InferenceSection({
               onChange={(enabled) => {
                 actions.inference({
                   enabled,
-                  parallelModels: enabled
-                    ? inference.parallelModels
-                    : false,
-                  parallelModelStaggerSeconds: enabled
-                    ? inference.parallelModelStaggerSeconds
-                    : 0,
+                  parallelModels: false,
+                  parallelModelStaggerSeconds: 0,
                 });
                 if (!enabled) {
                   actions.postprocess({
@@ -277,49 +269,6 @@ export function InferenceSection({
                 </Row>
               )}
               <SubHead>性能</SubHead>
-              <Row
-                label="モデル同時推論"
-                hint={
-                  parallelCompatible
-                    ? "v3-lite + Face V2限定"
-                    : "現在の組合せでは不可"
-                }
-              >
-                <Check
-                  checked={inference.parallelModels}
-                  disabled={
-                    busy || !inference.enabled || !parallelCompatible
-                  }
-                  onChange={(parallelModels) =>
-                    actions.inference({
-                      parallelModels,
-                      parallelModelStaggerSeconds: parallelModels
-                        ? inference.parallelModelStaggerSeconds
-                        : 0,
-                    })
-                  }
-                  label="性器・顔モデルを同時実行"
-                />
-              </Row>
-              {inference.parallelModels && (
-                <Row
-                  label="顔→性器の開始差"
-                  hint="0秒が実測上の推奨値"
-                >
-                  <NumberInput
-                    value={inference.parallelModelStaggerSeconds}
-                    min={0}
-                    step={0.1}
-                    unit="秒"
-                    disabled={busy}
-                    onChange={(value) =>
-                      actions.inference({
-                        parallelModelStaggerSeconds: value ?? 0,
-                      })
-                    }
-                  />
-                </Row>
-              )}
               <Row
                 label="SQLite書き込み"
                 hint="高速化する代わりに異常終了時の耐性が低下"
