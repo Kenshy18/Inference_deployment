@@ -1,16 +1,20 @@
 PYTHON ?= python3
 
-.PHONY: install test smoke clean
+.PHONY: install test unit compile smoke clean
 
 install:
 	$(PYTHON) -m pip install -e . --no-deps
 
-test:
+test: unit compile
+
+unit:
 	$(PYTHON) -m unittest discover -s tests
+
+compile:
 	$(PYTHON) -m compileall -q \
 		common contracts preprocessing nms cut_detection tracking \
-		approximation keyframes gap_fill evaluation artifacts \
-		visualization tests run_pipeline.py
+		evaluation artifacts visualization face_privacy production \
+		diagnostics tests run_pipeline.py
 
 smoke:
 	$(PYTHON) -m unittest \

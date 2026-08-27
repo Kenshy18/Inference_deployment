@@ -93,3 +93,17 @@ Gitではソースコード、設定、manifest、テスト、ドキュメント
 
 クリーンCloneへの外部資産配置、production runtime検証、Windows GUI buildは
 [`deployment/README.md`](deployment/README.md)を正本とします。
+
+## 共通の品質確認
+
+ルートから全コンポーネントの静的コンパイル、単体テスト、GUI型検査を同じ入口で
+実行できます。GPUやモデル資産を使う長時間検証は、この高速な品質確認とは分離
+しています。
+
+```bash
+/path/to/production/bin/python scripts/check_repository.py
+```
+
+例えば後処理とrunnerだけなら、末尾へ `postprocess orchestration` を指定します。
+`make check PYTHON=/path/to/python` も利用できますが、`make` を含まないProduction
+WSLでも上記Pythonコマンドは動作します。
