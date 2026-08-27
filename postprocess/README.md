@@ -22,6 +22,8 @@ postprocess/
   artifacts/               最終SQLite生成・検証
   production/              昇格済み構成、CPU厳密DP、成果物統合
   visualization/           可視化
+  diagnostics/             出力を変更しない品質診断ツール
+  experiments/             Productionから独立した研究・比較コード
 ```
 
 各機能ディレクトリがアルゴリズムと、その機能をパイプラインへ接続するstageを

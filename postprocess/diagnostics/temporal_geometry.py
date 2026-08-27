@@ -5,7 +5,7 @@ It separates consecutive-frame contour motion into translation, similarity,
 full-affine, and post-affine local-deformation components, then checks whether
 high-motion/reversal events are represented by the selected keyframes.
 
-It is experimental tooling: it does not mutate pipeline artifacts or the
+It is read-only tooling: it does not mutate pipeline artifacts or the
 public result SQLite schema.
 """
 

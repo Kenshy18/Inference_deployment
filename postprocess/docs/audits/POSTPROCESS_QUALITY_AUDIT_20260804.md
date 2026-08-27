@@ -121,7 +121,7 @@ objective is required.
 
 ### P1: keyframe saliency under-targets affine and local shape change
 
-The reusable `tentative.analyze_temporal_geometry` diagnostic decomposes
+The reusable `diagnostics.temporal_geometry` diagnostic decomposes
 adjacent contour motion into translation, similarity, full affine, and local
 post-affine residual without reading video frames.
 

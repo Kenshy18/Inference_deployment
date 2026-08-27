@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from tentative.analyze_temporal_geometry import (
+from diagnostics.temporal_geometry import (
     _nearest_keyframe_offset,
     _transition,
 )

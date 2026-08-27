@@ -38,17 +38,13 @@ class StandaloneLayoutTests(unittest.TestCase):
             "production/polygon/runtime/topology.py",
         ):
             self.assertTrue((root / relative).is_file(), relative)
-        self.assertEqual([], list((root / "approximation").rglob("*.py")))
         for retired in (
-            "approximation/ellipse",
-            "keyframes/ellipse",
-            "keyframes/polygon",
-            "gap_fill/ellipse",
-            "gap_fill/polygon",
+            "approximation",
+            "keyframes",
+            "gap_fill",
+            "vendor",
         ):
-            self.assertEqual([], list((root / retired).glob("*.py")), retired)
-        self.assertFalse((root / "keyframes/polygon/advanced.py").exists())
-        self.assertFalse((root / "approximation/polygon/optimizer.py").exists())
+            self.assertFalse((root / retired).exists(), retired)
 
     def test_runtime_does_not_modify_python_import_paths(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -59,9 +55,6 @@ class StandaloneLayoutTests(unittest.TestCase):
             "nms",
             "cut_detection",
             "tracking",
-            "approximation",
-            "keyframes",
-            "gap_fill",
             "evaluation",
             "artifacts",
             "visualization",
