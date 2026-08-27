@@ -1,6 +1,5 @@
 """Shared pipeline assembly, configuration, and execution utilities."""
 
-from . import builtins as _builtins
 from .config import (
     PipelineConfig,
     StageSpec,

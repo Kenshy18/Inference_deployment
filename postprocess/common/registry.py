@@ -68,11 +68,14 @@ def stage_implementations() -> tuple[str, ...]:
 
 
 def discover_stages() -> None:
-    """Register factories published through the stage entry-point group."""
+    """Register Production built-ins and external entry-point factories once."""
 
     global _discovered
     if _discovered:
         return
     _discovered = True
+    from .builtins import register_builtin_stages
+
+    register_builtin_stages()
     for entry_point in metadata.entry_points().select(group="postprocess.stages"):
         register_stage(entry_point.name, entry_point.load())

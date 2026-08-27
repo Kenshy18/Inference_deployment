@@ -1,13 +1,15 @@
-"""Register feature-owned stage implementations.
+"""Factories for feature-owned stage implementations.
 
 Factories import a feature only when that stage is selected.  No algorithm is
-implemented here.
+implemented here.  Registration is explicit so importing :mod:`common` has no
+process-global side effects.
 """
 
+from collections.abc import Mapping
 from typing import Any
 
 from contracts.stages import PostprocessStage
-from .registry import register_stage
+from .registry import StageFactory, register_stage
 
 
 def normalization(options: dict[str, Any]) -> PostprocessStage:
@@ -106,19 +108,31 @@ def classwise_postprocess(options: dict[str, Any]) -> PostprocessStage:
     return ClasswisePostprocessStage(options)
 
 
-register_stage("preprocessing.normalize", normalization)
-register_stage("preprocessing.raw_sqlite", raw_sqlite_normalization)
-register_stage("preprocessing.score_policy", score_policy)
-register_stage("nms.production_v3", production_mask_nms)
-register_stage("cut_detection.video", cut_detection)
-register_stage("tracking.greedy", tracking)
-register_stage("production.polygon_v3_cpu", polygon_production_v3_cpu)
-register_stage("production.curve_v1_cpu", curve_production_v1_cpu)
-register_stage("evaluation.mask_iou", mask_evaluation)
-register_stage("artifacts.union_sqlite", union_sqlite)
-register_stage("artifacts.validate", validate_output)
-register_stage("artifacts.legacy_sqlite", legacy_sqlite)
-register_stage("artifacts.integrated_sqlite", integrated_result_sqlite)
-register_stage("face_privacy.masks", face_privacy_masks)
-register_stage("face_privacy.merge", face_privacy_merge)
-register_stage("classwise.production", classwise_postprocess)
+BUILTIN_STAGE_FACTORIES: Mapping[str, StageFactory] = {
+    "preprocessing.normalize": normalization,
+    "preprocessing.raw_sqlite": raw_sqlite_normalization,
+    "preprocessing.score_policy": score_policy,
+    "nms.production_v3": production_mask_nms,
+    "cut_detection.video": cut_detection,
+    "tracking.greedy": tracking,
+    "production.polygon_v3_cpu": polygon_production_v3_cpu,
+    "production.curve_v1_cpu": curve_production_v1_cpu,
+    "evaluation.mask_iou": mask_evaluation,
+    "artifacts.union_sqlite": union_sqlite,
+    "artifacts.validate": validate_output,
+    "artifacts.legacy_sqlite": legacy_sqlite,
+    "artifacts.integrated_sqlite": integrated_result_sqlite,
+    "face_privacy.masks": face_privacy_masks,
+    "face_privacy.merge": face_privacy_merge,
+    "classwise.production": classwise_postprocess,
+}
+
+
+def register_builtin_stages() -> None:
+    """Install the immutable Production stage catalog into the registry."""
+
+    for name, factory in BUILTIN_STAGE_FACTORIES.items():
+        register_stage(name, factory)
+
+
+__all__ = ("BUILTIN_STAGE_FACTORIES", "register_builtin_stages")

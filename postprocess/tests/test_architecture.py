@@ -73,9 +73,11 @@ class ArchitectureTests(unittest.TestCase):
             "postprocess/production/polygon/runtime/optimizer_factory.py": 150,
             "postprocess/production/polygon/runtime/optimizer_kernel.py": 1200,
             "postprocess/production/polygon/runtime/optimizer_process.py": 1100,
+            "postprocess/artifacts/unified_sqlite.py": 1250,
             "postprocess/classwise/stages.py": 500,
             "postprocess/classwise/curve_parallel.py": 260,
             "orchestration/runner.py": 1100,
+            "orchestration/config.py": 100,
             "gui/src/components/InspectorPanel.tsx": 100,
         }
         for relative, limit in limits.items():
@@ -101,6 +103,9 @@ class ArchitectureTests(unittest.TestCase):
             "postprocess/production/curve/runtime/native_cpu.py",
             "postprocess/classwise/curve_parallel.py",
             "postprocess/classwise/pipeline_factory.py",
+            "postprocess/artifacts/unified_schema.py",
+            "orchestration/config_loader.py",
+            "orchestration/config_validation.py",
             "orchestration/runner_media.py",
             "orchestration/runner_commands.py",
             "gui/src/components/inspector/InferenceSection.tsx",
@@ -145,6 +150,16 @@ class ArchitectureTests(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
                 imports.add((node.module or "").split(".", 1)[0])
         self.assertEqual(set(), imports & FEATURES)
+
+    def test_common_package_import_has_no_stage_registration_side_effect(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        tree = ast.parse((root / "common" / "__init__.py").read_text(encoding="utf-8"))
+        imported_modules = {
+            node.module or ""
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+        }
+        self.assertNotIn("builtins", imported_modules)
 
     def test_deployed_role_generators_match_the_frozen_palettes(self) -> None:
         from production.curve.runtime.role_states import curve_role_ids
