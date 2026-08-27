@@ -57,29 +57,19 @@ def _check_component(name: str) -> None:
         )
     elif name == "orchestration":
         _run(
-            (python, "-m", "unittest", "discover", "-s", "orchestration/tests", "-v"),
+            (python, "-m", "pytest", "orchestration/tests", "-q"),
             cwd=ROOT,
             pythonpath=str(ROOT),
         )
     elif name == "overlay":
         _run(
-            (python, "-m", "unittest", "discover", "-s", "tests", "-v"),
+            (python, "-m", "pytest", "tests", "-q"),
             cwd=ROOT / "overlay",
             pythonpath=str(ROOT / "overlay" / "src"),
         )
     elif name == "deployment":
         _run(
-            (
-                python,
-                "-m",
-                "unittest",
-                "discover",
-                "-s",
-                "deployment_tests/scripts",
-                "-p",
-                "test_*.py",
-                "-v",
-            ),
+            (python, "-m", "pytest", "deployment_tests/scripts", "-q"),
             cwd=ROOT,
             pythonpath=str(ROOT),
         )
