@@ -6,7 +6,7 @@ import unittest
 import zlib
 from pathlib import Path
 
-from helpers import create_rich_face_sqlite
+from tests.helpers import create_rich_face_sqlite
 from overlay_renderer.fast_face_cache import materialize_fast_face_cache
 
 

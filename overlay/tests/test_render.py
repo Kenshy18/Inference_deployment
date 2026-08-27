@@ -29,7 +29,7 @@ from overlay_renderer.render import (
     _draw_label,
 )
 
-from helpers import (
+from tests.helpers import (
     create_mask_sqlite,
     create_rich_face_sqlite,
     create_unified_sqlite,

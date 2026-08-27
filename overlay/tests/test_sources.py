@@ -15,7 +15,7 @@ from overlay_renderer.sources import (
     iter_raw_segmentation_frames,
 )
 
-from helpers import (
+from tests.helpers import (
     create_mask_sqlite,
     create_rich_face_sqlite,
     create_unified_sqlite,

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from overlay_renderer.face_mask_export import export_face_masks
 
-from helpers import create_rich_face_sqlite, create_unified_sqlite
+from tests.helpers import create_rich_face_sqlite, create_unified_sqlite
 
 
 class FaceMaskExportTests(unittest.TestCase):
