@@ -109,3 +109,63 @@ def test_sink_rate_gate_runs_before_resize(tmp_path: Path, monkeypatch) -> None:
     # Fast model batches may offer many eligible frames at once. Rejected
     # offers must not resize/copy a full source frame on the inference thread.
     assert resize_calls == 1
+
+
+def test_sink_caches_control_file_state_on_the_inference_hot_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    control = tmp_path / "preview.enabled"
+    control.write_text("1\n", encoding="utf8")
+    checks = 0
+    original = Path.is_file
+
+    def counted_is_file(path: Path) -> bool:
+        nonlocal checks
+        checks += 1
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_file", counted_is_file)
+    sink = LivePreviewSink(
+        tmp_path / "latest.jpg",
+        phase="segmentation_inference",
+        interval_frames=1,
+        width=320,
+        height=180,
+        jpeg_quality=75,
+        max_fps=10.0,
+        control_path=control,
+    )
+    for index in range(100):
+        frame, result = sample(index)
+        sink.submit(frame, result)
+    sink.close()
+
+    assert checks == 1
+
+
+def test_sink_observes_control_file_changes_within_one_preview_period(
+    tmp_path: Path,
+) -> None:
+    control = tmp_path / "preview.enabled"
+    control.write_text("1\n", encoding="utf8")
+    sink = LivePreviewSink(
+        tmp_path / "latest.jpg",
+        phase="segmentation_inference",
+        interval_frames=1,
+        width=320,
+        height=180,
+        jpeg_quality=75,
+        max_fps=10.0,
+        control_path=control,
+    )
+    try:
+        assert sink._preview_is_enabled(0.0)
+        control.unlink()
+        assert sink._preview_is_enabled(0.099)
+        assert not sink._preview_is_enabled(0.1)
+        control.write_text("1\n", encoding="utf8")
+        assert not sink._preview_is_enabled(0.199)
+        assert sink._preview_is_enabled(0.2)
+    finally:
+        sink.close()

@@ -25,6 +25,7 @@ HEIGHT_ENVIRONMENT = "MASK_PIPELINE_PREVIEW_HEIGHT"
 QUALITY_ENVIRONMENT = "MASK_PIPELINE_PREVIEW_JPEG_QUALITY"
 CONTROL_ENVIRONMENT = "MASK_PIPELINE_PREVIEW_CONTROL_PATH"
 MAX_FPS_ENVIRONMENT = "MASK_PIPELINE_INFERENCE_PREVIEW_FPS"
+_CONTROL_POLL_MAX_INTERVAL_SEC = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +292,17 @@ class LivePreviewSink:
         # inference producer or the GUI progress stream.
         self._pending: deque[_PendingPreview] = deque(maxlen=2)
         self._next_submit = 0.0
+        # The desktop control file lives under /mnt/c in WSL deployments.
+        # A metadata lookup there is orders of magnitude slower than an ext4
+        # lookup, so never probe it once per inference frame.  Polling at the
+        # preview cadence preserves interactive toggling while keeping the hot
+        # inference path independent of Windows filesystem latency.
+        self._control_enabled = self.control_path is None
+        self._next_control_check = 0.0
+        self._control_poll_interval = min(
+            _CONTROL_POLL_MAX_INTERVAL_SEC,
+            1.0 / self.max_fps,
+        )
         self._closed = False
         self._dropped = 0
         self._thread = threading.Thread(
@@ -337,9 +349,9 @@ class LivePreviewSink:
     def submit(self, frame: Frame, result: InferenceFrame) -> None:
         if frame.index % self.interval_frames != 0:
             return
-        if self.control_path is not None and not self.control_path.is_file():
-            return
         now = time.monotonic()
+        if not self._preview_is_enabled(now):
+            return
         interval = 1.0 / self.max_fps
         if now < self._next_submit:
             return
@@ -364,6 +376,14 @@ class LivePreviewSink:
                 self._dropped += 1
             self._pending.append(pending)
             self._condition.notify()
+
+    def _preview_is_enabled(self, now: float) -> bool:
+        if self.control_path is None:
+            return True
+        if now >= self._next_control_check:
+            self._control_enabled = self.control_path.is_file()
+            self._next_control_check = now + self._control_poll_interval
+        return self._control_enabled
 
     def close(self) -> None:
         with self._condition:
