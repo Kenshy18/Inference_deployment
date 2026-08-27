@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Connect polygon optimization to the native exact interval evaluator.
+"""Connect the polygon numerical kernel to native exact interval evaluation.
 
-This private Production runtime loads the parity-frozen
-Production implementation and changes only the semantics required by Phase 1:
+This is the base adapter used before candidate generation is installed. It
+loads the parity-frozen numerical kernel and establishes these semantics:
 
 * every prepared raw observation is a possible keyframe;
 * the only shape state at a frame is Production's aligned raw polygon;
-* pair-vote and post-decode shape repair are disabled;
+* pair-vote and post-decode shape repair start disabled and may be enabled by
+  ``optimizer_process`` under the frozen Production policy;
 * an interpolation edge is removed if any covered frame is below the Recall
   floor; and
 * the Production quality-plus-lambda shortest path is retained, including its
   shape distance/switch terms.
 
-No video is opened.  The input is the same prepared SQLite consumed by the
-Production polygon optimizer.
+No video is opened. The input is the prepared SQLite consumed by the
+Production polygon optimizer. Historical ``PHASE1`` environment names remain
+only for compatibility with deployed manifests and launchers.
 """
 
 from __future__ import annotations

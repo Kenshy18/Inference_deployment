@@ -95,3 +95,9 @@ output violation. The public SQLite schema remains V3/revision 5.
 
 The promoted curve contract and its nine-run V3 acceptance evidence are
 recorded in [`curve/VALIDATION_20260822.md`](curve/VALIDATION_20260822.md).
+
+Implementation maps for contributors are in
+[`polygon/runtime/README.md`](polygon/runtime/README.md) and
+[`curve/runtime/README.md`](curve/runtime/README.md). They define the owner of
+candidate generation, DP, pair-vote, topology, exact rasterization, and
+reporting so new behavior is added to one responsibility instead of the CLI.

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Execute one Production multistate search on the hard-Recall penalty DP.
+"""Execute one class route of the Production polygon optimizer.
 
-The Production source and Phase-1 constraint implementation stay unchanged.
-This private runtime adds a small, screened set of initial polygon states per
-frame.  Pair-vote and post-decode repair remain disabled.  No video pixels are
-opened; candidates are derived only from tracked SQLite polygon geometry.
+The process composes the frozen numerical kernel with candidate generation,
+hard-minimum-Recall multistate DP, the configured pair-vote mode, topology
+guards, and final exact audit. No video is decoded here; candidates are
+derived from prepared SQLite polygon geometry.
 """
 
 from __future__ import annotations
