@@ -1,11 +1,10 @@
-"""Numerical kernel for track-first adaptive polygon optimization.
+"""Numerical kernel for track-first polygon optimization.
 
 The kernel performs:
 
 - dense polygon input
 - short-gap polygon gapfill inside each track
-- track-first AI point-count prediction after gapfill
-- track-segment anchor-count fixing via p90 + 1
+- deterministic track-level anchor-count preparation
 - contour resampling / phase alignment per track segment
 - raw-only per-frame shape state
 - candidate-frame pooling via saliency + surrogate path
@@ -43,8 +42,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import torch
-from torch import nn
 
 
 # On Linux the Production adapter intentionally uses ``fork``.  Runs built in
@@ -85,30 +82,11 @@ DEFAULT_INTERVAL_IOU_WEIGHT = 1.0
 DEFAULT_EXACT_RECALL_REPAIR_MAX_PASSES = 4
 DEFAULT_EXACT_RECALL_REPAIR_TOPK = 3
 DEFAULT_EXACT_RECALL_REPAIR_SCALE_DELTAS = (0.01, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12)
-DEFAULT_ADAPTIVE_ANCHOR_COUNTS = False
-DEFAULT_ADAPTIVE_POINT_QUANTILE = 0.95
-DEFAULT_ADAPTIVE_POINT_OFFSET = 2
-DEFAULT_MIN_ANCHORS_PER_CONTOUR = 4
-DEFAULT_PREDICTOR_BATCH_SIZE = 256
-DEFAULT_PREDICTOR_DEVICE = "cuda"
 DEFAULT_GAPFILL_ENABLED = True
 DEFAULT_GAPFILL_MAX_GAP = 30
 DEFAULT_GAPFILL_TEMP_POINTS = 128
 DEFAULT_MAX_RUN_FRAMES = 30000
 DEFAULT_RUN_OVERLAP_FRAMES = 900
-DEFAULT_POINT_PREDICTOR_MODEL_DIR = (
-    ROOT.parents[1] / "models" / "polygon_point_predictor"
-)
-
-from .kernel.model import (
-    FEATURE_NAMES,
-    ConvBNAct,
-    LearnedPointPredictor,
-    TinyMaskPointNet,
-    build_feature_vector,
-    compute_mask_descriptors,
-    resize_mask_with_padding,
-)
 from .kernel.types import (
     FrameEvalContext,
     InstanceRun,
@@ -226,33 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--anchors-per-contour",
         type=int,
         default=DEFAULT_ANCHORS_PER_CONTOUR,
-        help="Fallback or maximum anchors per contour; runs select up to this cap.",
-    )
-    parser.add_argument(
-        "--adaptive-anchor-counts",
-        action=argparse.BooleanOptionalAction,
-        default=DEFAULT_ADAPTIVE_ANCHOR_COUNTS,
-        help="Predict per-frame polygon counts and fix a run-wise anchor count with p90 + offset.",
-    )
-    parser.add_argument(
-        "--point-predictor-model-dir",
-        type=Path,
-        default=DEFAULT_POINT_PREDICTOR_MODEL_DIR,
-    )
-    parser.add_argument(
-        "--predictor-device", type=str, default=DEFAULT_PREDICTOR_DEVICE
-    )
-    parser.add_argument(
-        "--predictor-batch-size", type=int, default=DEFAULT_PREDICTOR_BATCH_SIZE
-    )
-    parser.add_argument(
-        "--adaptive-point-quantile", type=float, default=DEFAULT_ADAPTIVE_POINT_QUANTILE
-    )
-    parser.add_argument(
-        "--adaptive-point-offset", type=int, default=DEFAULT_ADAPTIVE_POINT_OFFSET
-    )
-    parser.add_argument(
-        "--min-anchors-per-contour", type=int, default=DEFAULT_MIN_ANCHORS_PER_CONTOUR
+        help="Working anchor count; the promoted profile replaces it with its track policy.",
     )
     parser.add_argument(
         "--gapfill-enabled",
@@ -546,18 +498,6 @@ def process_single_run(run: InstanceRun, args: argparse.Namespace) -> dict[str, 
         "contour_count": int(run.contour_count),
         "anchors_per_contour": int(run.anchors_per_contour),
         "run_target_total_points": int(run.run_target_total_points),
-        "predicted_total_points_p90": float(
-            np.quantile(run.predicted_total_points.astype(np.float64), 0.90)
-        )
-        if run.predicted_total_points is not None
-        and len(run.predicted_total_points) > 0
-        else 0.0,
-        "predicted_total_points_mean": float(
-            np.mean(run.predicted_total_points.astype(np.float64))
-        )
-        if run.predicted_total_points is not None
-        and len(run.predicted_total_points) > 0
-        else 0.0,
         "candidate_frame_count": int(len(candidate_frames)),
         "mean_state_count": float(mean_state_count),
         "surrogate_frame_count": int(len(surrogate_frames)),
@@ -649,11 +589,6 @@ def main() -> None:
     pred_sqlite = pred_dir / "predictions.sqlite"
     t0 = time.perf_counter()
 
-    predictor: LearnedPointPredictor | None = None
-    if bool(args.adaptive_anchor_counts):
-        predictor = LearnedPointPredictor(
-            Path(args.point_predictor_model_dir), str(args.predictor_device)
-        )
     effective_workers = max(1, int(args.num_workers))
     streaming_rows = bool(args.stream_sqlite_rows) and effective_workers == 1
     runs: list[InstanceRun] = []
@@ -663,12 +598,6 @@ def main() -> None:
         runs, segmentation_stats = build_track_streams(
             rows,
             anchors_per_contour=int(args.anchors_per_contour),
-            predictor=predictor,
-            predictor_batch_size=int(args.predictor_batch_size),
-            adaptive_anchor_counts=bool(args.adaptive_anchor_counts),
-            adaptive_point_quantile=float(args.adaptive_point_quantile),
-            adaptive_point_offset=int(args.adaptive_point_offset),
-            min_anchors_per_contour=int(args.min_anchors_per_contour),
             gapfill_enabled=bool(args.gapfill_enabled),
             gapfill_max_gap=int(args.gapfill_max_gap),
             gapfill_temp_points=int(args.gapfill_temp_points),
@@ -708,12 +637,6 @@ def main() -> None:
         for run in iter_track_streams_from_sqlite(
             args.input_sqlite,
             anchors_per_contour=int(args.anchors_per_contour),
-            predictor=predictor,
-            predictor_batch_size=int(args.predictor_batch_size),
-            adaptive_anchor_counts=bool(args.adaptive_anchor_counts),
-            adaptive_point_quantile=float(args.adaptive_point_quantile),
-            adaptive_point_offset=int(args.adaptive_point_offset),
-            min_anchors_per_contour=int(args.min_anchors_per_contour),
             gapfill_enabled=bool(args.gapfill_enabled),
             gapfill_max_gap=int(args.gapfill_max_gap),
             gapfill_temp_points=int(args.gapfill_temp_points),
@@ -729,15 +652,6 @@ def main() -> None:
             run = None
             result = None
             __import__("gc").collect()
-        if predictor is not None:
-            try:
-                predictor.model.to("cpu")
-                torch_mod = __import__("torch")
-                if torch_mod.cuda.is_available():
-                    torch_mod.cuda.synchronize()
-                    torch_mod.cuda.empty_cache()
-            except Exception:
-                pass
         union_store.commit()
         union_row_count = int(union_store.row_count)
     elif effective_workers == 1 or len(runs) <= 1:
@@ -827,8 +741,6 @@ def main() -> None:
             "contour_count",
             "anchors_per_contour",
             "run_target_total_points",
-            "predicted_total_points_p90",
-            "predicted_total_points_mean",
             "candidate_frame_count",
             "mean_state_count",
             "surrogate_frame_count",
@@ -901,16 +813,7 @@ def main() -> None:
         "stream_sqlite_rows": bool(streaming_rows),
         "row_count": int(union_row_count),
         "target_ratio": float(args.target_ratio),
-        "anchors_per_contour_cap": int(args.anchors_per_contour),
-        "adaptive_anchor_counts": bool(args.adaptive_anchor_counts),
-        "point_predictor_model_dir": str(args.point_predictor_model_dir)
-        if bool(args.adaptive_anchor_counts)
-        else None,
-        "predictor_device": str(args.predictor_device),
-        "predictor_batch_size": int(args.predictor_batch_size),
-        "adaptive_point_quantile": float(args.adaptive_point_quantile),
-        "adaptive_point_offset": int(args.adaptive_point_offset),
-        "min_anchors_per_contour": int(args.min_anchors_per_contour),
+        "working_anchors_per_contour": int(args.anchors_per_contour),
         "solver_mode": str(args.solver_mode),
         "recall_constraint_mode": str(args.recall_constraint_mode),
         "recall_min": float(args.recall_min),

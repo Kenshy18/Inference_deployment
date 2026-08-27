@@ -47,7 +47,6 @@ RUNTIME_MODULES = (
     "production.polygon.runtime.kernel.evaluation",
     "production.polygon.runtime.kernel.geometry",
     "production.polygon.runtime.kernel.interpolation",
-    "production.polygon.runtime.kernel.model",
     "production.polygon.runtime.kernel.solver",
     "production.polygon.runtime.kernel.stream",
     "production.polygon.runtime.kernel.types",

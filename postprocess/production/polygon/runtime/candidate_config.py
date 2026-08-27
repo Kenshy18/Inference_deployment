@@ -115,7 +115,6 @@ class RuntimeConfig:
     keyframe_max_gap: int = 30
     max_run_frames: int = 30000
     run_overlap_frames: int = 900
-    predictor_device: str = "cpu"
     interval_evaluation: str = "cuda_lazy_exact"
     # CUDA only orders the frames tested by the exact OpenCV evaluator.  It
     # never decides feasibility or contributes the published metrics.

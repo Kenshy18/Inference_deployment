@@ -18,8 +18,7 @@ InstanceSegmentation/
             engines/    TensorRTエンジン
             plugins/    ビルド済みランタイムプラグイン
 
-postprocess/
-  models/               後処理モデルの設定と実装
+postprocess/             マスク後処理パイプラインとProduction実装
 
 overlay/                 SQLiteと元動画から確認用overlayを生成
 

@@ -66,7 +66,6 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="screen only the longest N tracks per class; 0 evaluates all tracks",
     )
-    parser.add_argument("--predictor-device", default="cpu")
     parser.add_argument(
         "--cuda-fast",
         action="store_true",
@@ -103,19 +102,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--cuda-exact-hint-count", type=int, default=8)
     parser.add_argument("--anchors-per-contour", type=int, default=48)
-    parser.add_argument("--min-anchors-per-contour", type=int, default=8)
-    parser.add_argument(
-        "--adaptive-anchor-counts",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )
     parser.add_argument("--native-batch-threads", type=int, default=8)
     parser.add_argument("--gc-interval", type=int, default=8)
-    parser.add_argument(
-        "--predictor-model-dir",
-        type=Path,
-        default=phase1.DEFAULT_PREDICTOR,
-    )
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
         "--pair-vote",
@@ -163,18 +151,6 @@ def command(source: Path, output: Path, args: argparse.Namespace) -> list[str]:
         str(1.0 / float(args.target_interval)),
         "--anchors-per-contour",
         str(args.anchors_per_contour),
-        "--point-predictor-model-dir",
-        str(args.predictor_model_dir.resolve()),
-        "--predictor-device",
-        str(args.predictor_device),
-        "--predictor-batch-size",
-        "256",
-        "--adaptive-point-quantile",
-        "0.95",
-        "--adaptive-point-offset",
-        "10",
-        "--min-anchors-per-contour",
-        str(args.min_anchors_per_contour),
         "--gapfill-max-gap",
         "15",
         "--max-run-frames",
@@ -193,11 +169,7 @@ def command(source: Path, output: Path, args: argparse.Namespace) -> list[str]:
         "--evaluate-exact",
         "--write-pred-sqlite",
         "--gapfill-enabled",
-    ] + (
-        ["--adaptive-anchor-counts"]
-        if args.adaptive_anchor_counts
-        else ["--no-adaptive-anchor-counts"]
-    )
+    ]
 
 
 def run_cell(
@@ -318,7 +290,6 @@ def main() -> int:
     args = parse_args()
     args.source_root = args.source_root.expanduser().resolve()
     args.output_root = args.output_root.expanduser().resolve()
-    args.predictor_model_dir = args.predictor_model_dir.expanduser().resolve()
     profiles = [value.strip() for value in args.profiles.split(",") if value.strip()]
     labels = [value.strip() for value in args.labels.split(",") if value.strip()]
     unknown_profiles = sorted(set(profiles) - VALID_PROFILES)
@@ -354,10 +325,8 @@ def main() -> int:
         raise ValueError("cuda-exact-hint-count must be >= 1")
     if args.cuda_lazy_frame_hints and not args.cuda_lazy_exact:
         raise ValueError("--cuda-lazy-frame-hints requires --cuda-lazy-exact")
-    if args.anchors_per_contour < 1 or args.min_anchors_per_contour < 1:
-        raise ValueError("anchor counts must be >= 1")
-    if args.min_anchors_per_contour > args.anchors_per_contour:
-        raise ValueError("min-anchors-per-contour cannot exceed anchors-per-contour")
+    if args.anchors_per_contour < 1:
+        raise ValueError("anchors-per-contour must be >= 1")
     if (
         sum(
             bool(value)
@@ -506,8 +475,6 @@ def main() -> int:
                 "cuda_hint_exact": bool(args.cuda_hint_exact),
                 "native_exact": bool(args.native_exact),
                 "anchors_per_contour": int(args.anchors_per_contour),
-                "min_anchors_per_contour": int(args.min_anchors_per_contour),
-                "adaptive_anchor_counts": bool(args.adaptive_anchor_counts),
                 "native_batch_threads": int(args.native_batch_threads),
                 "gc_interval": int(args.gc_interval),
             },

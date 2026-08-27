@@ -78,7 +78,6 @@ def assert_runtime_bridge_contract(
         "lazy_fallback_min_exact_edges": 1024,
         "lazy_fallback_infeasible_ratio": 1.0,
         "gc_interval": 8,
-        "predictor_device": "cpu",
         "cuda_lazy_frame_hints": True,
         "cuda_exact_hint_count": 8,
     }

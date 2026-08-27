@@ -626,12 +626,6 @@ def run_curve_optimizer(
             for run in iter_track_streams_from_sqlite(
                 source,
                 anchors_per_contour=14,
-                predictor=None,
-                predictor_batch_size=1,
-                adaptive_anchor_counts=False,
-                adaptive_point_quantile=0.95,
-                adaptive_point_offset=0,
-                min_anchors_per_contour=3,
                 gapfill_enabled=True,
                 gapfill_max_gap=int(config.gapfill_max_gap),
                 gapfill_temp_points=128,

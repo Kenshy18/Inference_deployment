@@ -248,8 +248,9 @@ def test_runner_fixes_polygon_count_and_uses_cuda_lazy_exact_validation(
     joined = " ".join(command)
     assert "--profiles polygon14_keyframe_v1" in joined
     assert "--anchors-per-contour 14" in joined
-    assert "--min-anchors-per-contour 14" in joined
-    assert "--no-adaptive-anchor-counts" in command
+    assert "--min-anchors-per-contour" not in command
+    assert "--adaptive-anchor-counts" not in command
+    assert "--point-predictor-model-dir" not in command
     assert "--cuda-lazy-exact" in command
     assert "--pair-vote-per-key" in command
 

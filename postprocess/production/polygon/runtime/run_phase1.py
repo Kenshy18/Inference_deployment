@@ -29,7 +29,6 @@ POSTPROCESS = ROOT / "postprocess"
 RUNTIME = HERE / "phase1_runtime.py"
 DEFAULT_SOURCE_ROOT = ROOT / "output/production_polygon_source"
 DEFAULT_OUTPUT_ROOT = ROOT / "output/production_polygon_phase1"
-DEFAULT_PREDICTOR = POSTPROCESS / "models/polygon_point_predictor"
 LABELS = ("女性器", "男性器", "結合部分")
 
 
@@ -50,8 +49,6 @@ def parse_args() -> argparse.Namespace:
             "still uses --num-workers DP workers"
         ),
     )
-    parser.add_argument("--predictor-device", default="cuda")
-    parser.add_argument("--predictor-model-dir", type=Path, default=DEFAULT_PREDICTOR)
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
         "--reanalyze-existing",
@@ -109,18 +106,6 @@ def _command(
         str(1.0 / float(interval)),
         "--anchors-per-contour",
         "48",
-        "--point-predictor-model-dir",
-        str(args.predictor_model_dir.resolve()),
-        "--predictor-device",
-        str(args.predictor_device),
-        "--predictor-batch-size",
-        "256",
-        "--adaptive-point-quantile",
-        "0.95",
-        "--adaptive-point-offset",
-        "10",
-        "--min-anchors-per-contour",
-        "8",
         "--gapfill-max-gap",
         "15",
         "--max-run-frames",
@@ -136,7 +121,6 @@ def _command(
         "--stream-sqlite-rows",
         "--evaluate-exact",
         "--write-pred-sqlite",
-        "--adaptive-anchor-counts",
         "--gapfill-enabled",
     ]
 
@@ -517,7 +501,6 @@ def main() -> int:
     args = parse_args()
     args.source_root = args.source_root.expanduser().resolve()
     args.output_root = args.output_root.expanduser().resolve()
-    args.predictor_model_dir = args.predictor_model_dir.expanduser().resolve()
     intervals = [
         int(value.strip()) for value in args.intervals.split(",") if value.strip()
     ]

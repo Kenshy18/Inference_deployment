@@ -34,7 +34,6 @@ class InstanceRun:
     anchors_per_contour: int
     scale: float
     gapfilled_flags: np.ndarray | None = None
-    predicted_total_points: np.ndarray | None = None
     run_target_total_points: int = 0
     emit_start_idx: int = 0
     emit_end_idx: int = -1

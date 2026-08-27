@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import concurrent.futures
-import math
 import os
 import time
 from types import ModuleType
 
 import numpy as np
 
-from production.polygon.runtime.kernel import stream as kernel_stream
 from production.polygon.runtime.geometry import (
     axis_scale as _axis_scale,
     principal_basis as _principal_basis,
@@ -178,21 +176,6 @@ def _patch_phase2_candidates(module: ModuleType, profile: str) -> ModuleType:
 
     module.iter_track_streams_from_sqlite = profiled_iter_track_streams_from_sqlite
 
-    predictor_method = module.LearnedPointPredictor.predict_total_points_batch
-
-    def profiled_predict_total_points_batch(self, *args, **kwargs):
-        started = time.perf_counter()
-        result = predictor_method(self, *args, **kwargs)
-        add_profile_time("point_predictor_seconds", time.perf_counter() - started)
-        pipeline_profile["point_predictor_calls"] = (
-            int(pipeline_profile.get("point_predictor_calls", 0)) + 1
-        )
-        return result
-
-    module.LearnedPointPredictor.predict_total_points_batch = (
-        profiled_predict_total_points_batch
-    )
-
     store_class = module.SqliteUnionRowStore
     for method_name, profile_name in (
         ("add_rows", "union_store_add_seconds"),
@@ -227,95 +210,12 @@ def _patch_phase2_candidates(module: ModuleType, profile: str) -> ModuleType:
 
     module.write_compact_json_array = profiled_write_compact_json_array
 
-    def fast_compute_mask_descriptors(mask: np.ndarray) -> dict[str, float | int]:
-        """Production-equivalent descriptors without materializing all pixels.
-
-        ``np.cov(nonzero(mask))`` computes the same covariance eigensystem as
-        normalized binary image moments; the sample/population denominator is a
-        common scalar and therefore cancels from the eccentricity ratio.  The
-        previous path allocated every foreground coordinate for every frame.
-        """
-        binary = (np.asarray(mask, dtype=np.uint8) > 0).astype(np.uint8)
-        area = float(binary.sum())
-        h, w = binary.shape[:2]
-        contours, hierarchy = module.cv2.findContours(
-            binary, module.cv2.RETR_CCOMP, module.cv2.CHAIN_APPROX_NONE
-        )
-        if not contours or area <= 0.0:
-            return {
-                "area": 0.0,
-                "perimeter": 0.0,
-                "bbox_w": 0.0,
-                "bbox_h": 0.0,
-                "area_ratio": 0.0,
-                "compactness": 0.0,
-                "aspect_ratio": 1.0,
-                "extent": 0.0,
-                "solidity": 0.0,
-                "components": 0,
-                "holes": 0,
-                "eccentricity": 0.0,
-            }
-        outer = max(contours, key=module.cv2.contourArea)
-        perimeter = float(module.cv2.arcLength(outer, True))
-        _x, _y, bw, bh = module.cv2.boundingRect(outer)
-        bbox_area = float(max(bw * bh, 1))
-        hull = module.cv2.convexHull(outer)
-        hull_area = float(max(module.cv2.contourArea(hull), 1.0))
-        compactness = float((perimeter * perimeter) / max(4.0 * math.pi * area, 1e-6))
-        if area >= 2.0:
-            moments = module.cv2.moments(binary, binaryImage=True)
-            inv_area = 1.0 / max(float(moments["m00"]), 1e-12)
-            covariance = np.asarray(
-                [
-                    [
-                        float(moments["mu20"]) * inv_area,
-                        float(moments["mu11"]) * inv_area,
-                    ],
-                    [
-                        float(moments["mu11"]) * inv_area,
-                        float(moments["mu02"]) * inv_area,
-                    ],
-                ],
-                dtype=np.float64,
-            )
-            eigvals = np.sort(np.maximum(np.linalg.eigvalsh(covariance), 1e-6))[::-1]
-            eccentricity = float(
-                np.sqrt(max(0.0, 1.0 - float(eigvals[1] / eigvals[0])))
-            )
-        else:
-            eccentricity = 0.0
-        component_count = 0
-        hole_count = 0
-        if hierarchy is not None:
-            parents = np.asarray(hierarchy[0], dtype=np.int32)[:, 3]
-            component_count = int(np.count_nonzero(parents < 0))
-            hole_count = int(len(parents) - component_count)
-        return {
-            "area": area,
-            "perimeter": perimeter,
-            "bbox_w": float(bw),
-            "bbox_h": float(bh),
-            "area_ratio": float(area / max(h * w, 1)),
-            "compactness": compactness,
-            "aspect_ratio": float(max(bw, 1) / max(bh, 1)),
-            "extent": float(area / bbox_area),
-            "solidity": float(area / hull_area),
-            "components": int(component_count),
-            "holes": int(hole_count),
-            "eccentricity": eccentricity,
-        }
-
-    module.compute_mask_descriptors = fast_compute_mask_descriptors
-    kernel_stream.compute_mask_descriptors = fast_compute_mask_descriptors
-
     if os.environ.get("MASK_PIPELINE_PHASE2_DEEP_PROFILE", "").strip() == "1":
         for function_name in (
             "align_contour_slots",
             "align_polygon_phase",
             "resample_closed_contour",
             "build_local_mask_from_polygons",
-            "compute_mask_descriptors",
             "build_track_segments_with_gapfill",
             "split_long_track_segments",
         ):

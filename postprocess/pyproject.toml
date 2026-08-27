@@ -53,7 +53,6 @@ exclude = [
 "run_pipeline.py" = "run_pipeline.py"
 "precompute_cuts.py" = "precompute_cuts.py"
 "package_result.py" = "package_result.py"
-"models" = "models"
 "CONTRACT.md" = "mask_postprocess_docs/CONTRACT.md"
 "README.md" = "mask_postprocess_docs/README.md"
 "configs" = "mask_postprocess_docs/configs"

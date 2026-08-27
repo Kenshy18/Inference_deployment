@@ -4,36 +4,11 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from ..kernel import stream as kernel_stream
-
-
 def install_resource_adapters(
     module: ModuleType,
-    original_build_track_streams,
     original_apply_fixed_practical_defaults,
     original_get_context,
 ) -> None:
-    def build_track_streams_releasing_predictor(*args, **kwargs):
-        release_predictor_after_build = bool(
-            kwargs.pop("_release_predictor_after_build", True)
-        )
-        predictor = kwargs.get("predictor")
-        if predictor is None and len(args) >= 3:
-            predictor = args[2]
-        result = original_build_track_streams(*args, **kwargs)
-        if predictor is not None and release_predictor_after_build:
-            try:
-                predictor.model.to("cpu")
-            except Exception:
-                pass
-            try:
-                if module.torch.cuda.is_available():
-                    module.torch.cuda.synchronize()
-                    module.torch.cuda.empty_cache()
-            except Exception:
-                pass
-        return result
-
     def memory_bounded_build_frame_eval_contexts(run, args):
         import collections as collections_mod
         import os as os_mod
@@ -224,8 +199,6 @@ def install_resource_adapters(
         def __getattr__(self, name):
             return getattr(self._wrapped, name)
 
-    module.build_track_streams = build_track_streams_releasing_predictor
-    kernel_stream.build_track_streams = build_track_streams_releasing_predictor
     module.build_frame_eval_contexts = memory_bounded_build_frame_eval_contexts
     module.apply_fixed_practical_defaults = (
         apply_fixed_practical_defaults_with_worker_mode

@@ -9,7 +9,6 @@ import math
 import sqlite3
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -27,21 +26,13 @@ from .geometry import (
     sort_polygons,
 )
 from .defaults import (
-    DEFAULT_ADAPTIVE_ANCHOR_COUNTS,
-    DEFAULT_ADAPTIVE_POINT_OFFSET,
-    DEFAULT_ADAPTIVE_POINT_QUANTILE,
     DEFAULT_GAPFILL_ENABLED,
     DEFAULT_GAPFILL_MAX_GAP,
     DEFAULT_GAPFILL_TEMP_POINTS,
     DEFAULT_MAX_RUN_FRAMES,
-    DEFAULT_MIN_ANCHORS_PER_CONTOUR,
-    DEFAULT_PREDICTOR_BATCH_SIZE,
     DEFAULT_RUN_OVERLAP_FRAMES,
 )
 from .types import InstanceRun, TrackRow
-
-if TYPE_CHECKING:
-    from .model import LearnedPointPredictor
 
 
 def parse_float_list(text: str, default: list[float]) -> list[float]:
@@ -189,12 +180,6 @@ def split_long_track_segments(
 def build_track_streams(
     rows: list[TrackRow],
     anchors_per_contour: int,
-    predictor: LearnedPointPredictor | None = None,
-    predictor_batch_size: int = DEFAULT_PREDICTOR_BATCH_SIZE,
-    adaptive_anchor_counts: bool = DEFAULT_ADAPTIVE_ANCHOR_COUNTS,
-    adaptive_point_quantile: float = DEFAULT_ADAPTIVE_POINT_QUANTILE,
-    adaptive_point_offset: int = DEFAULT_ADAPTIVE_POINT_OFFSET,
-    min_anchors_per_contour: int = DEFAULT_MIN_ANCHORS_PER_CONTOUR,
     gapfill_enabled: bool = DEFAULT_GAPFILL_ENABLED,
     gapfill_max_gap: int = DEFAULT_GAPFILL_MAX_GAP,
     gapfill_temp_points: int = DEFAULT_GAPFILL_TEMP_POINTS,
@@ -309,51 +294,8 @@ def build_track_streams(
         if contour_count <= 0:
             continue
 
-        predicted_total_points: np.ndarray | None = None
         run_anchor_count = int(anchors_per_contour)
         run_target_total_points = int(contour_count * run_anchor_count)
-        if bool(adaptive_anchor_counts) and predictor is not None:
-            # Keep the learned predictor (and therefore Torch/CUDA-facing
-            # modules) out of the import path used by the CPU-only curve
-            # reader. Polygon inference reaches this branch and imports it on
-            # demand with unchanged numerical behaviour.
-            from .model import compute_mask_descriptors
-
-            masks = [build_local_mask_from_polygons(slots) for slots in aligned_rows]
-            descriptors_list = [compute_mask_descriptors(mask) for mask in masks]
-            predicted_totals = predictor.predict_total_points_batch(
-                masks,
-                descriptors_list,
-                batch_size=int(predictor_batch_size),
-            )
-            predicted_total_points = np.asarray(predicted_totals, dtype=np.int32)
-            quantile_total = int(
-                math.ceil(
-                    float(
-                        np.quantile(
-                            predicted_total_points.astype(np.float64),
-                            float(adaptive_point_quantile),
-                        )
-                    )
-                )
-            )
-            run_target_total_points = int(
-                max(
-                    contour_count * int(min_anchors_per_contour),
-                    quantile_total + int(adaptive_point_offset),
-                )
-            )
-            run_anchor_count = int(
-                math.ceil(run_target_total_points / max(contour_count, 1))
-            )
-            run_anchor_count = int(
-                np.clip(
-                    run_anchor_count,
-                    int(min_anchors_per_contour),
-                    int(anchors_per_contour),
-                )
-            )
-            run_target_total_points = int(run_anchor_count * contour_count)
 
         frame_anchor_stack: list[np.ndarray] = []
         frame_polygons: list[list[np.ndarray]] = []
@@ -413,7 +355,6 @@ def build_track_streams(
                 anchors_per_contour=int(run_anchor_count),
                 scale=scale,
                 gapfilled_flags=np.asarray(gapfilled_flags, dtype=np.uint8),
-                predicted_total_points=predicted_total_points,
                 run_target_total_points=int(run_target_total_points),
                 emit_start_idx=int(meta["emit_start"]),
                 emit_end_idx=int(meta["emit_end"]),
@@ -499,12 +440,6 @@ def iter_track_streams_from_sqlite(
     sqlite_path: Path,
     *,
     anchors_per_contour: int,
-    predictor: LearnedPointPredictor | None,
-    predictor_batch_size: int,
-    adaptive_anchor_counts: bool,
-    adaptive_point_quantile: float,
-    adaptive_point_offset: int,
-    min_anchors_per_contour: int,
     gapfill_enabled: bool,
     gapfill_max_gap: int,
     gapfill_temp_points: int,
@@ -572,12 +507,6 @@ def iter_track_streams_from_sqlite(
         runs, _ignored_stats = build_track_streams(
             chunk_rows,
             anchors_per_contour=int(anchors_per_contour),
-            predictor=predictor,
-            predictor_batch_size=int(predictor_batch_size),
-            adaptive_anchor_counts=bool(adaptive_anchor_counts),
-            adaptive_point_quantile=float(adaptive_point_quantile),
-            adaptive_point_offset=int(adaptive_point_offset),
-            min_anchors_per_contour=int(min_anchors_per_contour),
             gapfill_enabled=False,
             gapfill_max_gap=int(gapfill_max_gap),
             gapfill_temp_points=int(gapfill_temp_points),
