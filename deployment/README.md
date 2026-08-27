@@ -85,7 +85,10 @@ distributionは一意な一時名を使い、成功・失敗にかかわらず�
 配布物はこの入口から再生成します。調査目的で配布済みdistributionへ一時変更を入れても、
 それを次のリリースへ手動コピーしません。
 
-配布イメージは、空のUbuntu 24.04へ次だけを配置して作ります。
+配布イメージは、空のUbuntu 24.04へ次だけを配置して作ります。構築時はclean cloneを
+使いますが、最終preflight前に`.git`、GUIソース、テスト、実験、診断、設計資料を除去し、
+`/opt/mask-pipeline/release/release.json`へ固定commitを残します。導入後preflightはこの
+release recordを検証するため、配布WSLはGit worktreeである必要がありません。
 
 - 固定Git commitのclean clone
 - commit検証済みproduction asset pack

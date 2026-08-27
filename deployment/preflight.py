@@ -6,10 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+
+DEFAULT_RELEASE_METADATA = Path("/opt/mask-pipeline/release/release.json")
 
 
 def run(command: list[str], *, cwd: Path) -> str:
@@ -21,6 +25,29 @@ def run(command: list[str], *, cwd: Path) -> str:
         text=True,
     )
     return completed.stdout.strip()
+
+
+def resolve_source_commit(
+    root: Path,
+    release_metadata: Path = DEFAULT_RELEASE_METADATA,
+) -> tuple[str, str]:
+    """Resolve immutable source provenance from Git or the finalized image."""
+
+    if (root / ".git").exists():
+        return run(["git", "rev-parse", "HEAD"], cwd=root), "git"
+    try:
+        metadata = json.loads(release_metadata.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"neither Git metadata nor a valid release record is available: "
+            f"{release_metadata}"
+        ) from exc
+    commit = metadata.get("release_commit") if isinstance(metadata, dict) else None
+    if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RuntimeError(
+            f"release_commit must be a full lowercase Git SHA in {release_metadata}"
+        )
+    return commit, "release-metadata"
 
 
 def main() -> int:
@@ -65,14 +92,14 @@ def main() -> int:
         }
         if remaining:
             failures.append(f"development-only paths remain: {remaining}")
-    if not (root / ".git").exists():
-        failures.append(f"not a Git worktree root: {root}")
     if not runtime_python.is_file() or not os.access(runtime_python, os.X_OK):
         failures.append(f"runtime Python is unavailable: {runtime_python}")
     try:
-        report["commit"] = run(["git", "rev-parse", "HEAD"], cwd=root)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        failures.append(f"Git commit check failed: {exc}")
+        commit, provenance = resolve_source_commit(root)
+        report["commit"] = commit
+        report["source_provenance"] = provenance
+    except (OSError, subprocess.CalledProcessError, RuntimeError) as exc:
+        failures.append(f"source provenance check failed: {exc}")
     try:
         command = [
             str(runtime_python),
