@@ -32,7 +32,7 @@ from production.polygon.runtime.runtime_config import (
     _class_role_state_profile,
     _spatial_vertices_for_track,
 )
-from production.polygon.runtime.role_candidate_pool import build_role_candidate
+from production.polygon.runtime.role_candidates import build_role_candidate
 
 
 def _componentwise_scale(anchors: np.ndarray, factor: float) -> np.ndarray:

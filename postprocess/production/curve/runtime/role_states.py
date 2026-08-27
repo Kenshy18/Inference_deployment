@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from production.polygon.runtime.role_candidate_pool import build_role_candidate
+from production.polygon.runtime.role_candidates import build_role_candidate
 
 from .curve_fit import catmull_rom_basis_matrix
 from .keyframe_dp import render_control_sequence

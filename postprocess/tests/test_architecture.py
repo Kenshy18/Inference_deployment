@@ -146,6 +146,22 @@ class ArchitectureTests(unittest.TestCase):
                 imports.add((node.module or "").split(".", 1)[0])
         self.assertEqual(set(), imports & FEATURES)
 
+    def test_deployed_role_generators_match_the_frozen_palettes(self) -> None:
+        from production.curve.runtime.role_states import curve_role_ids
+        from production.polygon.runtime.candidate_config import CANDIDATE, LABELS
+        from production.polygon.runtime.candidate_palette import role_ids
+        from production.polygon.runtime.role_candidates import PRODUCTION_ROLE_IDS
+
+        selected = {
+            value.removesuffix("_P1")
+            for label in LABELS
+            for value in (
+                *role_ids(label, CANDIDATE.temporal.target_interval),
+                *curve_role_ids(label),
+            )
+        }
+        self.assertEqual(selected, set(PRODUCTION_ROLE_IDS))
+
     def test_default_raw_pipeline_has_one_stage_per_feature(self) -> None:
         implementations = [
             stage.implementation
