@@ -268,8 +268,12 @@ def run_cell(
         )
     wall = time.perf_counter() - started
     if process.returncode != 0:
+        log_path = root / "run.log"
+        log_lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        log_tail = "\n".join(log_lines[-20:])
         raise RuntimeError(
-            f"Phase 2 failed: profile={profile} label={label}; {root/'run.log'}"
+            f"Phase 2 failed: profile={profile} label={label}; {log_path}"
+            + (f"\nLast Phase 2 output:\n{log_tail}" if log_tail else "")
         )
     metrics = reporting.collect_optimizer_metrics(
         output,

@@ -250,8 +250,11 @@ def run_polygon_optimizer(
             raise
     wall = time.perf_counter() - started
     if returncode:
+        log_lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        log_tail = "\n".join(log_lines[-20:])
         raise RuntimeError(
             f"polygon optimizer failed with exit {returncode}; see {log_path}"
+            + (f"\nLast optimizer output:\n{log_tail}" if log_tail else "")
         )
     interval_root = output / f"interval_{config.temporal.target_interval}"
     manifest_path = output / "production_candidate_manifest.json"
