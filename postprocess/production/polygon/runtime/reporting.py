@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production support runner for the hard-Recall penalty matrix."""
+"""Aggregate exact polygon optimizer metrics and locate prepared inputs."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from production.polygon.runtime.diagnostics import classify_streams
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 POSTPROCESS = ROOT / "postprocess"
-RUNTIME = HERE / "phase1_runtime.py"
+RUNTIME = HERE / "native_runtime.py"
 DEFAULT_SOURCE_ROOT = ROOT / "output/production_polygon_source"
 DEFAULT_OUTPUT_ROOT = ROOT / "output/production_polygon_phase1"
 LABELS = ("女性器", "男性器", "結合部分")
@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _discover_inputs(source_root: Path) -> dict[str, Path]:
+def discover_prepared_inputs(source_root: Path) -> dict[str, Path]:
     manifest_path = (
         source_root
         / "interval_10/production_raw/work/04_classwise_postprocess/classwise_manifest.json"
@@ -129,7 +129,7 @@ def _quantile(values: list[float], probability: float) -> float:
     return float(np.quantile(np.asarray(values, dtype=np.float64), probability))
 
 
-def _metrics(
+def collect_optimizer_metrics(
     output: Path,
     source: Path,
     label: str,
@@ -291,7 +291,7 @@ def _run_cell(
             else {}
         )
         wall = float(previous.get("wall_seconds", 0.0))
-        metrics = _metrics(output, source, label, interval, wall)
+        metrics = collect_optimizer_metrics(output, source, label, interval, wall)
         report_path.write_text(
             json.dumps(metrics, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -323,14 +323,16 @@ def _run_cell(
         raise RuntimeError(
             f"Phase 1 failed for {label} interval {interval}; see {root / 'run.log'}"
         )
-    metrics = _metrics(output, source, label, interval, wall)
+    metrics = collect_optimizer_metrics(output, source, label, interval, wall)
     report_path.write_text(
         json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return metrics
 
 
-def _aggregate(rows: list[dict[str, object]], interval: int) -> dict[str, object]:
+def aggregate_metrics(
+    rows: list[dict[str, object]], interval: int
+) -> dict[str, object]:
     selected = [row for row in rows if int(row["requested_interval"]) == interval]
     count = sum(int(row["observation_rows"]) for row in selected)
     feasible_count = sum(int(row["feasible_observation_rows"]) for row in selected)
@@ -515,7 +517,7 @@ def main() -> int:
         raise ValueError("num-workers must be >= 1")
     if args.label_workers < 1:
         raise ValueError("label-workers must be >= 1")
-    sources = _discover_inputs(args.source_root)
+    sources = discover_prepared_inputs(args.source_root)
     args.output_root.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, object]] = []
     for interval in intervals:
@@ -545,7 +547,7 @@ def main() -> int:
             ) as executor:
                 interval_rows = list(executor.map(run_label, labels))
         rows.extend(interval_rows)
-    aggregates = [_aggregate(rows, interval) for interval in intervals]
+    aggregates = [aggregate_metrics(rows, interval) for interval in intervals]
     payload = {
         "schema_version": 1,
         "production_support": True,

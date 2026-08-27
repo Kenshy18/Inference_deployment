@@ -1,4 +1,4 @@
-"""Exact hard-Recall multistate penalty DP for promoted Phase 2."""
+"""Exact hard-Recall multistate penalty dynamic programming."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ import time
 
 import numpy as np
 
-from production.polygon.runtime.phase1_runtime import _EPSILON
-from production.polygon.runtime.phase2_config import (
+from production.polygon.runtime.native_runtime import _EPSILON
+from production.polygon.runtime.runtime_config import (
     CUDA_APPROX_ONLY_ENV,
     CUDA_EXACT_HINT_COUNT_ENV,
     CUDA_EXACT_HINT_ENV,
@@ -85,7 +85,7 @@ def build_hard_multistate_penalty_path(module):
 
         Production's generic multistate solver performs an outer binary search
         over a soft Recall multiplier.  Phase 2 has no soft Recall trade-off:
-        ``phase1_runtime.interval_cost_from_vectors`` already maps every
+        ``native_runtime.interval_cost_from_vectors`` already maps every
         violating edge to +inf.  Removing that redundant multiplier search is
         both semantically exact and substantially faster.
         """

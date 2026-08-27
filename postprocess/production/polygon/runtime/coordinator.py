@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production coordinator for multistate polygon optimization."""
+"""Coordinate class-specific Production polygon optimizer processes."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ POSTPROCESS = ROOT / "postprocess"
 if str(POSTPROCESS) not in sys.path:
     sys.path.insert(0, str(POSTPROCESS))
 
-from production.polygon.runtime import run_phase1 as phase1
-from production.polygon.runtime.phase2_runtime import (
+from production.polygon.runtime import reporting
+from production.polygon.runtime.optimizer_process import (
     PAIR_VOTE_CONSTRAINED_ENV,
     PAIR_VOTE_ENV,
     PAIR_VOTE_PER_KEY_ENV,
@@ -30,7 +30,7 @@ from production.polygon.runtime.phase2_runtime import (
 )
 
 
-RUNTIME = HERE / "phase2_runtime.py"
+RUNTIME = HERE / "optimizer_process.py"
 DEFAULT_OUTPUT = ROOT / "output/production_polygon_phase2"
 DEFAULT_PROFILES = (
     "scale_best",
@@ -39,7 +39,7 @@ DEFAULT_PROFILES = (
     "axis_best",
     "broad_top2",
 )
-LABELS = phase1.LABELS
+LABELS = reporting.LABELS
 _UNSUPPORTED_CUDA_ENABLE_ENVIRONMENT = (
     "MASK_PIPELINE_PHASE2_CUDA_SHAPE",
     "MASK_PIPELINE_PHASE2_CUDA_PREFILTER",
@@ -52,7 +52,7 @@ _UNSUPPORTED_CUDA_ENABLE_ENVIRONMENT = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source-root", type=Path, default=phase1.DEFAULT_SOURCE_ROOT)
+    parser.add_argument("--source-root", type=Path, default=reporting.DEFAULT_SOURCE_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--profiles", default=",".join(DEFAULT_PROFILES))
     parser.add_argument("--labels", default=",".join(LABELS))
@@ -271,7 +271,7 @@ def run_cell(
         raise RuntimeError(
             f"Phase 2 failed: profile={profile} label={label}; {root/'run.log'}"
         )
-    metrics = phase1._metrics(
+    metrics = reporting.collect_optimizer_metrics(
         output,
         source,
         label,
@@ -339,7 +339,7 @@ def main() -> int:
         > 1
     ):
         raise ValueError("pair-vote mode flags are mutually exclusive")
-    sources = phase1._discover_inputs(args.source_root)
+    sources = reporting.discover_prepared_inputs(args.source_root)
     args.output_root.mkdir(parents=True, exist_ok=True)
     all_rows: list[dict[str, object]] = []
     profile_reports = []
@@ -423,7 +423,7 @@ def main() -> int:
                     )
         rows = [rows_by_label[label] for label in labels]
         elapsed = time.perf_counter() - started
-        aggregate = phase1._aggregate(rows, args.target_interval)
+        aggregate = reporting.aggregate_metrics(rows, args.target_interval)
         aggregate["candidate_profile"] = profile
         aggregate["profile_wall_seconds"] = elapsed
         aggregate["observation_rows_per_second"] = float(

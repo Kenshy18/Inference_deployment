@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production multistate search on the hard-Recall penalty DP.
+"""Execute one Production multistate search on the hard-Recall penalty DP.
 
 The Production source and Phase-1 constraint implementation stay unchanged.
 This private runtime adds a small, screened set of initial polygon states per
@@ -27,12 +27,12 @@ from production.polygon.runtime.algorithm_ids import (
 )
 from production.polygon.runtime.diagnostics import classify_streams
 
-from production.polygon.runtime.phase1_runtime import (
+from production.polygon.runtime.native_runtime import (
     _EPSILON,
     _load_production_runtime,
     _patch_embedded_optimizer,
 )
-from production.polygon.runtime.phase2_config import (
+from production.polygon.runtime.runtime_config import (
     PROFILE_ENV,
     POLYGON_CONSTRAINED_PROFILES,
     GC_INTERVAL_ENV,
@@ -49,13 +49,13 @@ from production.polygon.runtime.phase2_config import (
     _spatial_vertices_for_track,
 )
 
-from production.polygon.runtime.phase2_candidates import (
+from production.polygon.runtime.candidate_generation import (
     _axis_vectors,
     _componentwise_scale,
-    _patch_phase2_candidates,
+    install_candidate_generation,
     _temporal_vectors,
 )
-from production.polygon.runtime.phase2_hard_dp import _build_dense_edge_array
+from production.polygon.runtime.hard_recall_dp import _build_dense_edge_array
 
 
 def _write_audit(
@@ -304,7 +304,7 @@ def main() -> int:
     def build_patched_module() -> ModuleType:
         patched = _patch_embedded_optimizer(source)
         patched._phase1_exact_repair_disabled = True
-        patched = _patch_phase2_candidates(patched, profile)
+        patched = install_candidate_generation(patched, profile)
         pair_vote_enabled = os.environ.get(PAIR_VOTE_ENV, "0").strip() == "1"
         constrained_pair_vote = (
             os.environ.get(PAIR_VOTE_CONSTRAINED_ENV, "0").strip() == "1"

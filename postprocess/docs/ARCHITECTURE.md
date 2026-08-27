@@ -38,21 +38,24 @@ Production後処理は`production/polygon/runtime`だけで完結し、
 開発専用・研究専用パッケージをimportしません。数値処理は次の責務に分けています。
 
 ```text
+run.py                     Production polygon CLI
+coordinator.py             クラス別optimizer processの調整
+optimizer_process.py       1クラス分の候補生成、DP、pair-vote、監査
+reporting.py               prepared input探索と品質・速度集計
+runtime_config.py          frozen profileと環境変数契約
+candidate_generation.py    shape candidate生成
+hard_recall_dp.py          hard-min-Recall multistate DP
+native_runtime.py          native exact interval evaluatorとの接続
 optimizer_factory.py       adapterを組み立てるcomposition root
 optimizer_adapters/        native DP、Python DP、geometry、artifact、resource制御
-kernel/model.py             点数予測器とdescriptor
-kernel/geometry.py          輪郭・raster・similarity geometry
-kernel/stream.py            SQLite streaming、gapfill、長尺track分割
-kernel/candidates.py        candidate frame pool
-kernel/evaluation.py        frame/interval評価
-kernel/interpolation.py     補間とpair-vote基礎処理
-kernel/solver.py            penalty DPとexact Recall repair
-kernel/artifacts.py         JSON/CSV/SQLite成果物
-optimizer_kernel.py         1 track処理とCLIの組み立て
-phase2_config.py            frozen profileと環境変数契約
-phase2_candidates.py        shape candidate生成
-phase2_hard_dp.py           hard-min-Recall multistate DP
-phase2_runtime.py           pair-vote、audit、Phase-2実行
+kernel/geometry.py         輪郭・raster・similarity geometry
+kernel/stream.py           SQLite streaming、gapfill、長尺track分割
+kernel/candidates.py       candidate frame pool
+kernel/evaluation.py       frame/interval評価
+kernel/interpolation.py    補間とpair-vote基礎処理
+kernel/solver.py           penalty DPとexact Recall repair
+kernel/artifacts.py        JSON/CSV/SQLite成果物
+optimizer_kernel.py        1 track数値処理と内部CLI
 ```
 
 公開stage、SQLite schema、profile ID、数値アルゴリズムはこの分割の前後で

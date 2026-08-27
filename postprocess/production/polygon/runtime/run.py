@@ -17,7 +17,7 @@ from .spatial_config import ADAPTIVE_PROFILE_ID, CANDIDATE, PROFILE_ID
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
-PHASE2_RUNNER = HERE / "run_phase2.py"
+COORDINATOR = HERE / "coordinator.py"
 DEFAULT_SOURCE = ROOT / "output/production_polygon_source"
 DEFAULT_OUTPUT = ROOT / "output/production_polygon_optimizer"
 LABELS = ("女性器", "男性器", "結合部分")
@@ -79,7 +79,7 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
     adaptive = profile == ADAPTIVE_PROFILE_ID
     command = [
         sys.executable,
-        str(PHASE2_RUNNER),
+        str(COORDINATOR),
         "--source-root",
         str(args.source_root.expanduser().resolve()),
         "--output-root",

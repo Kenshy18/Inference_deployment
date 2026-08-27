@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production polygon penalty-DP core with a hard per-frame Recall floor.
+"""Connect polygon optimization to the native exact interval evaluator.
 
 This private Production runtime loads the parity-frozen
 Production implementation and changes only the semantics required by Phase 1:

@@ -1,4 +1,4 @@
-"""Candidate generation and exact hard-Recall Phase-2 graph patch."""
+"""Generate polygon states and patch them into the hard-Recall graph."""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from production.polygon.runtime.geometry import (
     rigid_align as _rigid_align,
     temporal_shapes as _temporal_shapes,
 )
-from production.polygon.runtime.phase1_runtime import _EPSILON
-from production.polygon.runtime.phase2_hard_dp import (
+from production.polygon.runtime.native_runtime import _EPSILON
+from production.polygon.runtime.hard_recall_dp import (
     build_hard_multistate_penalty_path,
 )
-from production.polygon.runtime.phase2_config import (
+from production.polygon.runtime.runtime_config import (
     CANDIDATE_FRAME_WORKERS_ENV,
     CLASS_ROLE_STATE_PROFILES,
     MIXED_STATE_PROFILES,
@@ -122,7 +122,7 @@ def _axis_vectors(run, frame_index: int) -> list[tuple[str, np.ndarray]]:
     return output
 
 
-def _patch_phase2_candidates(module: ModuleType, profile: str) -> ModuleType:
+def install_candidate_generation(module: ModuleType, profile: str) -> ModuleType:
     if profile not in VALID_PROFILES:
         raise ValueError(f"unsupported Phase-2 candidate profile: {profile}")
     original_builder = module.build_frame_candidates

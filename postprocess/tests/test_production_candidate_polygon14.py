@@ -28,7 +28,7 @@ from production.polygon.runtime.candidate_config import (
     with_target_interval,
 )
 from production.polygon.runtime.candidate_palette import role_ids
-from production.polygon.runtime.phase2_config import (
+from production.polygon.runtime.runtime_config import (
     VALID_PROFILES,
     _class_role_state_profile,
 )

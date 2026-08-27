@@ -74,7 +74,7 @@ class PromotedProductionProfileTests(unittest.TestCase):
         self.assertNotIn('"approximation",', package_config)
         self.assertNotIn('"keyframes",', package_config)
         self.assertNotIn('"gap_fill",', package_config)
-        coordinator = (root / "production/polygon/runtime/run_phase2.py").read_text(
+        coordinator = (root / "production/polygon/runtime/coordinator.py").read_text(
             encoding="utf-8"
         )
         self.assertNotIn("MASK_PIPELINE_CUDA_EXPERIMENT_SITE", coordinator)

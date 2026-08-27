@@ -47,7 +47,7 @@ def assert_runtime_bridge_contract(
         raise RuntimeError(
             f"approved polygon runtime contract drift: expected={expected}, actual={actual}"
         )
-    runtime = importlib.import_module("production.polygon.runtime.phase2_runtime")
+    runtime = importlib.import_module("production.polygon.runtime.optimizer_process")
     selector = getattr(runtime, "_class_role_state_profile")
     for label in config.labels:
         selected = tuple(

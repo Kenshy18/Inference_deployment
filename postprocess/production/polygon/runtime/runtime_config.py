@@ -1,4 +1,4 @@
-"""Frozen Phase-2 profiles, environment keys, and vertex-policy lookup."""
+"""Frozen runtime profiles, environment keys, and vertex-policy lookup."""
 
 from __future__ import annotations
 
