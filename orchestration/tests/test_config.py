@@ -10,7 +10,7 @@ from pathlib import Path
 from orchestration.config import OrchestrationConfig, OrchestrationConfigError
 from orchestration.runner import OrchestrationRunner
 
-from helpers import create_video
+from orchestration.tests.helpers import create_video
 
 
 class ConfigTests(unittest.TestCase):

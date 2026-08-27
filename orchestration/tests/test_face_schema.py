@@ -7,7 +7,7 @@ from pathlib import Path
 
 from orchestration.contracts import ArtifactError, validate_inference_sqlite
 
-from helpers import create_rich_face_unified_sqlite
+from orchestration.tests.helpers import create_rich_face_unified_sqlite
 
 
 class FaceSchemaTests(unittest.TestCase):

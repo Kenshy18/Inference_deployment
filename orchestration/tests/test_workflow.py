@@ -17,7 +17,7 @@ from orchestration.rescale_result_sqlite import VideoGeometry, rescale_result_sq
 from orchestration.runner import OrchestrationRunner
 from orchestration.runner_support import OrchestrationError
 
-from helpers import (
+from orchestration.tests.helpers import (
     clear_instance_segmentation_detections,
     create_mask_sqlite,
     create_rich_face_unified_sqlite,
