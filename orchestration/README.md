@@ -6,8 +6,11 @@
 実装は責務別に分かれています。
 
 ```text
-config.py             JSONの読み込み、相互制約、公開OrchestrationConfig
-config_sections.py    inference/postprocess/overlayごとの型
+config.py             公開OrchestrationConfigと安定した外部API
+config_sections.py    inference/postprocess/overlayごとの不変な設定型
+config_loader.py      JSONから設定型への変換と既定値の解決
+config_validation.py  component間の相互制約と予約引数の検証
+config_support.py     parser/validatorで共有する型変換と例外
 runner.py             stageの実行順序と成果物ライフサイクル
 runner_commands.py    子プロセスのコマンド構築
 runner_media.py       解像度・proxy・最終座標の変換

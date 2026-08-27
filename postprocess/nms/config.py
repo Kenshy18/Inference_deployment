@@ -26,20 +26,25 @@ class ProductionNmsConfig:
     bbox_role: str = "broad_phase_only"
 
     def validate(self) -> None:
-        unit_interval_values = {
+        inclusive_unit_interval_values = {
             "unconditional owner-island ratio": (
                 self.unconditional_owner_island_ratio_max
             ),
-            "island coverage": self.island_other_coverage_min,
             "island-to-other area ratio": self.island_to_other_area_max,
+        }
+        for name, value in inclusive_unit_interval_values.items():
+            if not math.isfinite(float(value)) or not 0.0 <= float(value) <= 1.0:
+                raise ValueError(f"{name} must be in [0, 1]")
+        positive_unit_interval_values = {
+            "island coverage": self.island_other_coverage_min,
             "mask IoU": self.mask_iou_threshold,
             "small-mask IoU": self.mask_small_iou_threshold,
             "tiny-mask IoU": self.mask_tiny_iou_threshold,
             "containment coverage": self.containment_coverage_min,
         }
-        for name, value in unit_interval_values.items():
-            if not math.isfinite(float(value)) or not 0.0 <= float(value) <= 1.0:
-                raise ValueError(f"{name} must be in [0, 1]")
+        for name, value in positive_unit_interval_values.items():
+            if not math.isfinite(float(value)) or not 0.0 < float(value) <= 1.0:
+                raise ValueError(f"{name} must be in (0, 1]")
         if not (
             self.mask_tiny_iou_threshold
             <= self.mask_small_iou_threshold
