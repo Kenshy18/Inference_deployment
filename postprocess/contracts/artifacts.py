@@ -450,7 +450,7 @@ def _validate_union_json(path: Path) -> None:
 
 
 def _validate_integrated_result_sqlite(path: Path) -> None:
-    from artifacts.unified_sqlite import validate_integrated_result
+    from .integrated_result import validate_integrated_result
 
     validate_integrated_result(path)
 

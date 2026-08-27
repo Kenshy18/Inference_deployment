@@ -107,7 +107,8 @@ class ArchitectureTests(unittest.TestCase):
             "postprocess/production/curve/runtime/native_cpu.py",
             "postprocess/classwise/curve_parallel.py",
             "postprocess/classwise/pipeline_factory.py",
-            "postprocess/artifacts/unified_schema.py",
+            "postprocess/contracts/integrated_result.py",
+            "postprocess/contracts/result_schema.py",
             "orchestration/config_loader.py",
             "orchestration/config_validation.py",
             "orchestration/runner_media.py",
@@ -144,6 +145,22 @@ class ArchitectureTests(unittest.TestCase):
                         dependency = module.split(".", 1)[0]
                         if dependency in FEATURES and dependency != feature:
                             violations.append(f"{path.relative_to(root)} -> {module}")
+        self.assertEqual([], violations)
+
+    def test_contracts_do_not_import_artifact_implementations(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        violations: list[str] = []
+        for path in (root / "contracts").rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                imported: list[str] = []
+                if isinstance(node, ast.Import):
+                    imported = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                    imported = [node.module or ""]
+                for module in imported:
+                    if module == "artifacts" or module.startswith("artifacts."):
+                        violations.append(f"{path.relative_to(root)} -> {module}")
         self.assertEqual([], violations)
 
     def test_root_entrypoint_does_not_import_feature_implementations(self) -> None:
