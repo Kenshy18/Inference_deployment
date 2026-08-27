@@ -78,6 +78,8 @@ class ArchitectureTests(unittest.TestCase):
             "postprocess/classwise/curve_parallel.py": 260,
             "orchestration/runner.py": 1100,
             "orchestration/config.py": 100,
+            "gui/src/App.tsx": 800,
+            "gui/src/components/MonitorPanel.tsx": 700,
             "gui/src/components/InspectorPanel.tsx": 100,
         }
         for relative, limit in limits.items():
@@ -112,6 +114,8 @@ class ArchitectureTests(unittest.TestCase):
             "gui/src/components/inspector/PostprocessSection.tsx",
             "gui/src/components/inspector/OverlaySection.tsx",
             "gui/src/components/inspector/RuntimeSection.tsx",
+            "gui/src/components/monitor/flow.ts",
+            "gui/src/hooks/useInspectorActions.ts",
         ]
         self.assertEqual(
             [],
