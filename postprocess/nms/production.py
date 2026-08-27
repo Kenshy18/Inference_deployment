@@ -16,24 +16,12 @@ from .component_virtual import (
     ProductionVirtualComponentNms,
     VirtualComponentNmsDiagnostics,
 )
+from .config import PRODUCTION_NMS_CONFIG
 
 
-PRODUCTION_OPTIONS: dict[str, object] = {
-    "comparison_policy": "adaptive_mask",
-    "fill_all_holes": True,
-    "unconditional_owner_ratio_max": 0.01,
-    "island_other_coverage_min": 0.80,
-    "island_to_other_area_max": 0.50,
-    "mask_iou_threshold": 0.20,
-    "mask_small_iou_threshold": 0.10,
-    "mask_tiny_iou_threshold": 0.05,
-    "mask_small_area": 5000.0,
-    "mask_tiny_area": 2000.0,
-    "mask_containment_coverage_min": 0.80,
-    "mask_contain_ratio_max": 8.0,
-    "mask_small_contain_ratio_max": 5.0,
-    "mask_tiny_contain_ratio_max": 5.0,
-}
+PRODUCTION_OPTIONS: dict[str, object] = (
+    PRODUCTION_NMS_CONFIG.implementation_options()
+)
 
 
 @dataclass(frozen=True)

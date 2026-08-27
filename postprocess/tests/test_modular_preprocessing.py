@@ -11,7 +11,7 @@ from contracts.detections import (
     transform_detection_jsonl,
     write_cut_list,
 )
-from nms.adaptive import AdaptiveNms
+from nms.component_virtual import ProductionVirtualComponentNms
 from preprocessing.score_policy import ScorePolicy, apply_score_policy_jsonl
 from tracking import build_tracked_sqlite
 
@@ -39,8 +39,8 @@ def detection(x: float, *, score: float = 0.9) -> dict[str, object]:
 
 
 class ModularPreprocessingTests(unittest.TestCase):
-    def test_adaptive_nms_is_a_real_implementation(self) -> None:
-        retained = AdaptiveNms().apply(
+    def test_production_nms_is_a_real_implementation(self) -> None:
+        retained = ProductionVirtualComponentNms().apply(
             [detection(0, score=0.9), detection(0, score=0.8)]
         )
         self.assertEqual(1, len(retained))

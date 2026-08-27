@@ -43,12 +43,6 @@ packages = [
   "production",
 ]
 
-exclude = [
-  "nms/adaptive.py",
-  "nms/component_aware.py",
-  "nms/stages.py",
-]
-
 [tool.hatch.build.targets.wheel.force-include]
 "run_pipeline.py" = "run_pipeline.py"
 "precompute_cuts.py" = "precompute_cuts.py"

@@ -167,17 +167,15 @@ class _Geometry:
 
 @dataclass(frozen=True)
 class ComponentCleanupStats:
-    """Topology-only counters used by the candidate NMS audit."""
+    """Topology-only counters used by Production NMS diagnostics."""
 
     holes_filled: int = 0
     tiny_islands_removed: int = 0
-    redundant_islands_removed: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
             "holes_filled": self.holes_filled,
             "tiny_islands_removed": self.tiny_islands_removed,
-            "redundant_islands_removed": self.redundant_islands_removed,
         }
 
 
@@ -290,36 +288,6 @@ def _with_removed_components(
     return output
 
 
-def remove_small_foreground_components(
-    detection: dict[str, Any], *, ratio_max: float = 0.10
-) -> dict[str, Any]:
-    """Remove foreground islands no larger than ``ratio_max`` of the largest.
-
-    Polygon nesting parity distinguishes foreground components from holes.
-    Holes belonging to retained foreground are preserved.  When a small
-    foreground component is removed, all contours nested inside that component
-    are removed with it.  The caller's dictionary is never mutated.
-    """
-    if ratio_max <= 0.0:
-        return detection
-    source = detection.get("polygons") or []
-    if len(source) <= 1:
-        return detection
-    geometry = _geometry(detection)
-    if geometry is None or len(geometry.foreground) <= 1:
-        return detection
-    largest_index = geometry.largest_foreground
-    largest_area = geometry.areas[largest_index]
-    if largest_area <= 0.0:
-        return detection
-    removed_roots = {
-        index
-        for index in geometry.foreground
-        if index != largest_index and geometry.areas[index] / largest_area <= ratio_max
-    }
-    return _with_removed_components(detection, geometry, removed_roots)
-
-
 def fill_holes_and_remove_tiny_islands(
     detections: list[dict[str, Any]],
     *,
@@ -368,142 +336,3 @@ def fill_holes_and_remove_tiny_islands(
         holes_filled=holes_filled,
         tiny_islands_removed=tiny_islands_removed,
     )
-
-
-def remove_redundant_surviving_islands(
-    detections: list[dict[str, Any]],
-    *,
-    other_coverage_min: float = 0.80,
-    island_to_other_area_max: float = 0.50,
-) -> tuple[list[dict[str, Any]], ComponentCleanupStats]:
-    """Remove only redundant islands from already-surviving instances.
-
-    Every secondary foreground component is treated as a temporary virtual
-    instance.  The island is removed when another surviving instance covers
-    at least ``other_coverage_min`` of it and the island is no larger than
-    ``island_to_other_area_max`` of that other instance's largest foreground
-    component. The owner main component and the covering instance are always
-    retained. Other islands are deliberately not used as coverers in v2.
-
-    Decisions use an immutable snapshot and are applied simultaneously, so
-    detection ordering cannot change the result.
-    """
-    if not detections:
-        return [], ComponentCleanupStats()
-    geometries = [_geometry(detection) for detection in detections]
-    removed_by_detection: list[set[int]] = [set() for _ in detections]
-    removed_count = 0
-    for owner_index, geometry in enumerate(geometries):
-        if geometry is None or len(geometry.foreground) <= 1:
-            continue
-        for root in geometry.foreground:
-            if root == geometry.largest_foreground:
-                continue
-            component_indices = _descendants(root, geometry.parents)
-            component_area = _net_area(geometry, component_indices)
-            if component_area <= 0.0:
-                continue
-            for other_index, other in enumerate(geometries):
-                if other_index == owner_index or other is None:
-                    continue
-                other_root = other.largest_foreground
-                other_indices = _descendants(other_root, other.parents)
-                other_area = _net_area(other, other_indices)
-                if (
-                    other_area <= 0.0
-                    or component_area / other_area > island_to_other_area_max
-                ):
-                    continue
-                if (
-                    _component_coverage(
-                        geometry,
-                        root,
-                        other,
-                        other_root=other_root,
-                    )
-                    >= other_coverage_min
-                ):
-                    removed_by_detection[owner_index].add(root)
-                    removed_count += 1
-                    break
-    cleaned = [
-        detection
-        if geometry is None
-        else _with_removed_components(detection, geometry, removed_roots)
-        for detection, geometry, removed_roots in zip(
-            detections, geometries, removed_by_detection, strict=True
-        )
-    ]
-    return cleaned, ComponentCleanupStats(redundant_islands_removed=removed_count)
-
-
-def remove_redundant_islands_candidate_v1(
-    detections: list[dict[str, Any]],
-    *,
-    fill_all_holes: bool = True,
-    unconditional_owner_ratio_max: float = 0.01,
-    other_coverage_min: float = 0.90,
-    island_to_other_area_max: float = 0.30,
-) -> list[dict[str, Any]]:
-    """Apply the frozen 2026-08-13 Production-candidate island policy.
-
-    Every hole is filled. A secondary foreground component is removed when it
-    is at most 1% of its owner's largest foreground component, or when at least
-    90% of it is covered by another raw instance and it is at most 30% of that
-    other instance.
-
-    The decision intentionally does not depend on screen-edge contact,
-    temporal persistence, or whether NMS later retains the covering instance.
-    Those concerns belong to subsequent policies.  Inputs are never mutated.
-    """
-    if not detections:
-        return []
-    geometries = [_geometry(detection) for detection in detections]
-    removed_by_detection: list[set[int]] = [set() for _ in detections]
-
-    if fill_all_holes:
-        for removed, geometry in zip(removed_by_detection, geometries, strict=True):
-            if geometry is not None:
-                removed.update(
-                    index
-                    for index, depth in enumerate(geometry.depths)
-                    if depth % 2 == 1
-                )
-
-    for owner_index, geometry in enumerate(geometries):
-        if geometry is None or len(geometry.foreground) <= 1:
-            continue
-        main_area = geometry.areas[geometry.largest_foreground]
-        if main_area <= 0.0:
-            continue
-        for root in geometry.foreground:
-            if root == geometry.largest_foreground:
-                continue
-            component_indices = _descendants(root, geometry.parents)
-            component_area = _net_area(geometry, component_indices)
-            if component_area <= 0.0:
-                continue
-            if component_area / main_area <= unconditional_owner_ratio_max:
-                removed_by_detection[owner_index].add(root)
-                continue
-            for other_index, other in enumerate(geometries):
-                if other_index == owner_index or other is None:
-                    continue
-                other_area = _net_area(other)
-                if (
-                    other_area <= 0.0
-                    or component_area / other_area > island_to_other_area_max
-                ):
-                    continue
-                if _component_coverage(geometry, root, other) >= other_coverage_min:
-                    removed_by_detection[owner_index].add(root)
-                    break
-
-    return [
-        detection
-        if geometry is None
-        else _with_removed_components(detection, geometry, removed_roots)
-        for detection, geometry, removed_roots in zip(
-            detections, geometries, removed_by_detection, strict=True
-        )
-    ]

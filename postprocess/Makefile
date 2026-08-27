@@ -8,7 +8,7 @@ install:
 test: unit compile
 
 unit:
-	$(PYTHON) -m unittest discover -s tests
+	$(PYTHON) -m pytest tests -q
 
 compile:
 	$(PYTHON) -m compileall -q \

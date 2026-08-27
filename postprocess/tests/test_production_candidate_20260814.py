@@ -66,7 +66,7 @@ class ProductionCandidate20260814Tests(unittest.TestCase):
         self.assertEqual(1, CANDIDATE.runtime.candidate_frame_workers)
         self.assertEqual("cuda_lazy_exact", CANDIDATE.runtime.interval_evaluation)
         policy = ProductionVirtualComponentNms(**PRODUCTION_OPTIONS)
-        self.assertEqual("adaptive_mask", policy.comparison_policy)
+        self.assertEqual("production_virtual_component_mask_nms_v1", policy.name)
         self.assertEqual(0.20, policy.mask_iou_threshold)
         self.assertEqual(0.10, policy.mask_small_iou_threshold)
         self.assertEqual(0.05, policy.mask_tiny_iou_threshold)

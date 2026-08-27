@@ -1,11 +1,11 @@
-"""Role-aware virtual-component NMS Production candidate v3.
+"""Role-aware virtual-component exact-mask NMS used by Production.
 
 Each foreground connected component is treated as a temporary NMS object,
 while the canonical output remains one detection per original owner.  Pair
 semantics are intentionally asymmetric:
 
-* main vs main: configurable legacy-box or adaptive-mask NMS;
-* island vs island: the same configurable NMS, losing island only;
+* main vs main: adaptive exact-mask NMS;
+* island vs island: the same exact-mask NMS, losing island only;
 * island vs another owner's main: 80%/50% subordinate test, island only;
 * components from the same owner: never compared.
 
@@ -143,25 +143,21 @@ def _virtual_components(
 
 
 @dataclass(frozen=True)
-class VirtualComponentNms:
-    """Opt-in unified component-aware NMS candidate.
+class ProductionVirtualComponentNms:
+    """Production component-aware exact-mask NMS.
 
     Hole filling and <=1% owner-relative island deletion run before virtual
-    component NMS.  ``comparison_policy`` selects either frozen legacy-box or
-    adaptive-mask comparisons for main-main and island-island pairs.  The
-    final SQLite schema is unaffected because all virtual metadata is
-    transient.
+    component NMS. Main-main and island-island pairs always use exact mask
+    overlap; historical bbox comparison policies are deliberately absent from
+    the Production package. The final SQLite schema is unaffected because all
+    virtual metadata is transient.
     """
 
-    name: str = "virtual_component_nms_candidate_v3"
+    name: str = "production_virtual_component_mask_nms_v1"
     fill_all_holes: bool = True
     unconditional_owner_ratio_max: float = 0.01
     island_other_coverage_min: float = 0.80
     island_to_other_area_max: float = 0.50
-    legacy_iou_threshold: float = 0.20
-    legacy_small_iou_threshold: float = 0.10
-    legacy_tiny_iou_threshold: float = 0.05
-    comparison_policy: str = "legacy_bbox"
     mask_iou_threshold: float = 0.20
     mask_small_iou_threshold: float = 0.10
     mask_tiny_iou_threshold: float = 0.05
@@ -172,58 +168,39 @@ class VirtualComponentNms:
     mask_small_contain_ratio_max: float = 5.0
     mask_tiny_contain_ratio_max: float = 5.0
 
-    def _legacy(self) -> AdaptiveNms:
-        # Historical comparison support is loaded only by archived experiments;
-        # the Production path has no dependency on the bbox policy.
-        from .adaptive import AdaptiveNms
-
-        return AdaptiveNms(
-            iou_threshold=self.legacy_iou_threshold,
-            small_iou_threshold=self.legacy_small_iou_threshold,
-            tiny_iou_threshold=self.legacy_tiny_iou_threshold,
+    def _comparison(self) -> AdaptiveMaskNms:
+        return AdaptiveMaskNms(
+            iou_threshold=self.mask_iou_threshold,
+            small_iou_threshold=self.mask_small_iou_threshold,
+            tiny_iou_threshold=self.mask_tiny_iou_threshold,
+            small_area=self.mask_small_area,
+            tiny_area=self.mask_tiny_area,
+            containment_coverage_min=self.mask_containment_coverage_min,
+            contain_ratio_max=self.mask_contain_ratio_max,
+            small_contain_ratio_max=self.mask_small_contain_ratio_max,
+            tiny_contain_ratio_max=self.mask_tiny_contain_ratio_max,
         )
-
-    def _comparison(self) -> AdaptiveNms | AdaptiveMaskNms:
-        if self.comparison_policy == "legacy_bbox":
-            return self._legacy()
-        if self.comparison_policy == "adaptive_mask":
-            return AdaptiveMaskNms(
-                iou_threshold=self.mask_iou_threshold,
-                small_iou_threshold=self.mask_small_iou_threshold,
-                tiny_iou_threshold=self.mask_tiny_iou_threshold,
-                small_area=self.mask_small_area,
-                tiny_area=self.mask_tiny_area,
-                containment_coverage_min=self.mask_containment_coverage_min,
-                contain_ratio_max=self.mask_contain_ratio_max,
-                small_contain_ratio_max=self.mask_small_contain_ratio_max,
-                tiny_contain_ratio_max=self.mask_tiny_contain_ratio_max,
-            )
-        raise ValueError(f"unsupported comparison policy: {self.comparison_policy}")
 
     @staticmethod
     def _pair_decision(
-        policy: AdaptiveNms | AdaptiveMaskNms,
+        policy: AdaptiveMaskNms,
         first: dict[str, Any],
         second: dict[str, Any],
     ) -> tuple[str | None, dict[str, float]]:
-        if isinstance(policy, AdaptiveMaskNms):
-            metrics = policy.pair_metrics(first, second)
-            threshold_area = policy.pair_threshold_area(first, second)
-            iou_threshold, contain_ratio_max = policy.thresholds_for_area(
-                threshold_area
-            )
-            return policy.suppression_reason_from_metrics(
-                metrics,
-                threshold_area=threshold_area,
-            ), {
-                "mask_iou": metrics.iou,
-                "smaller_coverage": metrics.smaller_coverage,
-                "smaller_to_larger_area_ratio": (metrics.smaller_to_larger_area_ratio),
-                "threshold_area": threshold_area,
-                "iou_threshold": iou_threshold,
-                "contain_ratio_max": contain_ratio_max,
-            }
-        return policy.pair_suppression_reason(first, second), {}
+        metrics = policy.pair_metrics(first, second)
+        threshold_area = policy.pair_threshold_area(first, second)
+        iou_threshold, contain_ratio_max = policy.thresholds_for_area(threshold_area)
+        return policy.suppression_reason_from_metrics(
+            metrics,
+            threshold_area=threshold_area,
+        ), {
+            "mask_iou": metrics.iou,
+            "smaller_coverage": metrics.smaller_coverage,
+            "smaller_to_larger_area_ratio": metrics.smaller_to_larger_area_ratio,
+            "threshold_area": threshold_area,
+            "iou_threshold": iou_threshold,
+            "contain_ratio_max": contain_ratio_max,
+        }
 
     def apply(self, detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
         retained, _, _ = self.apply_with_trace(detections)
@@ -277,15 +254,8 @@ class VirtualComponentNms:
                 suppressed_owners.add(loser.owner_index)
                 trace.append(
                     {
-                        "reason": (
-                            "main_main_mask_nms"
-                            if self.comparison_policy == "adaptive_mask"
-                            else "main_main_legacy_nms"
-                        ),
+                        "reason": "main_main_mask_nms",
                         "suppression_reason": reason,
-                        "legacy_reason": (
-                            reason if self.comparison_policy == "legacy_bbox" else None
-                        ),
                         "winner_owner": winner.owner_index,
                         "winner_source_detection_id": winner.source_detection_id,
                         "loser_owner": loser.owner_index,
@@ -325,15 +295,8 @@ class VirtualComponentNms:
                 island_island_suppressed += 1
                 trace.append(
                     {
-                        "reason": (
-                            "island_island_mask_nms"
-                            if self.comparison_policy == "adaptive_mask"
-                            else "island_island_legacy_nms"
-                        ),
+                        "reason": "island_island_mask_nms",
                         "suppression_reason": reason,
-                        "legacy_reason": (
-                            reason if self.comparison_policy == "legacy_bbox" else None
-                        ),
                         "winner_owner": winner.owner_index,
                         "winner_source_detection_id": winner.source_detection_id,
                         "winner_root": winner.root,
@@ -434,28 +397,6 @@ class VirtualComponentNms:
             output_detections=len(retained),
         )
         return retained, diagnostics, trace
-
-
-DEFAULT_VIRTUAL_COMPONENT_NMS = VirtualComponentNms()
-
-
-@dataclass(frozen=True)
-class VirtualComponentMaskNms(VirtualComponentNms):
-    """Virtual-component candidate with adaptive exact-mask comparisons."""
-
-    name: str = "virtual_component_mask_nms_candidate_v4"
-    comparison_policy: str = "adaptive_mask"
-
-
-DEFAULT_VIRTUAL_COMPONENT_MASK_NMS = VirtualComponentMaskNms()
-
-
-@dataclass(frozen=True)
-class ProductionVirtualComponentNms(VirtualComponentNms):
-    """Promoted exact-mask/virtual-component implementation."""
-
-    name: str = "production_virtual_component_mask_nms_v1"
-    comparison_policy: str = "adaptive_mask"
 
 
 DEFAULT_PRODUCTION_NMS = ProductionVirtualComponentNms()

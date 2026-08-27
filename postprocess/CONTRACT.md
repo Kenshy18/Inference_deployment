@@ -39,23 +39,12 @@ validatorは`contracts.artifacts`へ集約されています。新しい成果�
 | --- | --- | --- | --- |
 | 正規化 | `preprocessing.normalize` | `input_jsonl` | `normalized_jsonl` |
 | スコア方針 | `preprocessing.score_policy` | `normalized_jsonl` | `scored_jsonl` |
-| NMS | `nms.production_v3`（旧実装・候補も明示指定可能） | `scored_jsonl` | `nms_jsonl` |
+| NMS | `nms.production_v3` | `scored_jsonl` | `nms_jsonl` |
 | カット検出 | `cut_detection.video` | `nms_jsonl` | `cuts_json` |
 | tracking | `tracking.greedy` | `nms_jsonl`, `cuts_json` | `tracked_sqlite` |
 | polygon近似・keyframe・補完 | `production.polygon_v3_cpu` | `tracked_sqlite` | `predictions_sqlite`, `keyframes_sqlite`, `production_polygon_manifest` |
 | Catmull–Rom近似・keyframe・補完 | `production.curve_v1_cpu` | `tracked_sqlite` | `predictions_sqlite`, `keyframes_sqlite`, `production_curve_manifest` |
 | 評価 | `evaluation.mask_iou` | `tracked_sqlite`, `predictions_sqlite` | `evaluation_summary` |
-| 出力検証 | `artifacts.validate` | `predictions_sqlite` | `validation_report` |
-
-楕円構成では、`tracked_sqlite`以降を次の接続へ交換します。
-
-| 機能 | 組み込み実装 | requires | provides |
-| --- | --- | --- | --- |
-| ellipse近似 | `approximation.ellipse.production` | `tracked_sqlite` | `approximated_sqlite`, `approximation_metrics_csv` |
-| keyframe | `keyframes.ellipse.dense` | `approximation_metrics_csv` | `keyframes_json`, `interpolated_union_json` |
-| gap fill | `gap_fill.ellipse.linear` | `interpolated_union_json`, `approximation_metrics_csv` | `filled_union_json`, `filled_metrics_csv` |
-| 評価 | `evaluation.ellipse.exact` | `filled_union_json`, `tracked_sqlite` | `evaluation_summary` |
-| SQLite生成 | `artifacts.union_sqlite` | `filled_union_json`, `tracked_sqlite` | `predictions_sqlite` |
 | 出力検証 | `artifacts.validate` | `predictions_sqlite` | `validation_report` |
 
 `input_video`と`class_policy_json`は任意の補助成果物です。標準cut detectionを

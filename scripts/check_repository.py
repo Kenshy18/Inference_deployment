@@ -51,7 +51,7 @@ def _check_component(name: str) -> None:
         )
     elif name == "postprocess":
         _run(
-            (python, "-m", "unittest", "discover", "-s", "tests", "-v"),
+            (python, "-m", "pytest", "tests", "-q"),
             cwd=ROOT / "postprocess",
             pythonpath=str(ROOT / "postprocess"),
         )

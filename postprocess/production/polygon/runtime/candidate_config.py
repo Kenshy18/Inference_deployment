@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import math
 
+from nms.config import PRODUCTION_NMS_CONFIG, ProductionNmsConfig
+
 
 PROFILE_ID = "production_candidate_adaptive_vertices_v2"
 POLYGON_PROFILE_ID = "polygon_adaptive_keyframe_v2"
@@ -14,24 +16,7 @@ LABELS = ("女性器", "男性器", "結合部分")
 INTERVAL_EVALUATION_MODES = ("cuda_lazy_exact", "native_exact")
 
 
-@dataclass(frozen=True, slots=True)
-class NmsConfig:
-    fill_all_holes: bool = True
-    unconditional_owner_island_ratio_max: float = 0.01
-    island_other_coverage_min: float = 0.80
-    island_to_other_area_max: float = 0.50
-    mask_iou_threshold: float = 0.20
-    mask_small_iou_threshold: float = 0.10
-    mask_tiny_iou_threshold: float = 0.05
-    small_area: float = 5000.0
-    tiny_area: float = 2000.0
-    containment_coverage_min: float = 0.80
-    contain_ratio_max: float = 8.0
-    small_contain_ratio_max: float = 5.0
-    tiny_contain_ratio_max: float = 5.0
-    adaptive_band_area: str = "production_continuous_contour_or_bbox"
-    overlap_geometry: str = "exact_native_pixel_mask"
-    bbox_role: str = "broad_phase_only"
+NmsConfig = ProductionNmsConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +112,9 @@ class CandidateConfig:
     profile_id: str = PROFILE_ID
     polygon_profile_id: str = POLYGON_PROFILE_ID
     labels: tuple[str, ...] = LABELS
-    nms: NmsConfig = field(default_factory=NmsConfig)
+    nms: ProductionNmsConfig = field(
+        default_factory=lambda: PRODUCTION_NMS_CONFIG
+    )
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
     spatial: SpatialConfig = field(default_factory=SpatialConfig)
     preparation: PreparationConfig = field(default_factory=PreparationConfig)
@@ -136,6 +123,7 @@ class CandidateConfig:
     output_schema: str = "unchanged_unified_v3_revision5"
 
     def validate(self) -> None:
+        self.nms.validate()
         if self.labels != LABELS:
             raise ValueError(f"candidate labels are frozen to {LABELS}")
         adaptive_profile = (
@@ -191,10 +179,6 @@ class CandidateConfig:
             ("spatial recall", self.spatial.recall_floor),
             ("spatial IoU", self.spatial.iou_floor),
             ("temporal recall", self.temporal.recall_floor),
-            ("NMS IoU", self.nms.mask_iou_threshold),
-            ("NMS small IoU", self.nms.mask_small_iou_threshold),
-            ("NMS tiny IoU", self.nms.mask_tiny_iou_threshold),
-            ("NMS containment coverage", self.nms.containment_coverage_min),
         ):
             if not math.isfinite(float(value)) or not 0.0 < float(value) <= 1.0:
                 raise ValueError(f"{name} must be in (0, 1]")
@@ -221,35 +205,10 @@ class CandidateConfig:
             or self.preparation.border_corner_support
         ):
             raise ValueError("legacy fixed-14 border contract drift")
-        if not (
-            self.nms.mask_tiny_iou_threshold
-            <= self.nms.mask_small_iou_threshold
-            <= self.nms.mask_iou_threshold
-        ):
-            raise ValueError("adaptive NMS IoU thresholds must be nondecreasing")
-        if not 0.0 < self.nms.tiny_area < self.nms.small_area:
-            raise ValueError("adaptive NMS areas require 0 < tiny < small")
-        for name, value in (
-            ("NMS containment ratio", self.nms.contain_ratio_max),
-            ("NMS small containment ratio", self.nms.small_contain_ratio_max),
-            ("NMS tiny containment ratio", self.nms.tiny_contain_ratio_max),
-        ):
-            if not math.isfinite(float(value)) or float(value) < 1.0:
-                raise ValueError(f"{name} must be finite and at least one")
         if self.temporal.target_interval < 1:
             raise ValueError("target interval must be positive")
         if self.temporal.pair_vote_sweeps < 1:
             raise ValueError("pair-vote sweeps must be positive")
-        for name, value in (
-            (
-                "unconditional island ratio",
-                self.nms.unconditional_owner_island_ratio_max,
-            ),
-            ("island coverage", self.nms.island_other_coverage_min),
-            ("island-to-other area ratio", self.nms.island_to_other_area_max),
-        ):
-            if not math.isfinite(float(value)) or not 0.0 <= float(value) <= 1.0:
-                raise ValueError(f"{name} must be in [0, 1]")
         for name, value in (
             ("short-track cutoff", self.tracking.remove_short_tracks_max_frames),
             ("label workers", self.runtime.label_workers),
