@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from contracts import TaskType
+from inference_core.contracts import TaskType
 
 
 @dataclass(frozen=True, slots=True)

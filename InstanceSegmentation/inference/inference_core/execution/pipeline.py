@@ -7,9 +7,9 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from contracts import TaskType
-from persistence import ImportedModelSummary, UnifiedSqliteWriter
-from registry import ModelRegistration, get_model
+from inference_core.contracts import TaskType
+from inference_core.persistence import ImportedModelSummary, UnifiedSqliteWriter
+from inference_core.registry import ModelRegistration, get_model
 
 from .config import OrchestrationRequest
 from .model_process import (

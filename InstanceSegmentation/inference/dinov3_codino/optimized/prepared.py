@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
-from contracts import FrameBatch
-from video import OpenCvVideoDecoder
+from inference_core.contracts import FrameBatch
+from inference_core.video import OpenCvVideoDecoder
 
 try:
     from ..preprocessing import prepare_batch_host

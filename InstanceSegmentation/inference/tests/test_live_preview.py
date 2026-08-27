@@ -5,15 +5,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from contracts import (
+from inference_core.contracts import (
     ColorSpace,
     Frame,
     ModelDescriptor,
     TaskType,
     segmentation_frame_from_rows,
 )
-from live_preview import LivePreviewSink, render_preview
-import live_preview
+from inference_core.live_preview import LivePreviewSink, render_preview
+from inference_core import live_preview
 
 
 DESCRIPTOR = ModelDescriptor(

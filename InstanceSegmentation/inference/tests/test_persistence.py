@@ -6,7 +6,7 @@ import unittest
 import zlib
 from pathlib import Path
 
-from contracts import (
+from inference_core.contracts import (
     BoundingBox,
     Classification,
     Detection,
@@ -22,7 +22,7 @@ from contracts import (
     SegmentationInstance,
     TaskType,
 )
-from persistence import AsyncSqliteWriter, SqliteWriter, UnifiedSqliteWriter
+from inference_core.persistence import AsyncSqliteWriter, SqliteWriter, UnifiedSqliteWriter
 
 
 def segmentation_result() -> SegmentationFrame:

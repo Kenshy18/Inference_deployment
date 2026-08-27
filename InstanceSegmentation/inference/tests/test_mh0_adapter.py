@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 import numpy as np
 
-from contracts import Frame, FrameBatch
+from inference_core.contracts import Frame, FrameBatch
 from dinov3_codino_mh0.adapter import Mh0Adapter
 from dinov3_codino_mh0.pipeline import run_mh0_video_inference
-from persistence import SqliteWriter
-from pipelines import run_video_inference
-from video import VideoMetadata
+from inference_core.persistence import SqliteWriter
+from inference_core.pipelines import run_video_inference
+from inference_core.video import VideoMetadata
 
 
 def _mask(
@@ -208,7 +208,7 @@ class Mh0AdapterTest(unittest.TestCase):
                     return_value=raw_results,
                 ),
                 patch(
-                    "pipelines.inference.AsyncVideoDecoder",
+                    "inference_core.pipelines.inference.AsyncVideoDecoder",
                     FakeDecoder,
                 ),
             ):

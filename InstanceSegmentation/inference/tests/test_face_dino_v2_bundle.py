@@ -15,7 +15,7 @@ from face_dino_v2.trt.bundle import (
     load_engine_bundle,
     sha256_file,
 )
-from registry import get_model
+from inference_core.registry import get_model
 
 
 def _record(path: Path) -> dict[str, object]:

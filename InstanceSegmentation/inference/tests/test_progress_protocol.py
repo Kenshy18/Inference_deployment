@@ -7,7 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from progress_protocol import (
+from inference_core.progress_protocol import (
     INTERVAL_ENVIRONMENT,
     PHASE_ENVIRONMENT,
     InferenceProgressReporter,
@@ -24,7 +24,7 @@ class ProgressProtocolTests(unittest.TestCase):
         with (
             patch.dict(os.environ, environment, clear=False),
             patch(
-                "progress_protocol.time.monotonic",
+                "inference_core.progress_protocol.time.monotonic",
                 side_effect=(0.0, 0.1, 0.31, 0.31, 0.4),
             ),
             redirect_stdout(output),

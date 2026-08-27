@@ -8,15 +8,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
-from contracts import (
+from inference_core.contracts import (
     DetectionFrame,
     InferenceFrame,
     SegmentationFrame,
     VisionAdapter,
 )
-from progress_protocol import InferenceProgressReporter
-from live_preview import LivePreviewSink
-from video import AsyncVideoDecoder
+from inference_core.progress_protocol import InferenceProgressReporter
+from inference_core.live_preview import LivePreviewSink
+from inference_core.video import AsyncVideoDecoder
 
 
 class ResultWriter(Protocol):

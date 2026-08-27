@@ -9,10 +9,10 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
-from pipelines import InferenceRunSummary
-from live_preview import LivePreviewSink
-from progress_protocol import InferenceProgressReporter
-from video import AsyncVideoDecoder
+from inference_core.pipelines import InferenceRunSummary
+from inference_core.live_preview import LivePreviewSink
+from inference_core.progress_protocol import InferenceProgressReporter
+from inference_core.video import AsyncVideoDecoder
 
 try:
     from .adapter import Mh0Adapter

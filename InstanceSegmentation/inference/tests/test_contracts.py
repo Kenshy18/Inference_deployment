@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from contracts import (
+from inference_core.contracts import (
     BoundingBox,
     Classification,
     Frame,

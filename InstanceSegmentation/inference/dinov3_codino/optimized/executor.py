@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Iterator
 
 import torch
-from contracts import FrameBatch
+from inference_core.contracts import FrameBatch
 
 from .tail import (
     FastCorePayload,

@@ -6,7 +6,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from mask_geometry import DEFAULT_MAX_MASK_POINTS, mask_to_polygons
+from inference_core.mask_geometry import DEFAULT_MAX_MASK_POINTS, mask_to_polygons
 
 
 def _point_count(polygons: list[list[float]]) -> int:
@@ -28,7 +28,7 @@ class MaskGeometryTest(unittest.TestCase):
         mask[4:28, 4:28] = 1
 
         with patch(
-            "mask_geometry.polygonize.cv2.findContours",
+            "inference_core.mask_geometry.polygonize.cv2.findContours",
             wraps=cv2.findContours,
         ) as find_contours:
             mask_to_polygons(mask)

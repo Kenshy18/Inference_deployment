@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from contracts import Frame, FrameBatch
+from inference_core.contracts import Frame, FrameBatch
 from face_dino_v2.adapter import (
     FaceDinoV2Adapter,
     FaceDinoV2Settings,

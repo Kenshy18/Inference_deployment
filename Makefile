@@ -1,14 +1,17 @@
 PYTHON ?= python3
 NPM ?= npm
 
-.PHONY: check check-python check-postprocess check-orchestration \
+.PHONY: check check-python check-inference check-postprocess check-orchestration \
 	check-overlay check-deployment check-gui compile clean-caches
 
 check:
 	$(PYTHON) scripts/check_repository.py
 
 check-python:
-	$(PYTHON) scripts/check_repository.py postprocess orchestration overlay deployment
+	$(PYTHON) scripts/check_repository.py inference postprocess orchestration overlay deployment
+
+check-inference:
+	$(PYTHON) scripts/check_repository.py --no-compile inference
 
 check-postprocess:
 	$(PYTHON) scripts/check_repository.py --no-compile postprocess

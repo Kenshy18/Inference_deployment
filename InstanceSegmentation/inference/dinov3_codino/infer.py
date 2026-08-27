@@ -64,9 +64,9 @@ except ImportError:
     from trt.bundle import load_engine_bundle
     from trt.runtime import FixedTrtPartitionSettings, parse_feature_shapes
 
-from mask_geometry import DEFAULT_MAX_MASK_POINTS
-from persistence import AsyncSqliteWriter, SqliteWriter
-from pipelines import run_video_inference
+from inference_core.mask_geometry import DEFAULT_MAX_MASK_POINTS
+from inference_core.persistence import AsyncSqliteWriter, SqliteWriter
+from inference_core.pipelines import run_video_inference
 
 
 @dataclass(frozen=True)

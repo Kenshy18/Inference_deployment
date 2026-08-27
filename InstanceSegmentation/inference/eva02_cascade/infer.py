@@ -58,9 +58,9 @@ from eva02_cascade.instance_segmentation.contracts import (
 )
 from eva02_cascade.runtime_contracts import VideoInferenceSettings
 from eva02_cascade.trt.bundle import load_trt_bundle
-from mask_geometry import DEFAULT_MAX_MASK_POINTS
-from persistence import SqliteWriter
-from pipelines import run_video_inference
+from inference_core.mask_geometry import DEFAULT_MAX_MASK_POINTS
+from inference_core.persistence import SqliteWriter
+from inference_core.pipelines import run_video_inference
 
 
 def existing_file(value: str) -> Path:

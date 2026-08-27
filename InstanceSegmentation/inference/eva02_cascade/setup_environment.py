@@ -38,11 +38,11 @@ MODULES = (
     "cv2",
     "numpy",
     "detectron2",
-    "contracts",
-    "mask_geometry",
-    "video",
-    "persistence",
-    "pipelines",
+    "inference_core.contracts",
+    "inference_core.mask_geometry",
+    "inference_core.video",
+    "inference_core.persistence",
+    "inference_core.pipelines",
     "onnx",
     "tensorrt",
 )
@@ -128,7 +128,7 @@ def extract_source(archive: Path, destination: Path, *, force: bool) -> Path:
 
 
 def extract_shared(*, force: bool) -> Path:
-    if (SHARED_ROOT / "contracts").is_dir() and not force:
+    if (SHARED_ROOT / "inference_core").is_dir() and not force:
         return SHARED_ROOT
     if not SHARED_ARCHIVE.is_file():
         raise FileNotFoundError(f"shared runtime archive not found: {SHARED_ARCHIVE}")

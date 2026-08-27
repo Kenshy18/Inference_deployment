@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from contracts import (
+from inference_core.contracts import (
     FrameBatch,
     ModelDescriptor,
     SegmentationFrame,

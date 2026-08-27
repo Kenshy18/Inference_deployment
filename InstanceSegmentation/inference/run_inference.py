@@ -12,13 +12,13 @@ INFERENCE_ROOT = Path(__file__).resolve().parent
 if str(INFERENCE_ROOT) not in sys.path:
     sys.path.insert(0, str(INFERENCE_ROOT))
 
-from contracts import TaskType
-from orchestration import (
+from inference_core.contracts import TaskType
+from inference_core.execution import (
     InferenceMode,
     OrchestrationRequest,
     run_orchestrated_inference,
 )
-from registry import list_models
+from inference_core.registry import list_models
 
 
 def build_parser() -> argparse.ArgumentParser:

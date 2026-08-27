@@ -10,16 +10,16 @@ from pathlib import Path
 
 import torch
 
-from contracts import (
+from inference_core.contracts import (
     ModelDescriptor,
     SegmentationFrame,
     TaskType,
     segmentation_frame_from_rows,
 )
-from pipelines import InferenceRunSummary
-from live_preview import LivePreviewSink
-from progress_protocol import InferenceProgressReporter
-from video import read_video_metadata
+from inference_core.pipelines import InferenceRunSummary
+from inference_core.live_preview import LivePreviewSink
+from inference_core.progress_protocol import InferenceProgressReporter
+from inference_core.video import read_video_metadata
 
 try:
     from ..model import CoDinoRuntime, VideoInferenceSettings

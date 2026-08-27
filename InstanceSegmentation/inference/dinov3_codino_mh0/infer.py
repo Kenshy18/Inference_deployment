@@ -56,9 +56,9 @@ except ImportError:
     )
     from pipeline import run_mh0_video_inference
 
-from mask_geometry import DEFAULT_MAX_MASK_POINTS
-from persistence import AsyncSqliteWriter
-from pipelines import run_video_inference
+from inference_core.mask_geometry import DEFAULT_MAX_MASK_POINTS
+from inference_core.persistence import AsyncSqliteWriter
+from inference_core.pipelines import run_video_inference
 
 
 class Progress:

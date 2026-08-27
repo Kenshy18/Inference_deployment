@@ -17,7 +17,14 @@ from typing import Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPONENTS = ("postprocess", "orchestration", "overlay", "deployment", "gui")
+COMPONENTS = (
+    "inference",
+    "postprocess",
+    "orchestration",
+    "overlay",
+    "deployment",
+    "gui",
+)
 
 
 def _run(command: Sequence[str], *, cwd: Path, pythonpath: str | None = None) -> None:
@@ -34,7 +41,15 @@ def _run(command: Sequence[str], *, cwd: Path, pythonpath: str | None = None) ->
 
 def _check_component(name: str) -> None:
     python = sys.executable
-    if name == "postprocess":
+    if name == "inference":
+        _run(
+            (python, "-m", "pytest", "tests", "-q"),
+            cwd=ROOT / "InstanceSegmentation" / "inference",
+            pythonpath=os.pathsep.join(
+                (str(ROOT / "InstanceSegmentation" / "inference"), str(ROOT))
+            ),
+        )
+    elif name == "postprocess":
         _run(
             (python, "-m", "unittest", "discover", "-s", "tests", "-v"),
             cwd=ROOT / "postprocess",

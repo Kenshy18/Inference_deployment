@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 
-from contracts import (
+from inference_core.contracts import (
     BoundingBox,
     Detection,
     DetectionFrame,

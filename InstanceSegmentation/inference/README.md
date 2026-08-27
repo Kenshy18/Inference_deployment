@@ -59,19 +59,19 @@ Face DINO v2は既定の固定B8 bundleに加え、build済みmanifestを
 
 ```text
 run_inference.py
-    -> orchestration/pipeline.py
+    -> inference_core/execution/pipeline.py
     -> registered standalone model process(es)
     -> DetectionFrame | SegmentationFrame SQLite
     -> unified schema-v3 SQLite
 ```
 
-- `contracts/`: フレーム、分類、物体検出、インスタンスセグメンテーションの
+- `inference_core/contracts/`: フレーム、分類、物体検出、インスタンスセグメンテーションの
   安定した入出力定義
-- `video/`: モデル非依存の動画メタデータ取得とデコード
-- `persistence/`: 契約オブジェクトからSQLiteへの保存
-- `pipelines/`: デコード、推論、保存を接続するタスク非依存の制御
-- `orchestration/`: モード選択、モデルプロセス起動、atomic統合
-- `registry.py`: モデルID、タスク、Adapterの軽量な登録情報
+- `inference_core/video/`: モデル非依存の動画メタデータ取得とデコード
+- `inference_core/persistence/`: 契約オブジェクトからSQLiteへの保存
+- `inference_core/pipelines/`: デコード、推論、保存を接続するタスク非依存の制御
+- `inference_core/execution/`: モード選択、モデルプロセス起動、atomic統合
+- `inference_core/registry.py`: モデルID、タスク、Adapterの軽量な登録情報
 - `<model>/adapter.py`: モデル固有値を共通契約へ変換する唯一の境界
 - `<model>/infer.py`: 引数解釈、モデル構築、共通パイプライン呼び出しだけを行うCLI
 
@@ -108,14 +108,16 @@ half-openの`[x1, y1, x2, y2)`、スコアは`0.0`から`1.0`です。結果は�
 新規モデルは次の順に追加します。
 
 1. タスクに対応するAdapter protocolを実装する
-2. `registry.py`へモデルIDを登録する
+2. `inference_core/registry.py`へモデルIDを登録する
 3. 1フレームの実推論と契約テストを通す
 4. モデルフォルダだけを別の場所へコピーし、`setup_environment.py`実行後に
    同じ推論を通す
 
-各モデルの`vendor/inference_common.tar.gz`には、この共有層のスナップショットが
-含まれます。これによりモデルフォルダ単体でも`.runtime/shared`へ展開して実行
-できます。
+各モデルの`vendor/inference_common.tar.gz`には、`inference_core`共有層の
+スナップショットが含まれます。これによりモデルフォルダ単体でも
+`.runtime/shared`へ展開して実行できます。共有層を変更した場合は、リポジトリ
+ルートで `python scripts/build_inference_common_archives.py` を実行し、5モデルの
+同一アーカイブを更新します。
 
 ## Unified SQLite output
 

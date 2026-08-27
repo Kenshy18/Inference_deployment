@@ -7,7 +7,7 @@ import zlib
 from collections.abc import Mapping
 from pathlib import Path
 
-from contracts import DetectionFrame, InferenceFrame, SegmentationFrame
+from inference_core.contracts import DetectionFrame, InferenceFrame, SegmentationFrame
 
 from .metadata import flatten_metadata
 

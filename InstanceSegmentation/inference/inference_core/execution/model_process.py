@@ -8,18 +8,16 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from contracts import TaskType
-from registry import ModelRegistration
-from progress_protocol import (
+from inference_core import INFERENCE_ROOT
+from inference_core.contracts import TaskType
+from inference_core.registry import ModelRegistration
+from inference_core.progress_protocol import (
     INTERVAL_ENVIRONMENT,
     PHASE_ENVIRONMENT,
     emit_phase_progress,
 )
 
 from .config import OrchestrationRequest
-
-
-INFERENCE_ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass(frozen=True, slots=True)

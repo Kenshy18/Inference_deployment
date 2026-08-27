@@ -14,7 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from contracts import DetectionFrame, Frame, InferenceFrame, SegmentationFrame
+from inference_core.contracts import DetectionFrame, Frame, InferenceFrame, SegmentationFrame
 
 
 PREVIEW_MARKER = "[live-preview]"

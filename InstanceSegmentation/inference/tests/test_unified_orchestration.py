@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from contracts import (
+from inference_core.contracts import (
     BoundingBox,
     Classification,
     Detection,
@@ -19,11 +19,11 @@ from contracts import (
     SegmentationInstance,
     TaskType,
 )
-from orchestration.config import InferenceMode, OrchestrationRequest
-from orchestration.model_process import build_invocation
-from orchestration.pipeline import run_orchestrated_inference
-from persistence import SqliteWriter
-from registry import get_model
+from inference_core.execution.config import InferenceMode, OrchestrationRequest
+from inference_core.execution.model_process import build_invocation
+from inference_core.execution.pipeline import run_orchestrated_inference
+from inference_core.persistence import SqliteWriter
+from inference_core.registry import get_model
 
 
 def _segmentation_result(model_id: str) -> SegmentationFrame:
@@ -149,7 +149,7 @@ class UnifiedOrchestrationTest(unittest.TestCase):
             input_path.write_bytes(b"test")
             outputs: dict[InferenceMode, Path] = {}
             with patch(
-                "orchestration.pipeline.execute_invocation",
+                "inference_core.execution.pipeline.execute_invocation",
                 side_effect=_fake_execute,
             ):
                 for mode in InferenceMode:
@@ -319,7 +319,7 @@ class UnifiedOrchestrationTest(unittest.TestCase):
                 overwrite=True,
             )
             with patch(
-                "orchestration.pipeline.execute_invocation",
+                "inference_core.execution.pipeline.execute_invocation",
                 side_effect=RuntimeError("model failed"),
             ):
                 with self.assertRaisesRegex(RuntimeError, "model failed"):

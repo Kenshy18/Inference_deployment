@@ -6,7 +6,7 @@ from typing import Any
 
 import cv2
 import numpy as np
-from mask_geometry import mask_to_polygons
+from inference_core.mask_geometry import mask_to_polygons
 
 try:
     from .preprocessing import letterbox_params

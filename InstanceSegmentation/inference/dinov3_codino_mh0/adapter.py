@@ -7,14 +7,14 @@ from typing import Any
 import numpy as np
 import torch
 
-from contracts import (
+from inference_core.contracts import (
     FrameBatch,
     ModelDescriptor,
     SegmentationFrame,
     TaskType,
     segmentation_frame_from_rows,
 )
-from mask_geometry import mask_to_polygons
+from inference_core.mask_geometry import mask_to_polygons
 
 try:
     from .model import Mh0Runtime, infer

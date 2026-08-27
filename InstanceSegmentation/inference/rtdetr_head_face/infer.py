@@ -120,8 +120,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise FileExistsError(f"output already exists: {output_path}")
 
     _prepare_runtime(args.framework_source, args.extra_site_packages)
-    from persistence import SqliteWriter
-    from pipelines import run_video_inference
+    from inference_core.persistence import SqliteWriter
+    from inference_core.pipelines import run_video_inference
     from rtdetr_head_face import model as runtime
     from rtdetr_head_face.adapter import RtDetrHeadFaceAdapter, RtDetrSettings
 

@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import torch
 
-from contracts import Frame, ModelDescriptor, TaskType, segmentation_frame_from_rows
+from inference_core.contracts import Frame, ModelDescriptor, TaskType, segmentation_frame_from_rows
 from dinov3_cascade.output import (
     drop_auxiliary_instance_fields,
     instances_to_rows as dinov3_instances_to_rows,

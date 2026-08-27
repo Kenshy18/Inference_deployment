@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from mask_geometry import mask_to_polygons
+from inference_core.mask_geometry import mask_to_polygons
 
 
 AUXILIARY_INSTANCE_FIELDS = frozenset(

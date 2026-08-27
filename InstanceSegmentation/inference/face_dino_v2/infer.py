@@ -21,8 +21,8 @@ from face_dino_v2.model import (
     DEFAULT_SOURCE_ROOT,
     DEFAULT_TRT_BUNDLE,
 )
-from persistence import AsyncSqliteWriter
-from pipelines import run_video_inference
+from inference_core.persistence import AsyncSqliteWriter
+from inference_core.pipelines import run_video_inference
 
 
 def parser() -> argparse.ArgumentParser:

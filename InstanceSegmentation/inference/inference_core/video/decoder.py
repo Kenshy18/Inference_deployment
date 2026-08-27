@@ -7,7 +7,7 @@ import threading
 from collections.abc import Iterator
 from pathlib import Path
 
-from contracts import ColorSpace, Frame, FrameBatch
+from inference_core.contracts import ColorSpace, Frame, FrameBatch
 
 from .metadata import VideoMetadata, read_video_metadata
 
