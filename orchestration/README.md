@@ -3,6 +3,23 @@
 `InstanceSegmentation`、`postprocess`、`overlay`を、公開CLIとSQLite/manifest契約で
 一気通貫に接続します。各リポジトリの内部実装はimportしません。
 
+実装は責務別に分かれています。
+
+```text
+config.py             JSONの読み込み、相互制約、公開OrchestrationConfig
+config_sections.py    inference/postprocess/overlayごとの型
+runner.py             stageの実行順序と成果物ライフサイクル
+runner_commands.py    子プロセスのコマンド構築
+runner_media.py       解像度・proxy・最終座標の変換
+runner_support.py     進捗、background process、共通例外
+contracts.py          SQLite/manifestの境界検証
+cli.py                公開CLI
+```
+
+モデル固有引数は`runner.py`へ直書きせず`runner_commands.py`、動画座標の変換は
+`runner_media.py`へ置きます。推論・後処理・overlayの内部コードをここから直接
+importせず、CLIと成果物契約を境界にします。
+
 ## 実行
 
 ```bash
