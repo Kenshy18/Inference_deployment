@@ -38,6 +38,7 @@ run.py
 | `spatial_builder.py`, `spatial_support/` | トラック全体で対応する頂点を配置・修復 |
 | `optimizer_kernel.py` | 数値計算本体。I/Oや配布設定を持たない |
 | `optimizer_adapters/` | kernelへProductionのI/O・native DPを注入 |
+| `optimizer_adapters/native_dp_kernel.cpp` | penalty DPとRecall修復scoreのC ABI kernel |
 | `native_interval/` | C++/OpenCV厳密raster evaluatorのsource/build定義 |
 
 `geometry.py`と`optimizer_adapters/geometry.py`は用途が異なります。前者は候補生成で
