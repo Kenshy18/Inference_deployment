@@ -1670,8 +1670,11 @@ def optimize_multistate_keyframes(
         except RuntimeError:
             exact_raster = None
     graph_renderer = renderer if interval_renderer is None else interval_renderer
+    # A retained high-confidence detection can legitimately form a one-frame
+    # track.  Fixed-cardinality decode must represent that track with its one
+    # endpoint instead of requesting two keys from a one-frame graph.
     target_count = max(
-        2, min(len(controls), int(round(len(controls) / config.target_interval)))
+        1, min(len(controls), int(round(len(controls) / config.target_interval)))
     )
     initial_state_count = int(controls.shape[1])
     state_search_fallback = False

@@ -788,13 +788,25 @@ async function connectInstalledApp(specification, userData, caseOutput) {
     }
     fs.copyFileSync(installedSettings, path.join(userData, "settings.json"));
   }
+  const adjacentProfile = path.join(path.dirname(installedExe), "deployment-profile.json");
+  let profileArgument = `--user-data-dir=${userData}`;
+  if (fs.existsSync(adjacentProfile)) {
+    const isolatedProfile = JSON.parse(fs.readFileSync(adjacentProfile, "utf8"));
+    isolatedProfile.user_data_path = userData;
+    const isolatedProfilePath = path.join(userData, "deployment-profile.json");
+    fs.writeFileSync(
+      isolatedProfilePath,
+      `${JSON.stringify(isolatedProfile, null, 2)}\n`,
+    );
+    profileArgument = `--deployment-profile=${isolatedProfilePath}`;
+  }
   const port = 9400 + Math.floor(Math.random() * 1000);
   const childOutput = [];
   const child = spawn(
     installedExe,
     [
       `--automation-port=${port}`,
-      `--user-data-dir=${userData}`,
+      profileArgument,
       ...specification.videos.map((video) => `--automation-video=${video}`),
       `--automation-output=${caseOutput}`,
     ],
@@ -932,7 +944,7 @@ async function runCase(specification) {
         const next = mergeDraft(current, patch);
         next.outputRoot = outputRoot;
         localStorage.setItem("mask-studio-draft", JSON.stringify(next));
-        localStorage.setItem("mask-studio-draft-version", "4");
+        localStorage.setItem("mask-studio-draft-version", "6");
         localStorage.setItem("mask-studio-queue", "[]");
         localStorage.setItem("mask-studio-settings-view", "advanced");
       },
@@ -1253,7 +1265,20 @@ const selectedCases = selectedCase
 if (selectedCases.length === 0) {
   throw new Error(`unknown GUI_MATRIX_CASE: ${selectedCase}`);
 }
-for (const specification of selectedCases) {
+const forcedMaskGeometry = process.env.GUI_MATRIX_MASK_GEOMETRY?.trim();
+if (forcedMaskGeometry && !["polygon", "catmull_rom"].includes(forcedMaskGeometry)) {
+  throw new Error(`unknown GUI_MATRIX_MASK_GEOMETRY: ${forcedMaskGeometry}`);
+}
+const effectiveCases = forcedMaskGeometry
+  ? selectedCases.map((specification) => ({
+      ...specification,
+      id: `${specification.id}__${forcedMaskGeometry}`,
+      patch: merge(specification.patch, {
+        postprocess: { maskGeometry: forcedMaskGeometry },
+      }),
+    }))
+  : selectedCases;
+for (const specification of effectiveCases) {
   console.log(`[gui-matrix] starting ${specification.id}`);
   const result = await runCase(specification);
   report.cases.push(result);

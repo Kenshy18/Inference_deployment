@@ -1027,6 +1027,45 @@ def test_native_cardinality_decoder_relaxes_only_upward() -> None:
     assert count == 3
 
 
+def test_fixed_cardinality_curve_accepts_single_frame_track() -> None:
+    controls = np.asarray(
+        [
+            (
+                (42.0, 28.0),
+                (65.0, 25.0),
+                (78.0, 42.0),
+                (68.0, 63.0),
+                (43.0, 66.0),
+                (31.0, 45.0),
+            )
+        ],
+        dtype=np.float64,
+    )
+    states, labels = isotropic_curve_states(controls, (1.0, 1.02))
+    renderer = catmull_rom_renderer(12)
+    references = [renderer(states[0, 0])]
+    result = optimize_multistate_keyframes(
+        references,
+        states,
+        state_labels=labels,
+        base_controls=controls,
+        representation="catmull_rom_multistate",
+        renderer=renderer,
+        config=KeyframeDpConfig(
+            target_interval=6,
+            recall_floor=0.97,
+            maximum_gap=12,
+            path_selection_mode="fixed_cardinality",
+            pair_vote_enabled=False,
+            quality_rescue_enabled=False,
+        ),
+        point_refine=CurvePointRefineConfig(enabled=False),
+    )
+    assert result.target_keyframes == 1
+    assert result.chosen_indices == (0,)
+    assert result.summary()["recall_violations"] == 0
+
+
 def test_isotropic_state_shape_distances_are_deduplicated_exactly() -> None:
     base = np.asarray(
         ((50, 30), (70, 28), (82, 43), (72, 61), (48, 63), (38, 45)),

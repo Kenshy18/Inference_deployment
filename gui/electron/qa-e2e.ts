@@ -91,7 +91,7 @@ export async function runQaE2e(
           eyeMaskShape: "rectangle",
         });
         localStorage.setItem("mask-studio-draft", JSON.stringify(draft));
-        localStorage.setItem("mask-studio-draft-version", "4");
+        localStorage.setItem("mask-studio-draft-version", "6");
 
         const bootstrap = await window.maskStudio.bootstrap();
         const settings = {
