@@ -74,6 +74,14 @@ production manifestとasset packを更新します。
 ./deployment/build_release.sh
 ```
 
+Ubuntuのオンライン取得を毎回行わない場合は、事前に取得・検証した標準WSL tarを
+明示できます。指定したarchiveのSHA-256は`build-report.json`へ記録されます。
+
+```bash
+./deployment/build_release.sh \
+  -BaseDistributionArchive D:\\MaskPipelineDeployment\\base\\ubuntu-24.04.tar
+```
+
 この入口は、アセットとproduction runtimeのステージング、隔離されたUbuntu 24.04
 build distributionの作成、portable Windows GUIのビルド、WSL archiveの構築・検証、
 版別`MaskPipelineDeployer-<release-token>.exe`の作成、成果物hash検証までを順番に実行します。build

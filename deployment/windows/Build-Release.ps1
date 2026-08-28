@@ -5,6 +5,7 @@ param(
   [ValidateSet("core", "all")][string]$Profile = "all",
   [string]$WorkRoot = "D:\MaskPipelineDeployment\work",
   [string]$OutputRoot = "D:\MaskPipelineDeployment\release",
+  [string]$BaseDistributionArchive,
   [string]$BuildDistribution,
   [switch]$KeepBuildDistribution,
   [switch]$KeepWork
@@ -83,6 +84,13 @@ if ($BuildDistribution -notmatch '^[A-Za-z0-9_.-]+$') {
 if ((Get-Distros) -contains $BuildDistribution) {
   throw "Build distribution already exists: $BuildDistribution"
 }
+$resolvedBaseArchive = $null
+if (-not [string]::IsNullOrWhiteSpace($BaseDistributionArchive)) {
+  $resolvedBaseArchive = (Resolve-Path -LiteralPath $BaseDistributionArchive -ErrorAction Stop).Path
+  if (-not (Test-Path -LiteralPath $resolvedBaseArchive -PathType Leaf)) {
+    throw "Base distribution archive is not a file: $resolvedBaseArchive"
+  }
+}
 
 $workDirectory = Join-Path $WorkRoot $releaseId
 $stageDirectory = Join-Path $workDirectory "stage"
@@ -125,10 +133,17 @@ try {
   }
 
   Write-Host "[3/8] Creating an isolated clean Ubuntu 24.04 build distribution..." -ForegroundColor Cyan
-  Invoke-Checked "wsl.exe" @(
-    "--install", "Ubuntu-24.04", "--name", $BuildDistribution,
-    "--location", $distroDirectory, "--version", "2", "--no-launch"
-  )
+  if ($resolvedBaseArchive) {
+    Invoke-Checked "wsl.exe" @(
+      "--import", $BuildDistribution, $distroDirectory,
+      $resolvedBaseArchive, "--version", "2"
+    )
+  } else {
+    Invoke-Checked "wsl.exe" @(
+      "--install", "Ubuntu-24.04", "--name", $BuildDistribution,
+      "--location", $distroDirectory, "--version", "2", "--no-launch"
+    )
+  }
   # Ubuntu's first boot enables systemd. systemd-binfmt can remove the shared
   # WSLInterop registration when this temporary distro stops, so install the
   # production wsl.conf before doing any image work, restart once, and restore
@@ -215,6 +230,10 @@ try {
     source_commit = $commit
     profile = $Profile
     build_distribution = $BuildDistribution
+    base_distribution_source = if ($resolvedBaseArchive) { "local-archive" } else { "wsl-online" }
+    base_distribution_archive_sha256 = if ($resolvedBaseArchive) {
+      (Get-FileHash -LiteralPath $resolvedBaseArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    } else { $null }
     release_directory = $releaseDirectory
     deployer = $deployerPath
     default_distribution = $manifest.installation.default_distribution

@@ -24,6 +24,13 @@ class ReleaseProfileContractTests(unittest.TestCase):
         self.assertIn('"--profile", $profile', text)
         self.assertNotIn('"--profile", "all"', text)
 
+    def test_release_can_use_a_pinned_local_ubuntu_archive(self) -> None:
+        text = (ROOT / "deployment/windows/Build-Release.ps1").read_text()
+        self.assertIn("[string]$BaseDistributionArchive", text)
+        self.assertIn('"--import", $BuildDistribution, $distroDirectory', text)
+        self.assertIn('base_distribution_source = if ($resolvedBaseArchive)', text)
+        self.assertIn("base_distribution_archive_sha256", text)
+
 
 if __name__ == "__main__":
     unittest.main()
