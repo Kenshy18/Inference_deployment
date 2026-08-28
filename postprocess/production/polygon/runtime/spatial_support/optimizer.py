@@ -403,21 +403,18 @@ def _segments_cross(a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray) 
 
 
 def has_self_intersection(points: np.ndarray) -> bool:
-    value = np.asarray(points, dtype=np.float64)
-    count = len(value)
-    for first in range(count):
-        a = value[first]
-        b = value[(first + 1) % count]
-        for second in range(first + 2, count):
-            if second == first or (second + 1) % count == first:
-                continue
-            if first == 0 and second == count - 1:
-                continue
-            c = value[second]
-            d = value[(second + 1) % count]
-            if _segments_cross(a, b, c, d):
-                return True
-    return False
+    """Return whether a ring is unsafe for Production interpolation.
+
+    Candidate construction and the post-DP topology gate must use the same
+    definition.  The older spatial helper rejected only proper crossings, so
+    a ring with a repeated edge, a non-adjacent touch, or zero area could pass
+    fitting and later stop the whole job when the stricter native gate checked
+    the selected endpoint.  Delegate to the canonical topology predicate so
+    those endpoints are repaired before they become DP states.
+    """
+    from production.polygon.runtime.topology import polygon_is_simple
+
+    return not polygon_is_simple(np.asarray(points, dtype=np.float64))
 
 
 def evaluate_sequence(

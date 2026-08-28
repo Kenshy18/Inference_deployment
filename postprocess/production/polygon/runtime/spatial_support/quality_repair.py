@@ -43,7 +43,11 @@ def persistent_line_fit_quality_guarded(
     tested = 0
     for frame in range(len(output)):
         iou, recall = evaluator.frame_metrics(frame, output[frame])
-        if iou >= float(iou_floor) and recall >= float(recall_floor):
+        if (
+            not has_self_intersection(output[frame])
+            and iou >= float(iou_floor)
+            and recall >= float(recall_floor)
+        ):
             continue
         fallback = rdp_fixed_count(references[frame], int(target))
         fallback = _best_phase(

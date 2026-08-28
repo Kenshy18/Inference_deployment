@@ -347,6 +347,20 @@ def test_topology_guard_splits_only_the_invalid_selected_edge() -> None:
     assert stats["dp_inserted_keys"] == 1
 
 
+def test_spatial_topology_gate_rejects_degenerate_endpoint() -> None:
+    """Spatial fitting must match the stricter post-DP endpoint contract."""
+    from production.polygon.runtime.spatial_support.optimizer import (
+        has_self_intersection,
+    )
+
+    repeated_vertex = np.asarray(
+        [[0.0, 0.0], [4.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]],
+        dtype=np.float32,
+    )
+    assert not polygon_is_simple(repeated_vertex)
+    assert has_self_intersection(repeated_vertex)
+
+
 def test_pair_vote_gate_rejects_only_the_crossing_trial() -> None:
     valid = np.asarray([[0, 0], [4, 0], [4, 4], [0, 4]], dtype=np.float32)
     crossing = np.asarray([[0, 0], [4, 4], [0, 4], [4, 0]], dtype=np.float32)
