@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AppSettings, VideoProbe } from "../shared/types";
-import { windowsToWslPath } from "./wsl-bridge";
+import { ensureWslDriveMounts, windowsToWslPath } from "./wsl-bridge";
 
 const EXEC_TIMEOUT_MS = 10_000;
 
@@ -107,6 +107,19 @@ export async function probeVideo(
     thumbnail: null,
   };
   if (!videoPath.trim()) {
+    return result;
+  }
+
+  // A mapped/cloud-backed Windows drive may not exist below /mnt until the
+  // release distribution mounts it as drvfs.  Job launch already performs
+  // this check, but probing happens earlier while a file is added to the
+  // queue.  Mount here as well so queue metadata and thumbnails work without
+  // requiring a manual mount or a first failed probe.
+  try {
+    await ensureWslDriveMounts(settings, videoPath);
+  } catch {
+    // Probing is deliberately best-effort.  Job validation will surface an
+    // actionable drive/access error if the user starts an inaccessible item.
     return result;
   }
 
