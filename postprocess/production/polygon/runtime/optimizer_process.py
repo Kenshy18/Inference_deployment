@@ -152,6 +152,10 @@ def _write_audit(
         os.environ.get(PAIR_VOTE_CONSTRAINED_ENV, "0").strip() == "1"
     )
     per_key_pair_vote = os.environ.get(PAIR_VOTE_PER_KEY_ENV, "0").strip() == "1"
+    dense_candidate_pool = bool(stream_rows) and all(
+        int(row["candidate_frame_count"]) == int(row["frame_count"])
+        for row in stream_rows
+    )
     audit = {
         "schema_version": 1,
         "algorithm": (
@@ -232,8 +236,11 @@ def _write_audit(
             patched_module is not None
             and getattr(patched_module, "_phase1_exact_repair_disabled", False)
         ),
-        "dense_candidate_pool": int(optimizer["candidate_frame_count_total"])
-        == int(optimizer["row_count"]),
+        # Overlapped long-track chunks intentionally evaluate their context
+        # frames more than once, so the aggregate candidate count can exceed
+        # the number of emitted rows.  Density is a per-run invariant: every
+        # frame processed by each run must have a candidate state.
+        "dense_candidate_pool": dense_candidate_pool,
         "semantic_changes": {
             "candidate_shapes": profile,
             "spatial_polygon_representation": (

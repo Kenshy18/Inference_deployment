@@ -58,6 +58,7 @@ RUNTIME_MODULES = (
     "production.polygon.runtime.native_runtime",
     "production.polygon.runtime.candidate_generation",
     "production.polygon.runtime.runtime_config",
+    "production.polygon.runtime.scheduling",
     "production.polygon.runtime.hard_recall_dp",
     "production.polygon.runtime.optimizer_process",
     "production.polygon.runtime.coordinator",

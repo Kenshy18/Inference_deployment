@@ -36,6 +36,7 @@ import csv
 import json
 import math
 import multiprocessing
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -607,6 +608,25 @@ def main() -> None:
         )
 
     run_count = int(len(runs))
+    candidate_frame_worker_auto = (
+        not streaming_rows
+        and os.environ.get(
+            "MASK_PIPELINE_PHASE2_CANDIDATE_FRAME_WORKERS_AUTO", "0"
+        ).strip()
+        == "1"
+    )
+    if candidate_frame_worker_auto:
+        # A lone long track cannot use the process pool, so two independent
+        # frame generators recover useful CPU parallelism.  With multiple
+        # track workers, keeping each inner generator serial avoids nested
+        # oversubscription and preserves predictable throughput.
+        os.environ["MASK_PIPELINE_PHASE2_CANDIDATE_FRAME_WORKERS"] = (
+            "2" if run_count == 1 else "1"
+        )
+    candidate_frame_workers_effective = max(
+        1,
+        int(os.environ.get("MASK_PIPELINE_PHASE2_CANDIDATE_FRAME_WORKERS", "1")),
+    )
     union_store: SqliteUnionRowStore | None = None
     union_row_count = 0
     final_keyframes: list[dict[str, object]] = []
@@ -791,6 +811,12 @@ def main() -> None:
         "max_run_frames": int(args.max_run_frames),
         "run_overlap_frames": int(args.run_overlap_frames),
         "num_workers": int(effective_workers),
+        "candidate_frame_worker_mode": (
+            "auto_by_run_count" if candidate_frame_worker_auto else "fixed"
+        ),
+        "candidate_frame_workers_effective": int(
+            candidate_frame_workers_effective
+        ),
         "worker_start_method": (
             str(start_method)
             if not streaming_rows and effective_workers > 1 and run_count > 1

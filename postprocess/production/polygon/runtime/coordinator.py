@@ -104,6 +104,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--anchors-per-contour", type=int, default=48)
     parser.add_argument("--native-batch-threads", type=int, default=8)
     parser.add_argument("--gc-interval", type=int, default=8)
+    parser.add_argument(
+        "--max-run-frames",
+        type=int,
+        default=30000,
+        help=(
+            "maximum frames per optimizer run; Production keeps 30000, while "
+            "runtime experiments may lower it to study long-track parallelism"
+        ),
+    )
+    parser.add_argument(
+        "--run-overlap-frames",
+        type=int,
+        default=900,
+        help="context frames retained on both sides of a split optimizer run",
+    )
+    parser.add_argument(
+        "--keyframe-max-gap",
+        type=int,
+        default=30,
+        help=(
+            "maximum edge length in the keyframe DP graph; Production keeps "
+            "30, while runtime experiments may evaluate tighter graph bounds"
+        ),
+    )
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
         "--pair-vote",
@@ -154,13 +178,13 @@ def command(source: Path, output: Path, args: argparse.Namespace) -> list[str]:
         "--gapfill-max-gap",
         "15",
         "--max-run-frames",
-        "30000",
+        str(args.max_run_frames),
         "--run-overlap-frames",
-        "900",
+        str(args.run_overlap_frames),
         "--recall-min",
         str(args.recall_floor),
         "--max-gap",
-        "30",
+        str(args.keyframe_max_gap),
         "--num-workers",
         str(args.num_workers),
         "--max-tracks",
@@ -305,6 +329,16 @@ def main() -> int:
         raise ValueError("worker counts must be >= 1")
     if args.native_batch_threads < 1 or args.gc_interval < 1:
         raise ValueError("native-batch-threads and gc-interval must be >= 1")
+    if args.max_run_frames < 1:
+        raise ValueError("max-run-frames must be >= 1")
+    if args.run_overlap_frames < 0:
+        raise ValueError("run-overlap-frames must be >= 0")
+    if 2 * args.run_overlap_frames >= args.max_run_frames:
+        raise ValueError(
+            "twice run-overlap-frames must be smaller than max-run-frames"
+        )
+    if args.keyframe_max_gap < 1:
+        raise ValueError("keyframe-max-gap must be >= 1")
     if args.max_tracks < 0:
         raise ValueError("max-tracks must be >= 0")
     if not 0.0 < args.recall_floor <= 1.0:
@@ -481,6 +515,9 @@ def main() -> int:
                 "anchors_per_contour": int(args.anchors_per_contour),
                 "native_batch_threads": int(args.native_batch_threads),
                 "gc_interval": int(args.gc_interval),
+                "max_run_frames": int(args.max_run_frames),
+                "run_overlap_frames": int(args.run_overlap_frames),
+                "keyframe_max_gap": int(args.keyframe_max_gap),
             },
         }
         (args.output_root / "phase2_matrix.json").write_text(

@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from .spatial_config import ADAPTIVE_PROFILE_ID, CANDIDATE, PROFILE_ID
+from .scheduling import available_cpu_count, balanced_polygon_schedule
 
 
 HERE = Path(__file__).resolve().parent
@@ -77,6 +78,18 @@ def parse_args() -> argparse.Namespace:
 def build_command(args: argparse.Namespace, interval: int, output: Path) -> list[str]:
     profile = str(getattr(args, "profile", PROFILE_ID))
     adaptive = profile == ADAPTIVE_PROFILE_ID
+    selected_labels = tuple(
+        value.strip() for value in str(args.labels).split(",") if value.strip()
+    )
+    schedule = balanced_polygon_schedule(
+        cpu_count=available_cpu_count(),
+        label_count=max(1, len(selected_labels)),
+        requested_label_workers=max(1, int(args.label_workers)),
+        requested_optimizer_workers=max(1, int(args.num_workers)),
+        requested_native_threads=max(
+            1, int(getattr(args, "native_batch_threads", 8))
+        ),
+    )
     command = [
         sys.executable,
         str(COORDINATOR),
@@ -95,13 +108,13 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
         "--anchors-per-contour",
         str(20 if adaptive else CANDIDATE.vertices_per_component),
         "--num-workers",
-        str(max(1, int(args.num_workers))),
+        str(schedule.optimizer_workers_per_label),
         "--label-workers",
-        str(max(1, int(args.label_workers))),
+        str(schedule.label_workers),
         "--max-tracks",
         str(max(0, int(args.max_tracks))),
         "--native-batch-threads",
-        str(max(1, int(getattr(args, "native_batch_threads", 8)))),
+        str(schedule.native_threads_per_optimizer),
         "--gc-interval",
         "8",
         "--pair-vote-per-key",
@@ -199,6 +212,7 @@ def main() -> int:
     environment["MASK_PIPELINE_NEW_PRODUCTION_PAIR_VOTE_THREADS"] = str(
         max(1, int(args.pair_vote_threads))
     )
+    environment["MASK_PIPELINE_PHASE2_CANDIDATE_FRAME_WORKERS_AUTO"] = "1"
     if vertex_policy is not None:
         environment["MASK_PIPELINE_SPATIAL_VERTEX_POLICY_JSON"] = str(vertex_policy)
     for interval in intervals:
@@ -222,6 +236,7 @@ def main() -> int:
                 "mean_iou": aggregate["iou_mean"],
                 "keyframes": aggregate["keyframes"],
                 "exact_quality": quality,
+                "execution": matrix.get("execution"),
                 "matrix": str(matrix_path),
             }
         )
