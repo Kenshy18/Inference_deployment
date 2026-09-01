@@ -23,6 +23,7 @@ class SpatialRepairResult:
     recall_violations: int
     repaired_frames: int
     unresolved_frames: tuple[int, ...]
+    invalid_candidate_frames: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,7 @@ def repair_spatial_controls(
     selected_ious = np.zeros((len(source),), dtype=np.float64)
     selected_recalls = np.zeros_like(selected_ious)
     unresolved: list[int] = []
+    invalid: list[int] = []
     candidates = np.arange(
         1.0,
         float(maximum_scale) + float(scale_step) * 0.5,
@@ -81,7 +83,18 @@ def repair_spatial_controls(
                 best = (score, trial.copy(), float(scale), iou, recall)
         chosen = best if best is not None else highest_recall
         if chosen is None:
-            raise RuntimeError(f"frame {frame}: every spatial candidate is invalid")
+            # Scaling preserves the topology of P.  If the fitted curve is
+            # self-intersecting, every scale is therefore invalid and the
+            # conservative completion-envelope path must replace this frame.
+            # Keep a finite placeholder here instead of aborting a multi-hour
+            # batch before that deterministic fallback can run.
+            output[frame] = points
+            scales[frame] = 1.0
+            selected_ious[frame] = 0.0
+            selected_recalls[frame] = 0.0
+            unresolved.append(int(frame))
+            invalid.append(int(frame))
+            continue
         _score, trial, scale, iou, recall = chosen
         output[frame] = trial
         scales[frame] = scale
@@ -99,6 +112,7 @@ def repair_spatial_controls(
         ),
         repaired_frames=int(np.count_nonzero(scales > 1.0 + 1e-12)),
         unresolved_frames=tuple(unresolved),
+        invalid_candidate_frames=tuple(invalid),
     )
 
 

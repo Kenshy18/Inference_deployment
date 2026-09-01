@@ -448,9 +448,13 @@ def iter_track_streams_from_sqlite(
     run_overlap_frames: int,
     segmentation_stats: dict[str, int],
     prepare_anchors: bool = True,
+    allowed_track_ids: list[str] | None = None,
 ):
-    allowed_track_ids = sqlite_allowed_track_ids(sqlite_path, int(max_tracks))
-    source_stats = sqlite_mask_stats_for_tracks(sqlite_path, allowed_track_ids)
+    if allowed_track_ids is None:
+        selected_track_ids = sqlite_allowed_track_ids(sqlite_path, int(max_tracks))
+    else:
+        selected_track_ids = [str(value) for value in allowed_track_ids]
+    source_stats = sqlite_mask_stats_for_tracks(sqlite_path, selected_track_ids)
     max_frames = int(max_run_frames)
     requested_overlap = max(0, int(run_overlap_frames))
     effective_overlap = (
@@ -638,7 +642,7 @@ def iter_track_streams_from_sqlite(
         segment_len += 1
         return emit_ready_chunks(final=False)
 
-    for row in iter_sqlite_track_rows(sqlite_path, allowed_track_ids):
+    for row in iter_sqlite_track_rows(sqlite_path, selected_track_ids):
         if current_track_id is not None and str(row.track_id) != current_track_id:
             for run in flush_segment():
                 yield run

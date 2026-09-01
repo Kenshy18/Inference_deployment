@@ -57,6 +57,7 @@ from production.curve.runtime.role_states import (
     curve_role_ids,
     polygon_role_curve_states,
 )
+from production.curve.runtime.spatial import repair_spatial_controls
 from production.curve.runtime.topology import (
     has_strict_self_intersection,
     strict_self_intersection_batch,
@@ -309,7 +310,7 @@ def test_engine_audits_and_exports_every_multi_component_observation(
     )
     controls_to_return = iter(component_controls)
 
-    def fake_fit(_references, _point_count, _config):
+    def fake_fit(_references, _point_count, _config, **_kwargs):
         return next(controls_to_return), {
             "fit": {},
             "post_fit_repair": {
@@ -402,6 +403,40 @@ def test_conservative_spatial_envelope_remains_a_non_stopping_last_resort(
     assert recall >= 0.97
     assert iou > 0.60
     assert area_ratio < 1.7
+    assert not has_strict_self_intersection(boundary)
+
+
+def test_self_intersecting_spatial_fit_reaches_non_stopping_repair() -> None:
+    reference = _ellipse((120.0, 80.0), radii=(48.0, 23.0), count=192)
+    crossing = np.asarray(
+        ((100, 60), (140, 100), (160, 60), (100, 90), (160, 90)),
+        dtype=np.float64,
+    )
+    renderer = catmull_rom_renderer(16)
+    initial = repair_spatial_controls(
+        [reference],
+        crossing[None],
+        renderer,
+        recall_floor=0.97,
+        maximum_scale=1.08,
+        scale_step=0.002,
+    )
+    assert initial.invalid_candidate_frames == (0,)
+    assert initial.unresolved_frames == (0,)
+
+    repaired, summary = _repair_if_needed(
+        [reference],
+        crossing[None],
+        config=CurveProductionConfig(native_cpu_threads=1),
+    )
+    boundary = renderer(repaired[0])
+    iou, recall, _precision, _area_ratio = _frame_metrics(reference, boundary)
+    assert (
+        summary["independent_local_refit"]["accepted_frames"] == [0]
+        or summary["completion_envelope_frames"] == [0]
+    )
+    assert recall >= 0.97
+    assert iou > 0.90
     assert not has_strict_self_intersection(boundary)
 
 

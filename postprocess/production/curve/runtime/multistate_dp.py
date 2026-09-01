@@ -1633,6 +1633,7 @@ def optimize_multistate_keyframes(
     fallback_state_labels: tuple[str, ...] | None = None,
     fast_state_target_ratio: float = 0.0,
     fast_state_quality_probe: bool = True,
+    shared_exact_raster: ExactDoubleRasterBatch | None = None,
 ) -> KeyframeDpResult:
     """Optimize frame, state and P jointly under exact per-frame Recall."""
     config.validate()
@@ -1659,8 +1660,8 @@ def optimize_multistate_keyframes(
         if not 0.0 < float(fast_state_target_ratio) <= 1.0:
             raise ValueError("fast_state_target_ratio must be in (0, 1]")
     started = time.perf_counter()
-    exact_raster = None
-    if bool(config.native_cpu_batches):
+    exact_raster = shared_exact_raster
+    if exact_raster is None and bool(config.native_cpu_batches):
         try:
             exact_raster = create_exact_raster_batch(
                 references,
@@ -1709,9 +1710,26 @@ def optimize_multistate_keyframes(
         )
         return candidate_evaluator, candidate_path, candidate_penalty
 
-    evaluator, path, penalty = solve_graph(controls)
     probe_seconds = 0.0
-    if fallback_controls is not None:
+    try:
+        evaluator, path, penalty = solve_graph(controls)
+    except RuntimeError as error:
+        if (
+            fallback_controls is None
+            or "no hard-Recall-feasible" not in str(error)
+        ):
+            raise
+        # The two-state probe palette is an optimization only.  A difficult
+        # frame can make that compact graph infeasible even though the wider
+        # palette (which includes the repaired raw state) has a valid path.
+        # Retry the authoritative palette instead of aborting before the
+        # existing fallback policy can run.
+        probe_seconds = float(time.perf_counter() - probe_started)
+        controls = fallback_controls
+        state_labels = fallback_labels or ()
+        evaluator, path, penalty = solve_graph(controls)
+        state_search_fallback = True
+    if fallback_controls is not None and not state_search_fallback:
         maximum_fast_keys = int(
             np.floor(
                 len(controls)

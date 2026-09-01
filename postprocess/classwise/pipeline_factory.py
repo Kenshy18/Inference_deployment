@@ -45,6 +45,10 @@ def build_nested_pipeline(
                     if geometry_mode == "polygon"
                     else {
                         "native_cpu_threads": int(curve_cpu_threads),
+                        # The owning classwise stage already partitions tracks
+                        # and enforces the global process budget.  Prevent a
+                        # nested ProcessPool in each route.
+                        "optimizer_workers": 1,
                         "selected_track_ids": list(selected_track_ids),
                     }
                 ),

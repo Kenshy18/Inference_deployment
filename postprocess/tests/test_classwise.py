@@ -18,7 +18,10 @@ from classwise.curve_parallel import (
     curve_track_costs,
     partition_curve_tracks,
 )
+from classwise.curve_scheduling import allocate_curve_group_shards
+from classwise.pipeline_factory import build_nested_pipeline
 from common.config import PipelineConfig, StageSpec
+from production.curve.parallel import _shard_preparations
 from common.runner import PipelineRunner
 from run_pipeline import build_parser, run_pipeline
 from tracking.schema import create_schema
@@ -72,6 +75,86 @@ def _tracked_sqlite(path: Path) -> Path:
 
 
 class ClassPostprocessTests(unittest.TestCase):
+    def test_curve_shard_budget_follows_semantic_workload(self) -> None:
+        groups = (("1", "2", "3", "4", "5"), ("6", "7"))
+        costs = {
+            "1": 100,
+            "2": 100,
+            "3": 100,
+            "4": 100,
+            "5": 100,
+            "6": 10,
+            "7": 10,
+        }
+        self.assertEqual(
+            (5, 1),
+            allocate_curve_group_shards(
+                groups,
+                costs,
+                process_budget=6,
+            ),
+        )
+        self.assertEqual(
+            (1, 1),
+            allocate_curve_group_shards(
+                groups,
+                costs,
+                process_budget=1,
+            ),
+        )
+
+    def test_curve_worker_shards_are_complete_and_point_cost_balanced(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            endpoint = Path(temporary) / "endpoint.sqlite"
+            with sqlite3.connect(endpoint) as connection:
+                connection.execute("CREATE TABLE masks(track_id TEXT NOT NULL)")
+                connection.executemany(
+                    "INSERT INTO masks(track_id) VALUES (?)",
+                    [
+                        (track_id,)
+                        for track_id in ("1", "2", "3", "4")
+                        for _index in range(100)
+                    ],
+                )
+            preparation = {
+                "active_labels": ["test"],
+                "classes": {
+                    "test": {
+                        "endpoint_sqlite": str(endpoint),
+                        "input_rows": 400,
+                    }
+                },
+                "vertex_policy": {
+                    "tracks": {
+                        "1": {"vertices_per_component": 20},
+                        "2": {"vertices_per_component": 14},
+                        "3": {"vertices_per_component": 14},
+                        "4": {"vertices_per_component": 14},
+                    }
+                },
+            }
+            shards = _shard_preparations(preparation, 2, 0)
+            selected = [
+                track_id
+                for worker, _rows, _tracks, _cost in shards
+                for track_id in worker["classes"]["test"]["allowed_track_ids"]
+            ]
+            self.assertEqual(["1", "2", "3", "4"], sorted(selected))
+            self.assertEqual([100, 300], sorted(value[1] for value in shards))
+            costs = sorted(value[3] for value in shards)
+            self.assertLessEqual(costs[1] / costs[0], 1.30)
+
+    def test_classwise_curve_route_disables_nested_process_pool(self) -> None:
+        pipeline = build_nested_pipeline(
+            ClassPostprocessSettings("polygon", 3, 15),
+            geometry_options={"optimizer_workers": 6},
+            geometry_mode="catmull_rom",
+            curve_cpu_threads=4,
+            selected_track_ids=("1", "2"),
+        )
+        curve = pipeline.stages[0]
+        self.assertEqual(1, curve.options["optimizer_workers"])
+
     def test_curve_track_partition_is_stable_and_balanced(self) -> None:
         tracks = ("1", "2", "3", "4", "5")
         counts = {"1": 100, "2": 80, "3": 40, "4": 30, "5": 20}

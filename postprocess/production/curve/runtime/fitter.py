@@ -726,6 +726,8 @@ def _repaired_candidate(
 def fit_sequence(
     references: list[np.ndarray],
     config: FitConfig = FitConfig(),
+    *,
+    exact_raster: ExactDoubleRasterBatch | None = None,
 ) -> SequenceFitResult:
     """Fit one persistent closed Catmull--Rom curve to a contour sequence."""
     config.validate()
@@ -734,16 +736,16 @@ def fit_sequence(
         raise ValueError("at least one reference contour is required")
     started = time.perf_counter()
     counter = [0]
-    exact_raster = None
-    if bool(config.native_cpu_batches):
+    raster = exact_raster
+    if raster is None and bool(config.native_cpu_batches):
         try:
-            exact_raster = create_exact_raster_batch(
+            raster = create_exact_raster_batch(
                 source,
                 maximum_cache_bytes=int(config.native_reference_cache_bytes),
                 maximum_batch_cases=int(config.native_batch_cases),
             )
         except RuntimeError:
-            exact_raster = None
+            raster = None
     dense = align_temporal_dense(source, int(config.dense_contour_samples))
     phase_shifts = tuple(0 for _frame in source)
     if bool(config.temporal_phase_stabilization_enabled):
@@ -759,7 +761,7 @@ def fit_sequence(
         config,
         representatives,
         counter,
-        exact_raster,
+        raster,
     )
     initial_controls = np.ascontiguousarray(dense[:, indices], dtype=np.float64)
     initial_curves = sample_curve_sequence(
@@ -770,7 +772,7 @@ def fit_sequence(
         initial_curves,
         initial_controls,
         config,
-        exact_raster,
+        raster,
     )
     counter[0] += len(source)
     refined_indices, _refined_proxy = _refine_persistent_locations(
@@ -780,7 +782,7 @@ def fit_sequence(
         config,
         representatives,
         counter,
-        exact_raster,
+        raster,
     )
     base_controls = np.ascontiguousarray(dense[:, refined_indices], dtype=np.float64)
     fitted_controls = base_controls
@@ -816,7 +818,7 @@ def fit_sequence(
             candidate,
             config,
             counter,
-            exact_raster,
+            raster,
         )
         objective = _metric_objective(repaired[3], config)
         key = (
@@ -849,7 +851,7 @@ def fit_sequence(
         whole_curve_stats=fit_stats,
         temporal_phase_shifts=phase_shifts,
         native_reference_cache=(
-            {} if exact_raster is None else exact_raster.cache_stats()
+            {} if raster is None else raster.cache_stats()
         ),
         config=config,
     )

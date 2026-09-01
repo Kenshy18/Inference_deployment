@@ -26,6 +26,7 @@ from .runtime.keyframe_dp import (
     catmull_rom_renderer,
 )
 from .runtime.model import sample_curve_sequence
+from .runtime.native_cpu import ExactDoubleRasterBatch, create_exact_raster_batch
 from .runtime.multistate_dp import (
     CurvePointRefineConfig,
     isotropic_curve_states,
@@ -341,8 +342,13 @@ def _repair_if_needed(
             recall_floor=float(config.recall_floor),
         )
         repaired_controls = completion.controls
-        completion_frames = completion.replaced_frames
-        maximum_completion_area_ratio = float(completion.maximum_area_ratio)
+        completion_frames = tuple(
+            sorted(set(completion_frames) | set(completion.replaced_frames))
+        )
+        maximum_completion_area_ratio = max(
+            maximum_completion_area_ratio,
+            float(completion.maximum_area_ratio),
+        )
         minimum_recall = float(completion.minimum_recall)
         mean_iou = float(completion.mean_iou)
     return repaired_controls, {
@@ -361,10 +367,12 @@ def _fit_component(
     references: list[np.ndarray],
     point_count: int,
     config: CurveProductionConfig,
+    exact_raster: ExactDoubleRasterBatch | None = None,
 ) -> tuple[np.ndarray, dict[str, object]]:
     fitted = fit_sequence(
         references,
         _fit_config(int(point_count), config),
+        exact_raster=exact_raster,
     )
     controls = fitted.controls
     repair_summary: dict[str, object] = {
@@ -412,6 +420,8 @@ class _Audit:
         self.point_trials = 0
         self.point_accepted = 0
         self.point_gain = 0.0
+        self.fit_seconds = 0.0
+        self.stream_seconds = 0.0
         self.dp_seconds = 0.0
         self.pair_vote_seconds = 0.0
         self.point_refine_seconds = 0.0
@@ -503,6 +513,19 @@ class _Audit:
             "point_refine_trials": int(self.point_trials),
             "point_refine_accepted": int(self.point_accepted),
             "point_refine_iou_gain": float(self.point_gain),
+            "fit_seconds": float(self.fit_seconds),
+            "stream_seconds": float(self.stream_seconds),
+            "other_stream_seconds": float(
+                max(
+                    0.0,
+                    self.stream_seconds
+                    - self.fit_seconds
+                    - self.dp_seconds
+                    - self.pair_vote_seconds
+                    - self.point_refine_seconds
+                    - self.final_audit_seconds,
+                )
+            ),
             "dp_seconds": float(self.dp_seconds),
             "pair_vote_seconds": float(self.pair_vote_seconds),
             "point_refine_seconds": float(self.point_refine_seconds),
@@ -634,6 +657,14 @@ def run_curve_optimizer(
                 run_overlap_frames=int(config.run_overlap_frames),
                 segmentation_stats=stats,
                 prepare_anchors=False,
+                allowed_track_ids=(
+                    None
+                    if class_value.get("allowed_track_ids") is None
+                    else [
+                        str(value)
+                        for value in class_value.get("allowed_track_ids", ())
+                    ]
+                ),
             ):
                 run_started = time.perf_counter()
                 current_track_id = str(run.track_id)
@@ -668,11 +699,28 @@ def run_curve_optimizer(
                         np.asarray(frame[component], dtype=np.float64)
                         for frame in run.gt_polygons
                     ]
+                    shared_exact_raster = None
+                    try:
+                        shared_exact_raster = create_exact_raster_batch(
+                            references,
+                            maximum_cache_bytes=int(
+                                config.native_reference_cache_bytes
+                            ),
+                            maximum_batch_cases=int(config.native_batch_cases),
+                        )
+                    except RuntimeError:
+                        shared_exact_raster = None
                     controls, fit_summary = _fit_component(
                         references,
                         point_count,
                         config,
+                        exact_raster=shared_exact_raster,
                     )
+                    raw_fit_timing = fit_summary.get("fit", {})
+                    if isinstance(raw_fit_timing, dict):
+                        audit.fit_seconds += float(
+                            raw_fit_timing.get("elapsed_seconds", 0.0)
+                        )
                     post_fit_repair = fit_summary["post_fit_repair"]
                     if post_fit_repair.get("emergency_repair"):
                         emergency_repairs += 1
@@ -810,6 +858,7 @@ def run_curve_optimizer(
                             fallback_state_labels=fallback_state_labels,
                             fast_state_target_ratio=fast_target_ratio,
                             fast_state_quality_probe=fast_quality_probe,
+                            shared_exact_raster=shared_exact_raster,
                         )
                         dense_controls = np.asarray(result.dense_controls)
                         selected = {
@@ -914,6 +963,8 @@ def run_curve_optimizer(
                             )
                         )
                 emitted_rows += emitted
+                stream_elapsed = float(time.perf_counter() - run_started)
+                audit.stream_seconds += stream_elapsed
                 stream_summary = {
                     "stream_id": str(run.stream_id),
                     "track_id": str(run.track_id),
@@ -973,7 +1024,7 @@ def run_curve_optimizer(
                         }
                         for result, _selected in component_results
                     ],
-                    "elapsed_seconds": float(time.perf_counter() - run_started),
+                    "elapsed_seconds": stream_elapsed,
                 }
                 stream_audit.write(
                     json.dumps(

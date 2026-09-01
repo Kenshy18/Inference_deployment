@@ -15,7 +15,7 @@ from production.polygon.runtime_bridge import build_runtime_config
 from production.source import source_dimensions
 
 from .config import CURVE_PRODUCTION, PROFILE_ID, CurveProductionConfig
-from .engine import run_curve_optimizer
+from .parallel import run_curve_optimizer_parallel
 from .preparation import prepare_curve_source
 
 
@@ -147,11 +147,30 @@ class ProductionCurveStage:
             selected_track_ids=selected_track_ids,
         )
         context.report_progress("curve:prepared", 0.10)
-        engine = run_curve_optimizer(
+        optimizer_workers = max(
+            1,
+            int(
+                self.options.get(
+                    "optimizer_workers",
+                    self.options.get(
+                        "label_workers",
+                        os.environ.get(
+                            "MASK_PIPELINE_CURVE_WORKERS",
+                            os.environ.get(
+                                "MASK_PIPELINE_CURVE_LABEL_WORKERS",
+                                "6",
+                            ),
+                        ),
+                    ),
+                )
+            ),
+        )
+        engine = run_curve_optimizer_parallel(
             tracked,
             preparation,
             stage_dir / "runtime",
             config=config,
+            optimizer_workers=optimizer_workers,
             max_tracks=max(0, int(self.options.get("max_tracks", 0))),
             progress_callback=lambda detail, fraction, fps: context.report_progress(
                 detail,

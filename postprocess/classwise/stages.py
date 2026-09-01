@@ -22,6 +22,7 @@ from .curve_parallel import (
     partition_curve_tracks,
     run_curve_group_process,
 )
+from .curve_scheduling import allocate_curve_group_shards
 from .pipeline_factory import build_nested_pipeline
 from .policy import (
     ClassPostprocessSettings,
@@ -91,6 +92,16 @@ class ClasswisePostprocessStage:
         mask_counts_by_track: dict[str, int] = {}
         curve_costs_by_track: dict[str, int] = {}
         curve_cost_metric: str | None = None
+        available_cpus = available_cpu_count()
+        if geometry_mode == "catmull_rom":
+            requested_workers = int(
+                geometry_options.get(
+                    "parallel_workers",
+                    min(6, available_cpus),
+                )
+            )
+        else:
+            requested_workers = int(self.options.get("classwise_workers", 3))
         if geometry_mode == "catmull_rom":
             # Every route reads the same immutable tracked SQLite. Scan its
             # compact index once rather than making concurrent class workers
@@ -108,23 +119,36 @@ class ClasswisePostprocessStage:
                     connection,
                     mask_counts_by_track,
                 )
-        curve_shards_per_class = max(
+        maximum_curve_shards_per_class = max(
             1,
             min(
                 8,
-                int(geometry_options.get("parallel_shards_per_class", 2)),
+                int(geometry_options.get("parallel_shards_per_class", 8)),
             ),
+        )
+        semantic_track_ids = tuple(
+            tuple(tracks_by_group[group]) for group in semantic_groups
+        )
+        curve_shards_by_group = (
+            allocate_curve_group_shards(
+                semantic_track_ids,
+                curve_costs_by_track,
+                process_budget=min(max(1, requested_workers), available_cpus),
+                maximum_shards_per_group=maximum_curve_shards_per_class,
+            )
+            if geometry_mode == "catmull_rom"
+            else tuple(1 for _group in semantic_groups)
         )
         work_groups: list[
             tuple[str, ClassPostprocessSettings, int, tuple[str, ...]]
         ] = []
-        for label, settings in semantic_groups:
+        for group_index, (label, settings) in enumerate(semantic_groups):
             track_ids = tuple(tracks_by_group[(label, settings)])
             partitions = (
                 partition_curve_tracks(
                     track_ids,
                     curve_costs_by_track,
-                    curve_shards_per_class,
+                    curve_shards_by_group[group_index],
                 )
                 if geometry_mode == "catmull_rom"
                 else (track_ids,)
@@ -134,16 +158,6 @@ class ClasswisePostprocessStage:
                 for shard_index, partition in enumerate(partitions)
             )
         group_count = max(1, len(work_groups))
-        available_cpus = available_cpu_count()
-        if geometry_mode == "catmull_rom":
-            requested_workers = int(
-                geometry_options.get(
-                    "parallel_workers",
-                    min(6, available_cpus),
-                )
-            )
-        else:
-            requested_workers = int(self.options.get("classwise_workers", 3))
         workers = min(max(1, requested_workers), group_count, available_cpus)
         requested_curve_threads = int(geometry_options.get("native_cpu_threads", 0))
         if requested_curve_threads > 0:
@@ -417,8 +431,20 @@ class ClasswisePostprocessStage:
                 "curve_parallel_workers": (
                     workers if geometry_mode == "catmull_rom" else None
                 ),
-                "curve_shards_per_class": (
-                    curve_shards_per_class
+                "curve_maximum_shards_per_class": (
+                    maximum_curve_shards_per_class
+                    if geometry_mode == "catmull_rom"
+                    else None
+                ),
+                "curve_shards_by_semantic_group": (
+                    [
+                        {
+                            "label": str(group[0]),
+                            "target_interval": int(group[1].keyframe_interval),
+                            "shards": int(curve_shards_by_group[index]),
+                        }
+                        for index, group in enumerate(semantic_groups)
+                    ]
                     if geometry_mode == "catmull_rom"
                     else None
                 ),
