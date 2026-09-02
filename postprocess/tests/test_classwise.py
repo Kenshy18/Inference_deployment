@@ -359,6 +359,24 @@ class ClassPostprocessTests(unittest.TestCase):
             )
             self.assertEqual(2, classwise["execution"]["classwise_workers"])
             self.assertTrue(classwise["execution"]["parallel"])
+            polygon_allocations = classwise["execution"][
+                "polygon_optimizer_workers_by_group"
+            ]
+            self.assertEqual(2, len(polygon_allocations))
+            self.assertEqual(
+                classwise["execution"]["polygon_optimizer_process_budget"],
+                sum(value["optimizer_workers"] for value in polygon_allocations),
+            )
+            self.assertLessEqual(
+                classwise["execution"]["polygon_optimizer_process_budget"],
+                classwise["execution"][
+                    "polygon_optimizer_screened_process_budget"
+                ],
+            )
+            self.assertEqual(
+                {2},
+                {value["input_masks"] for value in polygon_allocations},
+            )
             self.assertEqual(12, classwise["merge"]["gap_filled_masks"])
 
     def test_pipeline_config_and_class_policy_are_mutually_exclusive(self) -> None:

@@ -287,12 +287,10 @@ def _configured_pipeline(args: argparse.Namespace) -> PipelineConfig:
             if stage.implementation in upstream_implementations
         ]
         geometry_options = _geometry_stage_options(args)
-        if str(args.mask_geometry) == "polygon":
-            # Three class groups each spawning the historical nine optimizer
-            # workers can exceed a 30 GiB WSL VM.  Two groups with three
-            # workers each preserves exact output semantics and was validated
-            # on the full KPI masklet without memory exhaustion.
-            geometry_options.setdefault("optimizer_workers", 3)
+        # Polygon process counts are assigned by the owning classwise stage
+        # from one global, memory-screened budget. Keeping the historical
+        # per-group default here would hide sibling workloads and strand CPU
+        # capacity on the heaviest semantic class.
         upstream.append(
             StageSpec(
                 "classwise_postprocess",

@@ -80,7 +80,7 @@ class PipelineTests(unittest.TestCase):
             classwise.options["geometry_options"]["optimizer_workers"],
         )
 
-    def test_classwise_polygon_defaults_are_memory_bounded(self) -> None:
+    def test_classwise_polygon_defaults_delegate_global_worker_budget(self) -> None:
         args = build_parser().parse_args(
             [
                 "--input-jsonl",
@@ -98,9 +98,9 @@ class PipelineTests(unittest.TestCase):
             if stage.implementation == "classwise.production"
         )
         self.assertEqual(2, classwise.options["classwise_workers"])
-        self.assertEqual(
-            3,
-            classwise.options["geometry_options"]["optimizer_workers"],
+        self.assertNotIn(
+            "optimizer_workers",
+            classwise.options["geometry_options"],
         )
 
     def test_artifact_validation_is_cached_until_file_changes(self) -> None:
