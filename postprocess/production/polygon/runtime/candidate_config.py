@@ -78,6 +78,11 @@ class TemporalConfig:
 class RuntimeConfig:
     label_workers: int = 3
     optimizer_workers: int = 9
+    adaptive_worker_allocation: bool = True
+    # Zero selects the memory-screened hardware budget.  A positive value is
+    # an explicit total-process override, still bounded by optimizer_workers
+    # per active label.
+    adaptive_worker_budget: int = 0
     candidate_frame_workers: int = 1
     pair_vote_threads: int = 4
     native_batch_threads: int = 4
@@ -112,9 +117,7 @@ class CandidateConfig:
     profile_id: str = PROFILE_ID
     polygon_profile_id: str = POLYGON_PROFILE_ID
     labels: tuple[str, ...] = LABELS
-    nms: ProductionNmsConfig = field(
-        default_factory=lambda: PRODUCTION_NMS_CONFIG
-    )
+    nms: ProductionNmsConfig = field(default_factory=lambda: PRODUCTION_NMS_CONFIG)
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
     spatial: SpatialConfig = field(default_factory=SpatialConfig)
     preparation: PreparationConfig = field(default_factory=PreparationConfig)
@@ -213,6 +216,7 @@ class CandidateConfig:
             ("short-track cutoff", self.tracking.remove_short_tracks_max_frames),
             ("label workers", self.runtime.label_workers),
             ("optimizer workers", self.runtime.optimizer_workers),
+            ("adaptive worker budget", self.runtime.adaptive_worker_budget),
             ("candidate frame workers", self.runtime.candidate_frame_workers),
             ("pair-vote threads", self.runtime.pair_vote_threads),
             ("native threads", self.runtime.native_batch_threads),

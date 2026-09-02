@@ -2,7 +2,22 @@
 
 from __future__ import annotations
 
+import os
 from types import ModuleType
+
+
+WORKER_START_METHOD_ENV = "MASK_PIPELINE_POLYGON_WORKER_START_METHOD"
+
+
+def selected_worker_transport() -> str:
+    """Return the adapter transport; Linux Production defaults to ``fork``."""
+
+    value = os.environ.get(WORKER_START_METHOD_ENV, "fork").strip().lower()
+    if value not in {"spawn", "fork"}:
+        raise ValueError(
+            f"{WORKER_START_METHOD_ENV} must be 'spawn' or 'fork', got {value!r}"
+        )
+    return value
 
 def install_resource_adapters(
     module: ModuleType,
@@ -182,7 +197,11 @@ def install_resource_adapters(
         return args
 
     def stable_polygon_get_context(method=None):
-        if method == "spawn" and bool(getattr(module, "_fork_polygon_workers", False)):
+        if (
+            method == "spawn"
+            and bool(getattr(module, "_fork_polygon_workers", False))
+            and selected_worker_transport() == "fork"
+        ):
             try:
                 return original_get_context("fork")
             except ValueError:
@@ -206,4 +225,8 @@ def install_resource_adapters(
     module.multiprocessing = PolygonMultiprocessingProxy(module.multiprocessing)
 
 
-__all__ = ("install_resource_adapters",)
+__all__ = (
+    "WORKER_START_METHOD_ENV",
+    "install_resource_adapters",
+    "selected_worker_transport",
+)

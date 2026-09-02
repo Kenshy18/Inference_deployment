@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import copy
 import csv
 import json
 import os
 import subprocess
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -27,6 +29,11 @@ from production.polygon.runtime.optimizer_process import (
     PAIR_VOTE_SWEEPS_ENV,
     PROFILE_ENV,
     VALID_PROFILES,
+)
+from production.polygon.runtime.scheduling import (
+    allocate_label_workers,
+    available_cpu_count,
+    screened_adaptive_process_budget,
 )
 
 
@@ -52,7 +59,9 @@ _UNSUPPORTED_CUDA_ENABLE_ENVIRONMENT = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source-root", type=Path, default=reporting.DEFAULT_SOURCE_ROOT)
+    parser.add_argument(
+        "--source-root", type=Path, default=reporting.DEFAULT_SOURCE_ROOT
+    )
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--profiles", default=",".join(DEFAULT_PROFILES))
     parser.add_argument("--labels", default=",".join(LABELS))
@@ -60,6 +69,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-interval", type=int, default=5)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--label-workers", type=int, default=3)
+    parser.add_argument(
+        "--adaptive-worker-allocation",
+        action="store_true",
+        help=(
+            "divide a fixed optimizer-process budget across labels in "
+            "proportion to prepared observation rows"
+        ),
+    )
+    parser.add_argument(
+        "--total-worker-budget",
+        type=int,
+        default=0,
+        help=(
+            "total optimizer processes for adaptive allocation; 0 uses the "
+            "memory-screened hardware default"
+        ),
+    )
     parser.add_argument(
         "--max-tracks",
         type=int,
@@ -196,6 +222,43 @@ def command(source: Path, output: Path, args: argparse.Namespace) -> list[str]:
     ]
 
 
+def _prepared_observation_count(source: Path) -> int:
+    """Count prepared rows without decoding polygon geometry."""
+
+    with sqlite3.connect(f"file:{source.resolve()}?mode=ro", uri=True) as database:
+        row = database.execute("SELECT COUNT(*) FROM masks").fetchone()
+    return int(row[0] if row else 0)
+
+
+def _worker_allocation(
+    sources: dict[str, Path], labels: list[str], args: argparse.Namespace
+) -> dict[str, int]:
+    if not args.adaptive_worker_allocation:
+        return {label: int(args.num_workers) for label in labels}
+    workloads = {label: _prepared_observation_count(sources[label]) for label in labels}
+    empty = [label for label, rows in workloads.items() if rows < 1]
+    if empty:
+        raise RuntimeError(
+            "adaptive worker allocation received empty selected labels: " f"{empty}"
+        )
+    budget = int(args.total_worker_budget)
+    if budget == 0:
+        budget = screened_adaptive_process_budget(
+            cpu_count=available_cpu_count(),
+            active_label_count=len(labels),
+        )
+    if budget < len(labels):
+        raise ValueError("total-worker-budget must cover every selected label")
+    allocation = allocate_label_workers(workloads, process_budget=budget)
+    maximum_per_label = int(args.num_workers)
+    if max(allocation.values(), default=0) > maximum_per_label:
+        raise ValueError(
+            "adaptive allocation exceeds --num-workers per-label cap: "
+            f"allocation={allocation}, cap={maximum_per_label}"
+        )
+    return allocation
+
+
 def run_cell(
     source: Path,
     label: str,
@@ -327,6 +390,10 @@ def main() -> int:
         raise ValueError(f"labels must be selected from {LABELS}")
     if args.num_workers < 1 or args.label_workers < 1:
         raise ValueError("worker counts must be >= 1")
+    if args.total_worker_budget < 0:
+        raise ValueError("total-worker-budget must be >= 0")
+    if args.total_worker_budget and not args.adaptive_worker_allocation:
+        raise ValueError("--total-worker-budget requires --adaptive-worker-allocation")
     if args.native_batch_threads < 1 or args.gc_interval < 1:
         raise ValueError("native-batch-threads and gc-interval must be >= 1")
     if args.max_run_frames < 1:
@@ -334,9 +401,7 @@ def main() -> int:
     if args.run_overlap_frames < 0:
         raise ValueError("run-overlap-frames must be >= 0")
     if 2 * args.run_overlap_frames >= args.max_run_frames:
-        raise ValueError(
-            "twice run-overlap-frames must be smaller than max-run-frames"
-        )
+        raise ValueError("twice run-overlap-frames must be smaller than max-run-frames")
     if args.keyframe_max_gap < 1:
         raise ValueError("keyframe-max-gap must be >= 1")
     if args.max_tracks < 0:
@@ -378,6 +443,7 @@ def main() -> int:
     ):
         raise ValueError("pair-vote mode flags are mutually exclusive")
     sources = reporting.discover_prepared_inputs(args.source_root)
+    worker_allocation = _worker_allocation(sources, labels, args)
     args.output_root.mkdir(parents=True, exist_ok=True)
     all_rows: list[dict[str, object]] = []
     profile_reports = []
@@ -401,6 +467,13 @@ def main() -> int:
         )
         started = time.perf_counter()
         workers = min(int(args.label_workers), len(labels))
+        args_by_label: dict[str, argparse.Namespace] = {}
+        for label in labels:
+            label_args = copy.copy(args)
+            label_args.num_workers = worker_allocation[label]
+            if args.adaptive_worker_allocation:
+                label_args.label_workers = workers
+            args_by_label[label] = label_args
         rows_by_label: dict[str, dict[str, object]] = {}
         if workers == 1:
             for label in labels:
@@ -408,7 +481,7 @@ def main() -> int:
                     sources[label],
                     label,
                     profile,
-                    args,
+                    args_by_label[label],
                 )
                 completed_progress_units += 1
                 print(
@@ -435,7 +508,7 @@ def main() -> int:
                         sources[label],
                         label,
                         profile,
-                        args,
+                        args_by_label[label],
                     ): label
                     for label in labels
                 }
@@ -503,8 +576,21 @@ def main() -> int:
             "rows": all_rows,
             "execution": {
                 "label_workers": workers,
-                "dp_workers_per_label": args.num_workers,
-                "maximum_concurrent_dp_workers": workers * args.num_workers,
+                "dp_workers_per_label": (
+                    None if args.adaptive_worker_allocation else args.num_workers
+                ),
+                "adaptive_worker_allocation": bool(args.adaptive_worker_allocation),
+                "worker_allocation_by_label": worker_allocation,
+                "total_worker_budget": (
+                    sum(worker_allocation.values())
+                    if args.adaptive_worker_allocation
+                    else None
+                ),
+                "maximum_concurrent_dp_workers": (
+                    sum(sorted(worker_allocation.values(), reverse=True)[:workers])
+                    if args.adaptive_worker_allocation
+                    else workers * args.num_workers
+                ),
                 "max_tracks_per_label": args.max_tracks,
                 "cuda_fast": bool(args.cuda_fast),
                 "cuda_lazy_exact": bool(args.cuda_lazy_exact),

@@ -121,6 +121,8 @@ class PromotedProductionProfileTests(unittest.TestCase):
         self.assertFalse(hasattr(runtime.spatial, "vertex_fallbacks"))
         self.assertEqual(1.05, runtime.spatial.recall_repair_max_scale)
         self.assertEqual(0.97, runtime.temporal.recall_floor)
+        self.assertTrue(runtime.runtime.adaptive_worker_allocation)
+        self.assertEqual(0, runtime.runtime.adaptive_worker_budget)
 
     def test_runtime_worker_override_changes_only_worker_count(self) -> None:
         baseline = build_runtime_config(PRODUCTION)

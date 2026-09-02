@@ -13,7 +13,11 @@ import time
 from pathlib import Path
 
 from .spatial_config import ADAPTIVE_PROFILE_ID, CANDIDATE, PROFILE_ID
-from .scheduling import available_cpu_count, balanced_polygon_schedule
+from .scheduling import (
+    available_cpu_count,
+    balanced_polygon_schedule,
+    screened_adaptive_process_budget,
+)
 
 
 HERE = Path(__file__).resolve().parent
@@ -51,6 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--labels", default=",".join(LABELS))
     parser.add_argument("--label-workers", type=int, default=3)
     parser.add_argument("--num-workers", type=int, default=1)
+    parser.add_argument("--adaptive-worker-allocation", action="store_true")
+    parser.add_argument("--total-worker-budget", type=int, default=0)
     parser.add_argument("--pair-vote-threads", type=int, default=2)
     parser.add_argument("--native-batch-threads", type=int, default=8)
     parser.add_argument(
@@ -81,15 +87,40 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
     selected_labels = tuple(
         value.strip() for value in str(args.labels).split(",") if value.strip()
     )
+    cpu_count = available_cpu_count()
     schedule = balanced_polygon_schedule(
-        cpu_count=available_cpu_count(),
+        cpu_count=cpu_count,
         label_count=max(1, len(selected_labels)),
         requested_label_workers=max(1, int(args.label_workers)),
         requested_optimizer_workers=max(1, int(args.num_workers)),
-        requested_native_threads=max(
-            1, int(getattr(args, "native_batch_threads", 8))
-        ),
+        requested_native_threads=max(1, int(getattr(args, "native_batch_threads", 8))),
     )
+    if bool(getattr(args, "adaptive_worker_allocation", False)):
+        optimizer_workers = max(1, int(args.num_workers))
+        total_worker_budget = max(0, int(args.total_worker_budget))
+        if total_worker_budget == 0:
+            total_worker_budget = screened_adaptive_process_budget(
+                cpu_count=cpu_count,
+                active_label_count=len(selected_labels),
+            )
+            total_worker_budget = min(
+                total_worker_budget,
+                optimizer_workers * max(1, len(selected_labels)),
+            )
+        elif total_worker_budget > optimizer_workers * max(1, len(selected_labels)):
+            raise ValueError(
+                "total-worker-budget exceeds the per-label --num-workers cap"
+            )
+        label_workers = min(max(1, len(selected_labels)), cpu_count)
+        native_threads = min(
+            max(1, int(getattr(args, "native_batch_threads", 8))),
+            max(1, int(1.5 * cpu_count) // max(1, total_worker_budget)),
+        )
+    else:
+        total_worker_budget = 0
+        optimizer_workers = schedule.optimizer_workers_per_label
+        label_workers = schedule.label_workers
+        native_threads = schedule.native_threads_per_optimizer
     command = [
         sys.executable,
         str(COORDINATOR),
@@ -108,19 +139,27 @@ def build_command(args: argparse.Namespace, interval: int, output: Path) -> list
         "--anchors-per-contour",
         str(20 if adaptive else CANDIDATE.vertices_per_component),
         "--num-workers",
-        str(schedule.optimizer_workers_per_label),
+        str(optimizer_workers),
         "--label-workers",
-        str(schedule.label_workers),
+        str(label_workers),
         "--max-tracks",
         str(max(0, int(args.max_tracks))),
         "--native-batch-threads",
-        str(schedule.native_threads_per_optimizer),
+        str(native_threads),
         "--gc-interval",
         "8",
         "--pair-vote-per-key",
         "--pair-vote-sweeps",
         str(CANDIDATE.pair_vote_sweeps),
     ]
+    if bool(getattr(args, "adaptive_worker_allocation", False)):
+        command.extend(
+            (
+                "--adaptive-worker-allocation",
+                "--total-worker-budget",
+                str(total_worker_budget),
+            )
+        )
     command.append(
         "--cuda-lazy-exact"
         if str(getattr(args, "interval_evaluation", "cuda_lazy_exact"))
@@ -191,6 +230,10 @@ def main() -> int:
         raise ValueError(
             "cuda-lazy-frame-hints requires interval-evaluation=cuda_lazy_exact"
         )
+    if args.total_worker_budget < 0:
+        raise ValueError("total-worker-budget must be >= 0")
+    if args.total_worker_budget and not args.adaptive_worker_allocation:
+        raise ValueError("--total-worker-budget requires --adaptive-worker-allocation")
     unsupported = tuple(label for label in labels if label not in LABELS)
     if unsupported:
         raise ValueError(
