@@ -60,6 +60,19 @@ def count_masks(path: Path) -> int:
         return int(connection.execute("SELECT COUNT(*) FROM masks").fetchone()[0])
 
 
+def read_mask_counts_by_track(path: Path) -> dict[str, int]:
+    """Return compact per-track workloads from one read-only index scan."""
+
+    source = Path(path).expanduser().resolve()
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as connection:
+        return {
+            str(track_id): int(count)
+            for track_id, count in connection.execute(
+                "SELECT track_id,COUNT(*) FROM masks GROUP BY track_id"
+            )
+        }
+
+
 def _temporary_path(output: Path) -> Path:
     return output.with_name(f".{output.name}.{uuid.uuid4().hex}.tmp")
 

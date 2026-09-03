@@ -14,20 +14,24 @@ from typing import Any
 
 from common.runner import PipelineRunner
 from contracts.stages import StageContext, StageResult
-from production.polygon.runtime.scheduling import (
-    allocate_label_workers as allocate_polygon_group_workers,
-    screened_adaptive_process_budget as polygon_process_budget,
-)
 
 from .curve_parallel import (
     CurveGroupJob,
     available_cpu_count,
     curve_track_costs,
-    partition_curve_tracks,
     run_curve_group_process,
 )
-from .curve_scheduling import allocate_curve_group_shards
+from .curve_scheduling import (
+    allocate_curve_group_shards,
+    build_classwise_work_groups,
+    resolve_curve_cpu_threads,
+)
 from .pipeline_factory import build_nested_pipeline
+from .polygon_scheduling import (
+    PolygonWorkerPlan,
+    plan_polygon_group_workers,
+    polygon_worker_manifest,
+)
 from .policy import (
     ClassPostprocessSettings,
     PRODUCTION_POLYGON_MAX_GAP,
@@ -38,6 +42,7 @@ from .sqlite import (
     count_masks,
     filter_tracked_sqlite,
     merge_routed_outputs,
+    read_mask_counts_by_track,
     read_track_labels,
 )
 
@@ -56,12 +61,7 @@ class ClasswisePostprocessStage:
         context.report_progress("classwise:preparing", 0.01)
         fallback = ClassPostprocessSettings(
             shape_mode="polygon",
-            keyframe_interval=int(
-                self.options.get(
-                    "default_keyframe_interval",
-                    6,
-                )
-            ),
+            keyframe_interval=int(self.options.get("default_keyframe_interval", 6)),
             max_gap=PRODUCTION_POLYGON_MAX_GAP,
         )
         policy = load_class_postprocess_policy(
@@ -109,16 +109,11 @@ class ClasswisePostprocessStage:
         # Every route reads the same immutable tracked SQLite. Scan its compact
         # index once. Curves use it for sharding; polygons use it to distribute
         # the globally screened DP-process budget by actual observation load.
-        with sqlite3.connect(
-            f"file:{Path(tracked).resolve()}?mode=ro", uri=True
-        ) as connection:
-            mask_counts_by_track = {
-                str(track_id): int(count)
-                for track_id, count in connection.execute(
-                    "SELECT track_id,COUNT(*) FROM masks GROUP BY track_id"
-                )
-            }
-            if geometry_mode == "catmull_rom":
+        mask_counts_by_track = read_mask_counts_by_track(tracked)
+        if geometry_mode == "catmull_rom":
+            with sqlite3.connect(
+                f"file:{Path(tracked).resolve()}?mode=ro", uri=True
+            ) as connection:
                 curve_costs_by_track, curve_cost_metric = curve_track_costs(
                     connection,
                     mask_counts_by_track,
@@ -143,93 +138,30 @@ class ClasswisePostprocessStage:
             if geometry_mode == "catmull_rom"
             else tuple(1 for _group in semantic_groups)
         )
-        work_groups: list[
-            tuple[str, ClassPostprocessSettings, int, tuple[str, ...]]
-        ] = []
-        for group_index, (label, settings) in enumerate(semantic_groups):
-            track_ids = tuple(tracks_by_group[(label, settings)])
-            partitions = (
-                partition_curve_tracks(
-                    track_ids,
-                    curve_costs_by_track,
-                    curve_shards_by_group[group_index],
-                )
-                if geometry_mode == "catmull_rom"
-                else (track_ids,)
-            )
-            work_groups.extend(
-                (label, settings, shard_index, partition)
-                for shard_index, partition in enumerate(partitions)
-            )
+        work_groups = build_classwise_work_groups(
+            semantic_groups,
+            tracks_by_group,
+            geometry_mode=geometry_mode,
+            curve_costs_by_track=curve_costs_by_track,
+            curve_shards_by_group=curve_shards_by_group,
+        )
         group_count = max(1, len(work_groups))
-        polygon_workers_by_group: dict[int, int] = {}
-        polygon_worker_budget: int | None = None
-        polygon_screened_worker_budget: int | None = None
-        if geometry_mode == "polygon" and work_groups:
-            configured_cap = max(
-                1,
-                int(
-                    geometry_options.get(
-                        "optimizer_workers",
-                        9,
-                    )
-                ),
+        polygon_worker_plan = (
+            plan_polygon_group_workers(
+                work_groups,
+                mask_counts_by_track,
+                geometry_options,
+                available_cpus=available_cpus,
             )
-            # A nested polygon route contains exactly one semantic label, so
-            # its internal scheduler cannot see the workload of sibling
-            # routes. Allocate the screened process budget here, before those
-            # routes are launched, and pass each route a hard per-group cap.
-            maximum_single_group = polygon_process_budget(
-                cpu_count=available_cpus,
-                active_label_count=1,
-            )
-            polygon_screened_worker_budget = min(
-                polygon_process_budget(
-                    cpu_count=available_cpus,
-                    active_label_count=len(work_groups),
-                ),
-                configured_cap * len(work_groups),
-            )
-            workloads = {
-                str(index): sum(
-                    int(mask_counts_by_track.get(track_id, 0))
-                    for track_id in track_ids
-                )
-                for index, (_label, _settings, _shard, track_ids) in enumerate(
-                    work_groups
-                )
-            }
-            allocated = allocate_polygon_group_workers(
-                workloads,
-                process_budget=polygon_screened_worker_budget,
-            )
-            polygon_workers_by_group = {
-                index: max(
-                    1,
-                    min(
-                        configured_cap,
-                        maximum_single_group,
-                        int(allocated.get(str(index), 1)),
-                    ),
-                )
-                for index in range(len(work_groups))
-            }
-            polygon_worker_budget = sum(polygon_workers_by_group.values())
-        elif geometry_mode == "polygon":
-            polygon_worker_budget = 0
-            polygon_screened_worker_budget = 0
+            if geometry_mode == "polygon"
+            else PolygonWorkerPlan({}, 0, 0)
+        )
         workers = min(max(1, requested_workers), group_count, available_cpus)
-        requested_curve_threads = int(geometry_options.get("native_cpu_threads", 0))
-        if requested_curve_threads > 0:
-            curve_cpu_threads = requested_curve_threads
-        else:
-            # Native exact batches are deterministic across thread counts.
-            # Share the affinity-visible CPU budget between balanced track
-            # shards so no semantic class can strand the remaining cores.
-            curve_cpu_threads = max(
-                1,
-                min(12, available_cpus // max(workers, 1)),
-            )
+        curve_cpu_threads = resolve_curve_cpu_threads(
+            int(geometry_options.get("native_cpu_threads", 0)),
+            available_cpus=available_cpus,
+            concurrent_workers=workers,
+        )
         progress_lock = threading.Lock()
         progress_by_index = {index: 0.0 for index in range(len(work_groups))}
 
@@ -287,8 +219,8 @@ class ClasswisePostprocessStage:
                 nested_inputs["input_video"] = context.artifacts["input_video"]
             group_geometry_options = dict(geometry_options)
             if geometry_mode == "polygon":
-                group_geometry_options["optimizer_workers"] = int(
-                    polygon_workers_by_group[index]
+                group_geometry_options["optimizer_workers"] = (
+                    polygon_worker_plan.worker_count(index)
                 )
             manifest = PipelineRunner(
                 build_nested_pipeline(
@@ -341,7 +273,7 @@ class ClasswisePostprocessStage:
                 "predictions_sqlite": str(predictions),
                 "elapsed_seconds": time.perf_counter() - group_started,
                 "optimizer_workers": (
-                    int(polygon_workers_by_group[index])
+                    polygon_worker_plan.worker_count(index)
                     if geometry_mode == "polygon"
                     else None
                 ),
@@ -520,28 +452,21 @@ class ClasswisePostprocessStage:
                 ),
                 "curve_work_cost_metric": curve_cost_metric,
                 "polygon_optimizer_process_budget": (
-                    polygon_worker_budget if geometry_mode == "polygon" else None
+                    polygon_worker_plan.process_budget
+                    if geometry_mode == "polygon"
+                    else None
                 ),
                 "polygon_optimizer_screened_process_budget": (
-                    polygon_screened_worker_budget
+                    polygon_worker_plan.screened_process_budget
                     if geometry_mode == "polygon"
                     else None
                 ),
                 "polygon_optimizer_workers_by_group": (
-                    [
-                        {
-                            "group_index": index,
-                            "label": str(group[0]),
-                            "input_masks": sum(
-                                int(mask_counts_by_track.get(track_id, 0))
-                                for track_id in group[3]
-                            ),
-                            "optimizer_workers": int(
-                                polygon_workers_by_group[index]
-                            ),
-                        }
-                        for index, group in enumerate(work_groups)
-                    ]
+                    polygon_worker_manifest(
+                        polygon_worker_plan,
+                        work_groups,
+                        mask_counts_by_track,
+                    )
                     if geometry_mode == "polygon"
                     else None
                 ),
