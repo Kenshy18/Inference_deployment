@@ -226,9 +226,32 @@ def simple_test_mask_batched(
                 torch.arange(total_rois, device=mask_predictions.device),
                 all_labels,
             ][:, None]
+        # Architecture-search tooling can opt in to the threshold-free ROI
+        # probabilities without changing the public inference result.  Keep
+        # the compact 28x28-ish ROI tensors and boxes instead of full-frame
+        # pasted masks so long runs do not retain substantial GPU memory.
+        if getattr(self, "_mh0_retain_soft_observations", False):
+            self._mh0_last_soft_observations = {
+                "probabilities": mask_predictions.detach(),
+                "boxes": all_boxes.detach(),
+                "counts": tuple(int(entry["count"]) for entry in entries),
+            }
         mask_coverages = (
             mask_predictions >= threshold
         ).float().mean(dim=(1, 2, 3))
+        _store_classifier_results(
+            self,
+            entries,
+            mask_coverages,
+        )
+        if getattr(self, "_mh0_soft_observations_only", False):
+            # Temporal-refiner cache generation consumes the compact ROI
+            # probabilities above. Avoid materializing every 720p boolean
+            # mask and copying it to CPU when the public polygons are unused.
+            return [
+                [[] for _ in range(self.mask_head.stage_num_classes[0])]
+                for _entry in entries
+            ]
         cropped_masks, spatial = _do_paste_mask(
             mask_predictions,
             all_boxes,
@@ -237,11 +260,6 @@ def simple_test_mask_batched(
             skip_empty=True,
         )
         cropped_masks = (cropped_masks >= threshold).to(torch.bool)
-        _store_classifier_results(
-            self,
-            entries,
-            mask_coverages,
-        )
         cropped_cpu = cropped_masks.cpu().numpy()
         y_start = int(spatial[0].start)
         y_stop = int(spatial[0].stop)
@@ -314,6 +332,15 @@ def simple_test_mask_batched(
             entry["boxes"].new_zeros((0, 2 + class_count))
             for entry in entries
         )
+    if (
+        not total_rois
+        and getattr(self, "_mh0_retain_soft_observations", False)
+    ):
+        self._mh0_last_soft_observations = {
+            "probabilities": None,
+            "boxes": None,
+            "counts": tuple(0 for _ in entries),
+        }
     return segmentation_results
 
 

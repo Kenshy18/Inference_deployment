@@ -21,6 +21,20 @@ from .spatial_config import CANDIDATE as APPROVED_POLYGON_CONTRACT
 
 POSTPROCESS_ROOT = Path(__file__).resolve().parents[3]
 REPOSITORY_ROOT = POSTPROCESS_ROOT.parent
+ADAPTIVE_WORKER_ALLOCATION_ENV = "MASK_PIPELINE_POLYGON_ADAPTIVE_WORKER_ALLOCATION"
+ADAPTIVE_WORKER_BUDGET_ENV = "MASK_PIPELINE_POLYGON_ADAPTIVE_WORKER_BUDGET"
+
+
+def _environment_flag(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return bool(default)
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean flag, got {raw!r}")
 
 
 def assert_runtime_bridge_contract(
@@ -177,6 +191,22 @@ def run_polygon_optimizer(
     ]
     if config.runtime.cuda_lazy_frame_hints:
         command.append("--cuda-lazy-frame-hints")
+    adaptive_worker_allocation = _environment_flag(
+        ADAPTIVE_WORKER_ALLOCATION_ENV,
+        default=config.runtime.adaptive_worker_allocation,
+    )
+    if adaptive_worker_allocation:
+        command.append("--adaptive-worker-allocation")
+        raw_budget = os.environ.get(ADAPTIVE_WORKER_BUDGET_ENV, "").strip()
+        budget = (
+            int(raw_budget)
+            if raw_budget
+            else int(config.runtime.adaptive_worker_budget)
+        )
+        if budget:
+            if budget < 1:
+                raise ValueError(f"{ADAPTIVE_WORKER_BUDGET_ENV} must be >= 1")
+            command.extend(("--total-worker-budget", str(budget)))
     vertex_policy = Path(source_root).resolve() / "vertex_policy.json"
     if config.spatial.adaptive_vertex_policy:
         if not vertex_policy.is_file():
@@ -281,4 +311,9 @@ def run_polygon_optimizer(
     }
 
 
-__all__ = ("assert_runtime_bridge_contract", "run_polygon_optimizer")
+__all__ = (
+    "ADAPTIVE_WORKER_ALLOCATION_ENV",
+    "ADAPTIVE_WORKER_BUDGET_ENV",
+    "assert_runtime_bridge_contract",
+    "run_polygon_optimizer",
+)
